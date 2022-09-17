@@ -1,0 +1,36 @@
+{
+  "name": "es-query-pro",
+  "version": "1.0.0",
+  "description": "Simple and powerful ElasticSearch query builder",
+  "keywords": [
+    "ElasticSearch",
+    "es",
+    "query",
+    "query builder",
+    "es query builder",
+    "Elasticsearch query builder"
+  ],
+  "main": "index.js",
+  "scripts": {
+    "test": "npx jest",
+    "watch": "npx jest --watch",
+    "coverage": "npx jest --collectCoverage",
+    "view-coverage": "open ./coverage/lcov-report/index.html"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kensnyder/es-query-pro.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/kensnyder/es-query-pro/issues"
+  },
+  "homepage": "https://github.com/kensnyder/es-query-pro#readme",
+  "devDependencies": {
+    "eslint": "^8.23.1",
+    "eslint-config-prettier": "^8.5.0",
+    "jest": "^29.0.3",
+    "prettier": "^2.7.1"
+  }
+}
