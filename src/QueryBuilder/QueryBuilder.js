@@ -1,4 +1,5 @@
 const isEmptyObject = require('../isEmptyObject/isEmptyObject.js');
+const TextProcessor = require('../TextProcessor/TextProcessor.js');
 
 /**
  * Build ElasticSearch query
@@ -57,6 +58,20 @@ class QueryBuilder {
 		 * @var {Boolean} If true, use "random_score" for a function score
 		 */
 		this._sortByRandom = false;
+
+		/**
+		 * @var {TextProcessor} Processes text going into and coming out of ElasticSearch
+		 */
+		this._textProcessor = new TextProcessor();
+	}
+	/**
+	 * Process text going into and coming out of ElasticSearch
+	 * @param {TextProcessor} textProcessor
+	 * @return {QueryBuilder}
+	 */
+	setTextProcessor(textProcessor) {
+		this._textProcessor = textProcessor;
+		return this;
 	}
 	/**
 	 * Set the fields to fetch
@@ -145,7 +160,6 @@ class QueryBuilder {
 		if (!Array.isArray(valueOrValues)) {
 			valueOrValues = [valueOrValues];
 		}
-		console.log('_addFilterAll', { matchType, fieldOrFields, valueOrValues });
 		for (const value of valueOrValues) {
 			filters.push({ [matchType]: { [fieldOrFields]: value } });
 		}
@@ -225,6 +239,7 @@ class QueryBuilder {
 	 * @chainable
 	 */
 	match(field, valueOrValues, type = 'ANY') {
+		valueOrValues = this._textProcessor.processText(valueOrValues);
 		if (type.toUpperCase() === 'ALL') {
 			this._addFilterAll(this._must, 'match', field, valueOrValues);
 		} else {
@@ -240,13 +255,13 @@ class QueryBuilder {
 	 * @chainable
 	 */
 	matchPhrase(field, phraseOrPhrases) {
+		phraseOrPhrases = this._textProcessor.processText(phraseOrPhrases);
 		if (!Array.isArray(phraseOrPhrases)) {
 			phraseOrPhrases = [phraseOrPhrases];
 		}
 		const terms = [];
 		for (const phrase of phraseOrPhrases) {
-			const value = fulltext.processText(phrase);
-			terms.push({ match_phrase: { [field]: value } });
+			terms.push({ match_phrase: { [field]: phrase } });
 		}
 		if (terms.length === 1) {
 			this._must.push(terms[0]);
@@ -264,6 +279,7 @@ class QueryBuilder {
 	 * @chainable
 	 */
 	matchPhrasePrefix(fieldOrFields, phraseOrPhrases) {
+		phraseOrPhrases = this._textProcessor.processText(phraseOrPhrases);
 		if (!Array.isArray(phraseOrPhrases)) {
 			phraseOrPhrases = [phraseOrPhrases];
 		}
@@ -271,12 +287,12 @@ class QueryBuilder {
 			// we want to do a phrase prefix on more than one fields
 			// so we multi_match with a phrase_prefix type
 			const clauses = [];
-			for (const value of phraseOrPhrases) {
+			for (const phrase of phraseOrPhrases) {
 				clauses.push({
 					multi_match: {
 						fields: fieldOrFields,
 						type: 'phrase_prefix',
-						query: value,
+						query: phrase,
 					},
 				});
 			}
@@ -290,8 +306,7 @@ class QueryBuilder {
 		// fieldOrFields is a string so we can use match_phrase_prefix directly
 		const clauses = [];
 		for (const phrase of phraseOrPhrases) {
-			const value = fulltext.processText(phrase);
-			clauses.push({ match_phrase_prefix: { [fieldOrFields]: value } });
+			clauses.push({ match_phrase_prefix: { [fieldOrFields]: phrase } });
 		}
 		if (clauses.length === 1) {
 			this._must.push(clauses[0]);
@@ -306,20 +321,21 @@ class QueryBuilder {
 	 * https://www.elastic.co/blog/how-to-improve-elasticsearch-search-relevance-with-boolean-queries
 	 * It gives more weight to the phrase as a whole so results with the whole phrase will be higher
 	 * in the results.
-	 * @param {String[]} fields  The names of the fields to search (often ['content_*.fulltext'])
-	 * @param {String|String[]} terms  The search phrase or phrases (often ['my search here'])
+	 * @param {String|String[]} fieldOrFields  The names of the fields to search (often ['content_*.fulltext'])
+	 * @param {String|String[]} termOrTerms  The search phrase or phrases (often ['my search here'])
 	 * @param {Object} options  Additional options
 	 * @property {Boolean} expand  If true, also match with OR but at a lower relevance
 	 * @property {Array} boosts  The boosts for OR, AND, then phrase; default is [1,2,3]
 	 * @return {QueryBuilder}
 	 * @chainable
 	 */
-	matchBoostedPhrase(fields, terms, options = {}) {
-		if (typeof terms === 'string') {
-			terms = [terms];
-		}
+	matchBoostedPhrase(fieldOrFields, termOrTerms, options = {}) {
+		const fields = Array.isArray(fieldOrFields)
+			? fieldOrFields
+			: [fieldOrFields];
+		const terms = Array.isArray(termOrTerms) ? termOrTerms : [termOrTerms];
 		// enumerate options
-		const expand = options.expand || true;
+		const expand = 'expand' in options ? options.expand : true;
 		const boosts = options.boosts || [1, 3, 5];
 		// build subquery
 		const subquery = new this.constructor();
@@ -360,20 +376,23 @@ class QueryBuilder {
 	 * Create a basic multi_match clause and add any of the available options.
 	 * than they would be in a regular multi_match query
 	 * See the "Combining OR, AND, and match phrase queries" section of https://www.elastic.co/blog/how-to-improve-elasticsearch-search-relevance-with-boolean-queries.
-	 * @param {Array} fields
+	 * @param {String|String[]} fieldOrFields
 	 * @param {Array} valueOrValues
 	 * @param {Object} options  Possible keys are `analyzer`, `boost`, `operator`, `minimum_should_match`, `fuzziness`, `lenient`, `prefix_length`, `max_expansions`, `fuzzy_rewrite`, `zero_terms_query`, `cutoff_frequency`, and `fuzzy_transpositions`
 	 * @return {QueryBuilder}
 	 * @chainable
 	 */
-	multiMatchWithPhrase(fields, valueOrValues, options = {}) {
-		if (typeof valueOrValues === 'string') {
-			valueOrValues = [valueOrValues];
-		}
-		for (const value of valueOrValues) {
+	multiMatchWithPhrase(fieldOrFields, valueOrValues, options = {}) {
+		const fields = Array.isArray(fieldOrFields)
+			? fieldOrFields
+			: [fieldOrFields];
+		const values = Array.isArray(valueOrValues)
+			? valueOrValues
+			: [valueOrValues];
+		for (const value of values) {
 			const baseMultiMatch = {
 				fields,
-				query: fulltext.processText(value),
+				query: this._textProcessor.processText(value),
 			};
 			this._must.push({
 				multi_match: { ...baseMultiMatch, ...options },
@@ -400,7 +419,7 @@ class QueryBuilder {
 	/**
 	 * Add a negative full-text matching condition
 	 * @param {String} field  The name of the field to search
-	 * @param {String|Array} valueOrValues  A value or array of possible values to reject
+	 * @param {String|String[]} valueOrValues  A value or array of possible values to reject
 	 * @return {QueryBuilder}
 	 * @chainable
 	 */
@@ -410,8 +429,8 @@ class QueryBuilder {
 	}
 	/**
 	 * Add a negative full-text matching condition across multiple fields
-	 * @param {Array} fields  The names of the fields to search
-	 * @param {String|Array} valueOrValues  A value or array of possible values to reject
+	 * @param {String[]} fields  The names of the fields to search
+	 * @param {String|String[]} valueOrValues  A value or array of possible values to reject
 	 * @return {QueryBuilder}
 	 * @chainable
 	 */
@@ -421,7 +440,7 @@ class QueryBuilder {
 	}
 	/**
 	 * Add a negative keyword matching condition across multiple fields
-	 * @param {Array} fields  The names of the fields to search. Wildcards are not allowed.
+	 * @param {String[]} fields  The names of the fields to search. Wildcards are not allowed.
 	 * @param {String} value  A value to reject
 	 * @return {QueryBuilder}
 	 * @chainable
@@ -703,10 +722,27 @@ class QueryBuilder {
 	}
 	/**
 	 * Clear out a query property
-	 * @param {String} field  Valid values: sort, page, limit, must, mustNot, aggs, fields, highlighter, functionScore
+	 * @param {String|String[]} field  Valid values: sort, page, limit, must, mustNot, aggs, fields, highlighter, functionScore, textProcessor
 	 */
-	clear(field) {
-		if (field === 'sort') {
+	clear(field = null) {
+		const all = [
+			'sort',
+			'page',
+			'limit',
+			'must',
+			'mustNot',
+			'aggs',
+			'fields',
+			'highlighter',
+			'functionScore',
+			'textProcessor',
+		];
+		if (field === null) {
+			field = all;
+		}
+		if (Array.isArray(field)) {
+			field.forEach(name => this.clear(name));
+		} else if (field === 'sort') {
 			this._sorts = [];
 			this._sortByRandom = false;
 		} else if (field === 'page') {
@@ -725,6 +761,8 @@ class QueryBuilder {
 			this._highlighter = null;
 		} else if (field === 'functionScore') {
 			this._functionScore = null;
+		} else if (field === 'textProcessor') {
+			this._textProcessor = new TextProcessor();
 		}
 	}
 	/**
@@ -972,9 +1010,5 @@ class QueryBuilder {
 		return `GET ${index}/_search\n${json}`;
 	}
 }
-
-QueryBuilder.registerProcessor = function (textProcessor) {
-	// stuff
-};
 
 module.exports = QueryBuilder;

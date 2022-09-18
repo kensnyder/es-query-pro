@@ -6,6 +6,6 @@ module.exports = {
 	extends: ['prettier'],
 	env: {
 		node: true,
-		es6: true
+		es2022: true
 	},
 };
