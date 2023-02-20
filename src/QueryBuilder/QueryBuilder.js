@@ -8,7 +8,7 @@ class QueryBuilder {
 	/**
 	 * Initialize all private properties
 	 */
-	constructor() {
+	constructor(index = null) {
 		/**
 		 * @var {Array} The fields that should return
 		 */
@@ -80,6 +80,15 @@ class QueryBuilder {
 	 */
 	fields(fields) {
 		this._fields = fields;
+		return this;
+	}
+	/**
+	 * Set the fields to exclude
+	 * @param {String[]} fields  The fields to exclude
+	 * @return QueryBuilder
+	 */
+	excludeFields(fields) {
+		this._excludeFields = fields;
 		return this;
 	}
 	/**
@@ -733,6 +742,7 @@ class QueryBuilder {
 			'mustNot',
 			'aggs',
 			'fields',
+			'excludeFields',
 			'highlighter',
 			'functionScore',
 			'textProcessor',
@@ -757,6 +767,8 @@ class QueryBuilder {
 			this._aggs = {};
 		} else if (field === 'fields') {
 			this._fields = [];
+		} else if (field === 'excludeFields') {
+			this._excludeFields = [];
 		} else if (field === 'highlighter') {
 			this._highlighter = null;
 		} else if (field === 'functionScore') {
@@ -916,6 +928,41 @@ class QueryBuilder {
 	getFields() {
 		return this._fields;
 	}
+
+	setClient(client) {
+		this._client = client;
+		return this;
+	}
+
+	setIndex(name) {
+		this._index = name;
+		return this;
+	}
+
+	async run() {
+		if (!this._client) {
+			throw new Error(
+				'QueryBuilder.run() requires setClient(client) be called first'
+			);
+		}
+		if (!this._index) {
+			throw new Error(
+				'QueryBuilder.run() requires setIndex(name) be called first'
+			);
+		}
+		let result = null;
+		let error = null;
+		try {
+			result = await this._client.search({
+				index: this._index,
+				body: this.getBody(),
+			});
+		} catch (e) {
+			error = e;
+		}
+		await this._client.close();
+		return { result, error };
+	}
 	/**
 	 * Return the query body
 	 * @return {Object}
@@ -975,14 +1022,18 @@ class QueryBuilder {
 	/**
 	 * Get an object representation of the query body
 	 * suitable for the ElasticSearch SDK or Kibana
-	 * @return string
+	 * @return {Object}
 	 */
-	getQuery() {
+	getQuery(overrides) {
 		const source = this._fields.length > 0 ? { _source: this._fields } : {};
+		if (this._excludeFields.length > 0) {
+			source._sourceExclude = this._excludeFields;
+		}
 		return {
 			...source,
 			...this.getBody(),
 			...this.getOptions(),
+			...overrides,
 		};
 	}
 	/**
