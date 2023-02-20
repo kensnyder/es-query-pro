@@ -1,5 +1,5 @@
-const isEmptyObject = require('../isEmptyObject/isEmptyObject.js');
-const TextProcessor = require('../TextProcessor/TextProcessor.js');
+import isEmptyObject from '../isEmptyObject/isEmptyObject';
+import TextProcessor from '../TextProcessor/TextProcessor';
 
 class BulkAction {
 	setIndex(name) {

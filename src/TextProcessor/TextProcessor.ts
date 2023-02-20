@@ -1,4 +1,4 @@
-class TextProcessor {
+export default class TextProcessor {
 	constructor() {
 		this._processors = [];
 		this._unProcessors = [];
@@ -82,7 +82,6 @@ class TextProcessor {
 	}
 }
 
-module.exports = TextProcessor;
 //
 // const textProcessor = new TextProcessor();
 // textProcessor.setArrayJoiner('ψ');

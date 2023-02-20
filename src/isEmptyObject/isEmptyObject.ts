@@ -1,4 +1,4 @@
-function isEmptyObject(obj) {
+export default function isEmptyObject(obj) {
 	if (!obj) {
 		// not an object
 		return false;
@@ -11,5 +11,3 @@ function isEmptyObject(obj) {
 	}
 	return true;
 }
-
-module.exports = isEmptyObject;

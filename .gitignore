@@ -1,3 +1,6 @@
+# codebase
+dist
+!.gitkeep
 # IDEs
 .idea
 .vscode

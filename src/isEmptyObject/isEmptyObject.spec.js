@@ -1,4 +1,4 @@
-const isEmptyObject = require('./isEmptyObject.js');
+import isEmptyObject from './isEmptyObject';
 
 describe('isEmptyObject', () => {
 	it('should be a function', () => {

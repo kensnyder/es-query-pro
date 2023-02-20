@@ -1,4 +1,4 @@
-const QueryBuilder = require('./QueryBuilder.js');
+import QueryBuilder from './QueryBuilder';
 
 describe('QueryBuilder', () => {
 	it('should be a function', () => {

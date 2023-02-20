@@ -1,68 +1,92 @@
-const isEmptyObject = require('../isEmptyObject/isEmptyObject.js');
-const TextProcessor = require('../TextProcessor/TextProcessor.js');
+import isEmptyObject from '../isEmptyObject/isEmptyObject';
+import TextProcessor from '../TextProcessor/TextProcessor';
+
+type FilterType = {};
+type AggregatesType = {};
+type FunctionScoreType = {};
+type HighlighterType = {};
+type SortType = {};
 
 /**
  * Build ElasticSearch query
  */
-class QueryBuilder {
+export default class QueryBuilder {
+	#fields: string[];
+	#excludeFields: string[];
+	#must: FilterType[];
+	#mustNot: FilterType[];
+	#aggs: AggregatesType;
+	#functionScore: FunctionScoreType[];
+	#highlighter: HighlighterType[];
+	#limit: number;
+	#page: number;
+	#sorts: SortType[];
+	#sortByRandom: boolean;
+	#textProcessor: TextProcessor;
+
 	/**
 	 * Initialize all private properties
 	 */
-	constructor(index = null) {
+	constructor(index: string = null) {
 		/**
 		 * @var {Array} The fields that should return
 		 */
-		this._fields = ['*'];
+		this.#fields = ['*'];
+
+		/**
+		 * Fields to exclude from list
+		 */
+		this.#excludeFields = [];
 
 		/**
 		 * @var {Array} The must filters
 		 */
-		this._must = [];
+		this.#must = [];
 
 		/**
 		 * @var {Array} The must_not filters
 		 */
-		this._mustNot = [];
+		this.#mustNot = [];
 
 		/**
 		 * @var {Object} The "aggs" to add to the query
 		 */
-		this._aggs = {};
+		this.#aggs = {};
 
 		/**
 		 * @var {Array} The function score query
 		 */
-		this._functionScore = null;
+		this.#functionScore = null;
 
 		/**
 		 * @var {Array} The highlight definition
 		 */
-		this._highlighter = null;
+		this.#highlighter = null;
 
 		/**
 		 * @var {Number} The max number of records to return
 		 */
-		this._limit = null;
+		this.#limit = null;
 
 		/**
 		 * @var {Number} The page to fetch
 		 */
-		this._page = 1;
+		this.#page = 1;
 
 		/**
 		 * @var {Array} Fields to sort by
 		 */
-		this._sorts = [];
+		this.#sorts = [];
 
 		/**
 		 * @var {Boolean} If true, use "random_score" for a function score
 		 */
-		this._sortByRandom = false;
+		this.#sortByRandom = false;
 
 		/**
 		 * @var {TextProcessor} Processes text going into and coming out of ElasticSearch
 		 */
-		this._textProcessor = new TextProcessor();
+		this.#textProcessor = new TextProcessor();
 	}
 	/**
 	 * Process text going into and coming out of ElasticSearch
@@ -70,7 +94,7 @@ class QueryBuilder {
 	 * @return {QueryBuilder}
 	 */
 	setTextProcessor(textProcessor) {
-		this._textProcessor = textProcessor;
+		this.#textProcessor = textProcessor;
 		return this;
 	}
 	/**
@@ -79,7 +103,7 @@ class QueryBuilder {
 	 * @return QueryBuilder
 	 */
 	fields(fields) {
-		this._fields = fields;
+		this.#fields = fields;
 		return this;
 	}
 	/**
@@ -88,17 +112,17 @@ class QueryBuilder {
 	 * @return QueryBuilder
 	 */
 	excludeFields(fields) {
-		this._excludeFields = fields;
+		this.#excludeFields = fields;
 		return this;
 	}
 	/**
 	 * Append filters to the given filter object (match any of the given values)
-	 * @param {Array} filters  Either this._must or this._mustNot
+	 * @param {Array} filters  Either this.#must or this.#mustNot
 	 * @param {String} matchType  Either "match" or "term"
 	 * @param {String} field  The name of the field to search
 	 * @param {*} valueOrValues  A value or array of possible values
 	 */
-	_addFilterAny(filters, matchType, field, valueOrValues) {
+	#addFilterAny(filters, matchType, field, valueOrValues) {
 		if (!Array.isArray(valueOrValues)) {
 			valueOrValues = [valueOrValues];
 		}
@@ -118,11 +142,11 @@ class QueryBuilder {
 	}
 	/**
 	 * Append a multi_match condition to the given filter object (match any of the given values against the given fields)
-	 * @param {Array} filters  Either this._must or this._mustNot
+	 * @param {Array} filters  Either this.#must or this.#mustNot
 	 * @param {String[]} fields  The name of the fields to search
 	 * @param {*} valueOrValues  A value or array of possible values
 	 */
-	_addMultiMatchAny(filters, fields, valueOrValues) {
+	#addMultiMatchAny(filters, fields, valueOrValues) {
 		if (!Array.isArray(valueOrValues)) {
 			valueOrValues = [valueOrValues];
 		}
@@ -143,11 +167,11 @@ class QueryBuilder {
 	}
 	/**
 	 * Add a series of term condition to the given filter object (find full-word matches any of the given values against the given field)
-	 * @param {Array} filters  Either this._must or .this._mustNot
+	 * @param {Array} filters  Either this.#must or .this.#mustNot
 	 * @param {Array} fields  The name of the fields to search
 	 * @param {*} value  A value
 	 */
-	_addMultiTermAny(filters, fields, value) {
+	#addMultiTermAny(filters, fields, value) {
 		const terms = [];
 		for (const field of fields) {
 			terms.push({
@@ -160,12 +184,12 @@ class QueryBuilder {
 	}
 	/**
 	 * Append filters to the given filter object (match all the values given)
-	 * @param {Array} filters  Either this._must or this._mustNot
+	 * @param {Array} filters  Either this.#must or this.#mustNot
 	 * @param {String} matchType  Either "match" or "term"
 	 * @param {String|Array} fieldOrFields  The name of the field to search (or names for multiMatch)
 	 * @param {String|Array} valueOrValues  A value or array of possible values
 	 */
-	_addFilterAll(filters, matchType, fieldOrFields, valueOrValues) {
+	#addFilterAll(filters, matchType, fieldOrFields, valueOrValues) {
 		if (!Array.isArray(valueOrValues)) {
 			valueOrValues = [valueOrValues];
 		}
@@ -175,11 +199,11 @@ class QueryBuilder {
 	}
 	/**
 	 * Append a multi_match condition to the given filter object (match any of the given values against the given fields)
-	 * @param {Array} filters  Either this._must or this._mustNot
+	 * @param {Array} filters  Either this.#must or this.#mustNot
 	 * @param {Array} fields  The name of the fields to search
 	 * @param {String|Array} valueOrValues  A value or array of possible values
 	 */
-	_addMultiMatchAll(filters, fields, valueOrValues) {
+	#addMultiMatchAll(filters, fields, valueOrValues) {
 		if (!Array.isArray(valueOrValues)) {
 			valueOrValues = [valueOrValues];
 		}
@@ -194,11 +218,11 @@ class QueryBuilder {
 	}
 	/**
 	 * Add a series of term condition to the given filter object (find full-word matches any of the given values against the given field)
-	 * @param {Array} filters  Either this._must or this._mustNot
+	 * @param {Array} filters  Either this.#must or this.#mustNot
 	 * @param {Array} fields  The name of the fields to search
 	 * @param {*} value  A value
 	 */
-	_addMultiTermAll(filters, fields, value) {
+	#addMultiTermAll(filters, fields, value) {
 		for (const field of fields) {
 			filters.push({
 				term: {
@@ -209,12 +233,12 @@ class QueryBuilder {
 	}
 	/**
 	 * Append filters for the given range expression
-	 * @param {Array} filters  Either this._must or this._mustNot
+	 * @param {Array} filters  Either this.#must or this.#mustNot
 	 * @param {String} field  The name of the field to search
 	 * @param {String} op  One of the following: > < >= <= gt lt gte lte between
 	 * @param {String|Number|String[]|Number[]} value  The limit(s) to search against
 	 */
-	_addRange(filters, field, op, value) {
+	#addRange(filters, field, op, value) {
 		const ops = {
 			'<': 'lt',
 			'<=': 'lte',
@@ -247,12 +271,12 @@ class QueryBuilder {
 	 * @return {QueryBuilder}
 	 * @chainable
 	 */
-	match(field, valueOrValues, type = 'ANY') {
-		valueOrValues = this._textProcessor.processText(valueOrValues);
+	match(field:string, valueOrValues: any | any[], type : ('ANY | 'ALL') = 'ANY') {
+		valueOrValues = this.#textProcessor.processText(valueOrValues);
 		if (type.toUpperCase() === 'ALL') {
-			this._addFilterAll(this._must, 'match', field, valueOrValues);
+			this.#addFilterAll(this.#must, 'match', field, valueOrValues);
 		} else {
-			this._addFilterAny(this._must, 'match', field, valueOrValues);
+			this.#addFilterAny(this.#must, 'match', field, valueOrValues);
 		}
 		return this;
 	}
@@ -263,8 +287,8 @@ class QueryBuilder {
 	 * @return {QueryBuilder}
 	 * @chainable
 	 */
-	matchPhrase(field, phraseOrPhrases) {
-		phraseOrPhrases = this._textProcessor.processText(phraseOrPhrases);
+	matchPhrase(field: string, phraseOrPhrases: string | string[]) {
+		phraseOrPhrases = this.#textProcessor.processText(phraseOrPhrases);
 		if (!Array.isArray(phraseOrPhrases)) {
 			phraseOrPhrases = [phraseOrPhrases];
 		}
@@ -273,9 +297,9 @@ class QueryBuilder {
 			terms.push({ match_phrase: { [field]: phrase } });
 		}
 		if (terms.length === 1) {
-			this._must.push(terms[0]);
+			this.#must.push(terms[0]);
 		} else {
-			this._must.push({ bool: { should: terms } });
+			this.#must.push({ bool: { should: terms } });
 		}
 		return this;
 	}
@@ -288,7 +312,7 @@ class QueryBuilder {
 	 * @chainable
 	 */
 	matchPhrasePrefix(fieldOrFields, phraseOrPhrases) {
-		phraseOrPhrases = this._textProcessor.processText(phraseOrPhrases);
+		phraseOrPhrases = this.#textProcessor.processText(phraseOrPhrases);
 		if (!Array.isArray(phraseOrPhrases)) {
 			phraseOrPhrases = [phraseOrPhrases];
 		}
@@ -306,9 +330,9 @@ class QueryBuilder {
 				});
 			}
 			if (clauses.length === 1) {
-				this._must.push(clauses[0]);
+				this.#must.push(clauses[0]);
 			} else {
-				this._must.push({ bool: { should: clauses } });
+				this.#must.push({ bool: { should: clauses } });
 			}
 			return this;
 		}
@@ -318,9 +342,9 @@ class QueryBuilder {
 			clauses.push({ match_phrase_prefix: { [fieldOrFields]: phrase } });
 		}
 		if (clauses.length === 1) {
-			this._must.push(clauses[0]);
+			this.#must.push(clauses[0]);
 		} else {
-			this._must.push({ bool: { should: clauses } });
+			this.#must.push({ bool: { should: clauses } });
 		}
 		return this;
 	}
@@ -375,9 +399,9 @@ class QueryBuilder {
 	 */
 	multiMatch(fields, valueOrValues, type = 'ANY') {
 		if (type.toUpperCase() === 'ALL') {
-			this._addMultiMatchAll(this._must, fields, valueOrValues);
+			this.#addMultiMatchAll(this.#must, fields, valueOrValues);
 		} else {
-			this._addMultiMatchAny(this._must, fields, valueOrValues);
+			this.#addMultiMatchAny(this.#must, fields, valueOrValues);
 		}
 		return this;
 	}
@@ -401,9 +425,9 @@ class QueryBuilder {
 		for (const value of values) {
 			const baseMultiMatch = {
 				fields,
-				query: this._textProcessor.processText(value),
+				query: this.#textProcessor.processText(value),
 			};
-			this._must.push({
+			this.#must.push({
 				multi_match: { ...baseMultiMatch, ...options },
 			});
 		}
@@ -419,9 +443,9 @@ class QueryBuilder {
 	 */
 	multiTerm(fields, value, type = 'ANY') {
 		if (type.toUpperCase() === 'ALL') {
-			this._addMultiTermAll(this._must, fields, value);
+			this.#addMultiTermAll(this.#must, fields, value);
 		} else {
-			this._addMultiTermAny(this._must, fields, value);
+			this.#addMultiTermAny(this.#must, fields, value);
 		}
 		return this;
 	}
@@ -433,7 +457,7 @@ class QueryBuilder {
 	 * @chainable
 	 */
 	notMatch(field, valueOrValues) {
-		this._addFilterAny(this._mustNot, 'match', field, valueOrValues);
+		this.#addFilterAny(this.#mustNot, 'match', field, valueOrValues);
 		return this;
 	}
 	/**
@@ -444,7 +468,7 @@ class QueryBuilder {
 	 * @chainable
 	 */
 	notMultiMatch(fields, valueOrValues) {
-		this._addMultiMatchAny(this._mustNot, fields, valueOrValues);
+		this.#addMultiMatchAny(this.#mustNot, fields, valueOrValues);
 		return this;
 	}
 	/**
@@ -455,7 +479,7 @@ class QueryBuilder {
 	 * @chainable
 	 */
 	notMultiTerm(fields, value) {
-		this._addMultiTermAny(this._mustNot, fields, value);
+		this.#addMultiTermAny(this.#mustNot, fields, value);
 		return this;
 	}
 	/**
@@ -472,9 +496,9 @@ class QueryBuilder {
 			return this;
 		}
 		if (type.toUpperCase() === 'ALL') {
-			this._addFilterAll(this._must, 'term', fieldOrFields, valueOrValues);
+			this.#addFilterAll(this.#must, 'term', fieldOrFields, valueOrValues);
 		} else {
-			this._addFilterAny(this._must, 'term', fieldOrFields, valueOrValues);
+			this.#addFilterAny(this.#must, 'term', fieldOrFields, valueOrValues);
 		}
 		return this;
 	}
@@ -488,7 +512,7 @@ class QueryBuilder {
 			? fieldOrFields
 			: [fieldOrFields];
 		for (const field of fields) {
-			this._must.push({ exists: { field } });
+			this.#must.push({ exists: { field } });
 		}
 		return this;
 	}
@@ -502,7 +526,7 @@ class QueryBuilder {
 			? fieldOrFields
 			: [fieldOrFields];
 		for (const field of fields) {
-			this._mustNot.push({ exists: { field } });
+			this.#mustNot.push({ exists: { field } });
 		}
 		return this;
 	}
@@ -517,7 +541,7 @@ class QueryBuilder {
 		const fields = Array.isArray(fieldOrFields)
 			? fieldOrFields
 			: [fieldOrFields];
-		this._must.push({
+		this.#must.push({
 			query_string: {
 				fields: fields,
 				query: query,
@@ -533,7 +557,7 @@ class QueryBuilder {
 	 * @chainable
 	 */
 	notTerm(field, valueOrValues) {
-		this._addFilterAny(this._mustNot, 'match', field, valueOrValues);
+		this.#addFilterAny(this.#mustNot, 'match', field, valueOrValues);
 		return this;
 	}
 	/**
@@ -545,7 +569,7 @@ class QueryBuilder {
 	 * @chainable
 	 */
 	range(field, op, value) {
-		this._addRange(this._must, field, op, value);
+		this.#addRange(this.#must, field, op, value);
 		return this;
 	}
 	/**
@@ -557,7 +581,7 @@ class QueryBuilder {
 	 * @chainable
 	 */
 	notRange(field, op, value) {
-		this._addRange(this._mustNot, field, op, value);
+		this.#addRange(this.#mustNot, field, op, value);
 		return this;
 	}
 	/**
@@ -575,7 +599,7 @@ class QueryBuilder {
 			entries = Object.entries(forFields);
 		}
 		for (const [name, field] of entries) {
-			this._aggs[name] = {
+			this.#aggs[name] = {
 				terms: {
 					field,
 					size: limit,
@@ -596,7 +620,7 @@ class QueryBuilder {
 	 * @chainable
 	 */
 	aggregateTerm(field, limit = 10, exclusions = []) {
-		this._aggs[field] = {
+		this.#aggs[field] = {
 			terms: {
 				field: field,
 				size: limit,
@@ -639,7 +663,7 @@ class QueryBuilder {
 		}
 		const timezoneString =
 			typeof timezone === 'number'
-				? this._offsetIntToString(timezone)
+				? this.#offsetIntToString(timezone)
 				: timezone;
 		if (!/^[+-]\d\d:\d\d$/.test(timezoneString)) {
 			throw new Error(
@@ -647,7 +671,7 @@ class QueryBuilder {
 			);
 		}
 
-		this._aggs[dateField] = {
+		this.#aggs[dateField] = {
 			date_histogram: {
 				field: dateField,
 				interval: interval.code,
@@ -686,7 +710,7 @@ class QueryBuilder {
 	 * @chainable
 	 */
 	limit(limit) {
-		this._limit = limit;
+		this.#limit = limit;
 		return this;
 	}
 
@@ -697,7 +721,7 @@ class QueryBuilder {
 	 * @chainable
 	 */
 	page(page) {
-		this._page = page;
+		this.#page = page;
 		return this;
 	}
 
@@ -721,11 +745,11 @@ class QueryBuilder {
 			// the string "asc" or "desc"
 			/^(asc|desc)$/i.test(directionOrOptions)
 		) {
-			this._sorts.push({ [field]: directionOrOptions });
+			this.#sorts.push({ [field]: directionOrOptions });
 		} else {
 			// keyword such as "_score"
 			// or object such as { "name" : "desc" }
-			this._sorts.push(field);
+			this.#sorts.push(field);
 		}
 		return this;
 	}
@@ -753,28 +777,28 @@ class QueryBuilder {
 		if (Array.isArray(field)) {
 			field.forEach(name => this.clear(name));
 		} else if (field === 'sort') {
-			this._sorts = [];
-			this._sortByRandom = false;
+			this.#sorts = [];
+			this.#sortByRandom = false;
 		} else if (field === 'page') {
-			this._page = 1;
+			this.#page = 1;
 		} else if (field === 'limit') {
-			this._limit = null;
+			this.#limit = null;
 		} else if (field === 'must') {
-			this._must = [];
+			this.#must = [];
 		} else if (field === 'mustNot') {
-			this._mustNot = [];
+			this.#mustNot = [];
 		} else if (field === 'aggs') {
-			this._aggs = {};
+			this.#aggs = {};
 		} else if (field === 'fields') {
-			this._fields = [];
+			this.#fields = [];
 		} else if (field === 'excludeFields') {
-			this._excludeFields = [];
+			this.#excludeFields = [];
 		} else if (field === 'highlighter') {
-			this._highlighter = null;
+			this.#highlighter = null;
 		} else if (field === 'functionScore') {
-			this._functionScore = null;
+			this.#functionScore = null;
 		} else if (field === 'textProcessor') {
-			this._textProcessor = new TextProcessor();
+			this.#textProcessor = new TextProcessor();
 		}
 	}
 	/**
@@ -784,7 +808,7 @@ class QueryBuilder {
 	 * @chainable
 	 */
 	sortByRandom(trueOrFalse = true) {
-		this._sortByRandom = trueOrFalse;
+		this.#sortByRandom = trueOrFalse;
 		return this;
 	}
 	/**
@@ -823,7 +847,7 @@ class QueryBuilder {
 				},
 			},
 		];
-		this._functionScore = {
+		this.#functionScore = {
 			functions,
 			query: query.getBody().query,
 		};
@@ -834,14 +858,14 @@ class QueryBuilder {
 	 * @return {Array|null}
 	 */
 	getFunctionScore() {
-		return this._functionScore;
+		return this.#functionScore;
 	}
 	/**
 	 * Get the current array of must filters
 	 * @return {Array}
 	 */
 	getMust() {
-		return this._must;
+		return this.#must;
 	}
 	/**
 	 * Require matching of a subquery
@@ -850,7 +874,7 @@ class QueryBuilder {
 	 * @chainable
 	 */
 	should(subquery) {
-		this._must.push({
+		this.#must.push({
 			bool: {
 				should: subquery.getMust(),
 			},
@@ -872,7 +896,7 @@ class QueryBuilder {
 				},
 			});
 		}
-		this._must.push({
+		this.#must.push({
 			bool: {
 				should: shoulds,
 			},
@@ -886,7 +910,7 @@ class QueryBuilder {
 	 * @chainable
 	 */
 	shouldNot(subquery) {
-		this._must.push({
+		this.#must.push({
 			bool: {
 				should: {
 					bool: {
@@ -918,7 +942,7 @@ class QueryBuilder {
 	 * }
 	 */
 	useHighlighter(value) {
-		this._highlighter = value;
+		this.#highlighter = value;
 		return this;
 	}
 	/**
@@ -926,26 +950,26 @@ class QueryBuilder {
 	 * @return {String[]}
 	 */
 	getFields() {
-		return this._fields;
+		return this.#fields;
 	}
 
 	setClient(client) {
-		this._client = client;
+		this.#client = client;
 		return this;
 	}
 
 	setIndex(name) {
-		this._index = name;
+		this.#index = name;
 		return this;
 	}
 
 	async run() {
-		if (!this._client) {
+		if (!this.#client) {
 			throw new Error(
 				'QueryBuilder.run() requires setClient(client) be called first'
 			);
 		}
-		if (!this._index) {
+		if (!this.#index) {
 			throw new Error(
 				'QueryBuilder.run() requires setIndex(name) be called first'
 			);
@@ -953,14 +977,14 @@ class QueryBuilder {
 		let result = null;
 		let error = null;
 		try {
-			result = await this._client.search({
-				index: this._index,
+			result = await this.#client.search({
+				index: this.#index,
 				body: this.getBody(),
 			});
 		} catch (e) {
 			error = e;
 		}
-		await this._client.close();
+		await this.#client.close();
 		return { result, error };
 	}
 	/**
@@ -969,22 +993,22 @@ class QueryBuilder {
 	 */
 	getBody() {
 		const body = {};
-		if (this._must.length > 0) {
-			body.query = { bool: { must: this._must } };
+		if (this.#must.length > 0) {
+			body.query = { bool: { must: this.#must } };
 		}
-		if (this._mustNot.length > 0) {
+		if (this.#mustNot.length > 0) {
 			if (!body.query) {
 				body.query = { bool: {} };
 			}
-			body.query.bool.must_not = this._mustNot;
+			body.query.bool.must_not = this.#mustNot;
 		}
-		if (this._highlighter) {
-			body.highlight = this._highlighter;
+		if (this.#highlighter) {
+			body.highlight = this.#highlighter;
 		}
-		if (!isEmptyObject(this._aggs)) {
-			body.aggs = this._aggs;
+		if (!isEmptyObject(this.#aggs)) {
+			body.aggs = this.#aggs;
 		}
-		if (this._sortByRandom) {
+		if (this.#sortByRandom) {
 			if (!body.query) {
 				body.query = {};
 			}
@@ -994,11 +1018,11 @@ class QueryBuilder {
 				random_score: {},
 			};
 			body.query.bool = undefined;
-		} else if (this._functionScore) {
+		} else if (this.#functionScore) {
 			if (!body.query) {
 				body.query = {};
 			}
-			body.query.function_score = this._functionScore;
+			body.query.function_score = this.#functionScore;
 		}
 		return body;
 	}
@@ -1008,14 +1032,14 @@ class QueryBuilder {
 	 */
 	getOptions() {
 		const options = {};
-		if (this._limit !== null) {
-			options.size = this._limit;
-			if (this._page > 1) {
-				options.from = this._limit * (this._page - 1);
+		if (this.#limit !== null) {
+			options.size = this.#limit;
+			if (this.#page > 1) {
+				options.from = this.#limit * (this.#page - 1);
 			}
 		}
-		if (this._sorts.length > 0) {
-			options.sort = this._sorts;
+		if (this.#sorts.length > 0) {
+			options.sort = this.#sorts;
 		}
 		return options;
 	}
@@ -1025,9 +1049,9 @@ class QueryBuilder {
 	 * @return {Object}
 	 */
 	getQuery(overrides) {
-		const source = this._fields.length > 0 ? { _source: this._fields } : {};
-		if (this._excludeFields.length > 0) {
-			source._sourceExclude = this._excludeFields;
+		const source = this.#fields.length > 0 ? { _source: this.#fields } : {};
+		if (this.#excludeFields.length > 0) {
+			source._sourceExclude = this.#excludeFields;
 		}
 		return {
 			...source,
@@ -1061,5 +1085,3 @@ class QueryBuilder {
 		return `GET ${index}/_search\n${json}`;
 	}
 }
-
-module.exports = QueryBuilder;

@@ -1,4 +1,4 @@
-const TextProcessor = require('./TextProcessor.js');
+import TextProcessor from './TextProcessor.ts';
 
 describe('TextProcessor', () => {
 	it('should be a function', () => {
