@@ -1,10 +1,21 @@
 import isEmptyObject from '../isEmptyObject/isEmptyObject';
 import TextProcessor from '../TextProcessor/TextProcessor';
+import {
+	AnyAll,
+	BodyType,
+	BoostType,
+	FieldTypeOrTypes,
+	FunctionScoreType,
+	HighlightType,
+	IntervalType,
+	MultiMatchType,
+	OperatorType,
+	RunResultType,
+	SizeAndFrom,
+} from '../types';
 
 type FilterType = {};
 type AggregatesType = {};
-type FunctionScoreType = {};
-type HighlighterType = {};
 type SortType = {};
 
 /**
@@ -17,7 +28,7 @@ export default class QueryBuilder {
 	#mustNot: FilterType[];
 	#aggs: AggregatesType;
 	#functionScore: FunctionScoreType[];
-	#highlighter: HighlighterType[];
+	#highlighter: HighlightType[];
 	#limit: number;
 	#page: number;
 	#sorts: SortType[];
@@ -271,7 +282,7 @@ export default class QueryBuilder {
 	 * @return {QueryBuilder}
 	 * @chainable
 	 */
-	match(field:string, valueOrValues: any | any[], type : ('ANY | 'ALL') = 'ANY') {
+	match(field: string, valueOrValues: any | any[], type: AnyAll = 'ANY') {
 		valueOrValues = this.#textProcessor.processText(valueOrValues);
 		if (type.toUpperCase() === 'ALL') {
 			this.#addFilterAll(this.#must, 'match', field, valueOrValues);
@@ -311,7 +322,10 @@ export default class QueryBuilder {
 	 * @return {QueryBuilder}
 	 * @chainable
 	 */
-	matchPhrasePrefix(fieldOrFields, phraseOrPhrases) {
+	matchPhrasePrefix(
+		fieldOrFields: string | string[],
+		phraseOrPhrases: string | string[]
+	) {
 		phraseOrPhrases = this.#textProcessor.processText(phraseOrPhrases);
 		if (!Array.isArray(phraseOrPhrases)) {
 			phraseOrPhrases = [phraseOrPhrases];
@@ -362,7 +376,11 @@ export default class QueryBuilder {
 	 * @return {QueryBuilder}
 	 * @chainable
 	 */
-	matchBoostedPhrase(fieldOrFields, termOrTerms, options = {}) {
+	matchBoostedPhrase(
+		fieldOrFields: string | string[],
+		termOrTerms: string | string[],
+		options: BoostType = {}
+	) {
 		const fields = Array.isArray(fieldOrFields)
 			? fieldOrFields
 			: [fieldOrFields];
@@ -371,7 +389,7 @@ export default class QueryBuilder {
 		const expand = 'expand' in options ? options.expand : true;
 		const boosts = options.boosts || [1, 3, 5];
 		// build subquery
-		const subquery = new this.constructor();
+		const subquery = new QueryBuilder();
 		if (expand) {
 			subquery.multiMatchWithPhrase(fields, terms, {
 				operator: 'or',
@@ -397,7 +415,11 @@ export default class QueryBuilder {
 	 * @return {QueryBuilder}
 	 * @chainable
 	 */
-	multiMatch(fields, valueOrValues, type = 'ANY') {
+	multiMatch(
+		fields: string[],
+		valueOrValues: string | string[],
+		type: AnyAll = 'ANY'
+	) {
 		if (type.toUpperCase() === 'ALL') {
 			this.#addMultiMatchAll(this.#must, fields, valueOrValues);
 		} else {
@@ -415,7 +437,11 @@ export default class QueryBuilder {
 	 * @return {QueryBuilder}
 	 * @chainable
 	 */
-	multiMatchWithPhrase(fieldOrFields, valueOrValues, options = {}) {
+	multiMatchWithPhrase(
+		fieldOrFields: string | string[],
+		valueOrValues: string | string[],
+		options: MultiMatchType = {}
+	) {
 		const fields = Array.isArray(fieldOrFields)
 			? fieldOrFields
 			: [fieldOrFields];
@@ -441,7 +467,7 @@ export default class QueryBuilder {
 	 * @return {QueryBuilder}
 	 * @chainable
 	 */
-	multiTerm(fields, value, type = 'ANY') {
+	multiTerm(fields: string[], value: any, type: AnyAll = 'ANY') {
 		if (type.toUpperCase() === 'ALL') {
 			this.#addMultiTermAll(this.#must, fields, value);
 		} else {
@@ -456,7 +482,7 @@ export default class QueryBuilder {
 	 * @return {QueryBuilder}
 	 * @chainable
 	 */
-	notMatch(field, valueOrValues) {
+	notMatch(field: string, valueOrValues: any | any[]) {
 		this.#addFilterAny(this.#mustNot, 'match', field, valueOrValues);
 		return this;
 	}
@@ -467,7 +493,7 @@ export default class QueryBuilder {
 	 * @return {QueryBuilder}
 	 * @chainable
 	 */
-	notMultiMatch(fields, valueOrValues) {
+	notMultiMatch(fields: string[], valueOrValues: any | any[]) {
 		this.#addMultiMatchAny(this.#mustNot, fields, valueOrValues);
 		return this;
 	}
@@ -478,7 +504,7 @@ export default class QueryBuilder {
 	 * @return {QueryBuilder}
 	 * @chainable
 	 */
-	notMultiTerm(fields, value) {
+	notMultiTerm(fields: string[], value: any) {
 		this.#addMultiTermAny(this.#mustNot, fields, value);
 		return this;
 	}
@@ -490,7 +516,11 @@ export default class QueryBuilder {
 	 * @return {QueryBuilder}
 	 * @chainable
 	 */
-	term(fieldOrFields, valueOrValues, type = 'ANY') {
+	term(
+		fieldOrFields: string | string[],
+		valueOrValues: any | any[],
+		type: AnyAll = 'ANY'
+	) {
 		if (valueOrValues === null) {
 			this.notExists(fieldOrFields);
 			return this;
@@ -507,7 +537,7 @@ export default class QueryBuilder {
 	 * @param {String|String[]} fieldOrFields  The name or names of the fields
 	 * @returns {QueryBuilder}
 	 */
-	exists(fieldOrFields) {
+	exists(fieldOrFields: string | string[]) {
 		const fields = Array.isArray(fieldOrFields)
 			? fieldOrFields
 			: [fieldOrFields];
@@ -521,7 +551,7 @@ export default class QueryBuilder {
 	 * @param {String|String[]} fieldOrFields  The name or names of the fields
 	 * @returns {QueryBuilder}
 	 */
-	notExists(fieldOrFields) {
+	notExists(fieldOrFields: string | string[]) {
 		const fields = Array.isArray(fieldOrFields)
 			? fieldOrFields
 			: [fieldOrFields];
@@ -537,7 +567,7 @@ export default class QueryBuilder {
 	 * @return {QueryBuilder}
 	 * @chainable
 	 */
-	queryString(fieldOrFields, query) {
+	queryString(fieldOrFields: string | string[], query: string) {
 		const fields = Array.isArray(fieldOrFields)
 			? fieldOrFields
 			: [fieldOrFields];
@@ -556,7 +586,7 @@ export default class QueryBuilder {
 	 * @return {QueryBuilder}
 	 * @chainable
 	 */
-	notTerm(field, valueOrValues) {
+	notTerm(field: string, valueOrValues: any | any[]) {
 		this.#addFilterAny(this.#mustNot, 'match', field, valueOrValues);
 		return this;
 	}
@@ -568,7 +598,7 @@ export default class QueryBuilder {
 	 * @return {QueryBuilder}
 	 * @chainable
 	 */
-	range(field, op, value) {
+	range(field: string, op: OperatorType, value: any) {
 		this.#addRange(this.#must, field, op, value);
 		return this;
 	}
@@ -580,7 +610,7 @@ export default class QueryBuilder {
 	 * @return {QueryBuilder}
 	 * @chainable
 	 */
-	notRange(field, op, value) {
+	notRange(field: string, op: OperatorType, value: any) {
 		this.#addRange(this.#mustNot, field, op, value);
 		return this;
 	}
@@ -591,7 +621,7 @@ export default class QueryBuilder {
 	 * @return {QueryBuilder}
 	 * @chainable
 	 */
-	includeFacets(forFields, limit = 25) {
+	includeFacets(forFields: string[] | Object, limit: number = 25) {
 		let entries;
 		if (Array.isArray(forFields)) {
 			entries = forFields.map(field => [field, field]);
@@ -619,7 +649,7 @@ export default class QueryBuilder {
 	 * @return {QueryBuilder}
 	 * @chainable
 	 */
-	aggregateTerm(field, limit = 10, exclusions = []) {
+	aggregateTerm(field: string, limit: number = 10, exclusions: any[] = []) {
 		this.#aggs[field] = {
 			terms: {
 				field: field,
@@ -642,7 +672,11 @@ export default class QueryBuilder {
 	 * @return {QueryBuilder}
 	 * @chainable
 	 */
-	dateHistogram(dateField, intervalName, timezone) {
+	dateHistogram(
+		dateField: string,
+		intervalName: IntervalType,
+		timezone: string | number
+	) {
 		// see https://www.elastic.co/guide/en/elasticsearch/reference/current/mapping-date-format.html
 		const intervals = {
 			year: { code: '1y', format: 'yyyy' },
@@ -694,7 +728,7 @@ export default class QueryBuilder {
 	 * @param {Number} timezone
 	 * @return {String}
 	 */
-	_offsetIntToString(offset) {
+	#offsetIntToString(offset) {
 		const pad2 = n => `${n < 10 ? '0' : ''}${n}`;
 		const timezone = offset * -1;
 		const sign = n < 1 ? '-' : '+';
@@ -709,7 +743,7 @@ export default class QueryBuilder {
 	 * @return {QueryBuilder}
 	 * @chainable
 	 */
-	limit(limit) {
+	limit(limit: number) {
 		this.#limit = limit;
 		return this;
 	}
@@ -720,7 +754,7 @@ export default class QueryBuilder {
 	 * @return {QueryBuilder}
 	 * @chainable
 	 */
-	page(page) {
+	page(page: number) {
 		this.#page = page;
 		return this;
 	}
@@ -733,7 +767,7 @@ export default class QueryBuilder {
 	 * @return {QueryBuilder}
 	 * @chainable
 	 */
-	sort(field, directionOrOptions = null) {
+	sort(field: string, directionOrOptions: string | object | object[] = null) {
 		// DESC string such as "-created_at"
 		if (typeof field === 'string' && field.slice(0, 1) === '-') {
 			directionOrOptions = 'desc';
@@ -755,10 +789,10 @@ export default class QueryBuilder {
 	}
 	/**
 	 * Clear out a query property
-	 * @param {String|String[]} field  Valid values: sort, page, limit, must, mustNot, aggs, fields, highlighter, functionScore, textProcessor
+	 * @param field  Valid values: sort, page, limit, must, mustNot, aggs, fields, highlighter, functionScore, textProcessor
 	 */
-	clear(field = null) {
-		const all = [
+	clear(field: FieldTypeOrTypes = null) {
+		const all: FieldTypeOrTypes = [
 			'sort',
 			'page',
 			'limit',
@@ -807,7 +841,7 @@ export default class QueryBuilder {
 	 * @return {QueryBuilder}
 	 * @chainable
 	 */
-	sortByRandom(trueOrFalse = true) {
+	sortByRandom(trueOrFalse: boolean = true) {
 		this.#sortByRandom = trueOrFalse;
 		return this;
 	}
@@ -833,7 +867,7 @@ export default class QueryBuilder {
 		decayNumber = 0.5,
 		multiValueMode = undefined,
 		decayOrigin = undefined,
-	}) {
+	}: FunctionScoreType) {
 		const functions = [
 			{
 				[decayFunction]: {
@@ -941,7 +975,7 @@ export default class QueryBuilder {
 	 *   tags_schema: 'styled'
 	 * }
 	 */
-	useHighlighter(value) {
+	useHighlighter(value: HighlightType) {
 		this.#highlighter = value;
 		return this;
 	}
@@ -949,49 +983,29 @@ export default class QueryBuilder {
 	 * Return the fields we will fetch
 	 * @return {String[]}
 	 */
-	getFields() {
+	getFields(): string[] {
 		return this.#fields;
 	}
 
-	setClient(client) {
-		this.#client = client;
-		return this;
-	}
-
-	setIndex(name) {
-		this.#index = name;
-		return this;
-	}
-
-	async run() {
-		if (!this.#client) {
-			throw new Error(
-				'QueryBuilder.run() requires setClient(client) be called first'
-			);
-		}
-		if (!this.#index) {
-			throw new Error(
-				'QueryBuilder.run() requires setIndex(name) be called first'
-			);
-		}
+	async run(client: object, index: string): Promise<RunResultType> {
 		let result = null;
 		let error = null;
 		try {
-			result = await this.#client.search({
-				index: this.#index,
+			result = await client.search({
+				index: index,
 				body: this.getBody(),
 			});
 		} catch (e) {
 			error = e;
 		}
-		await this.#client.close();
+		await client.close();
 		return { result, error };
 	}
 	/**
 	 * Return the query body
 	 * @return {Object}
 	 */
-	getBody() {
+	getBody(): BodyType {
 		const body = {};
 		if (this.#must.length > 0) {
 			body.query = { bool: { must: this.#must } };
@@ -1030,7 +1044,7 @@ export default class QueryBuilder {
 	 * Return the "size" and "from" based on "limit" and page
 	 * @return {Object}
 	 */
-	getOptions() {
+	getOptions(): SizeAndFrom {
 		const options = {};
 		if (this.#limit !== null) {
 			options.size = this.#limit;
@@ -1048,7 +1062,7 @@ export default class QueryBuilder {
 	 * suitable for the ElasticSearch SDK or Kibana
 	 * @return {Object}
 	 */
-	getQuery(overrides) {
+	getQuery(overrides: object = {}): string {
 		const source = this.#fields.length > 0 ? { _source: this.#fields } : {};
 		if (this.#excludeFields.length > 0) {
 			source._sourceExclude = this.#excludeFields;
@@ -1065,14 +1079,14 @@ export default class QueryBuilder {
 	 * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/JSON/stringify#tojson_behavior
 	 * @returns {String}
 	 */
-	toJSON() {
+	toJSON(): string {
 		return this.getQuery();
 	}
 	/**
 	 * For getting value, simply use the value returned from getQuery()
 	 * @returns {String}
 	 */
-	valueOf() {
+	valueOf(): string {
 		return this.getQuery();
 	}
 	/**
@@ -1080,7 +1094,7 @@ export default class QueryBuilder {
 	 * @param {String} index  The index to pull the name from
 	 * @return {String}
 	 */
-	toKibana(index) {
+	toKibana(index: string): string {
 		const json = JSON.stringify(this.getQuery(), null, 4);
 		return `GET ${index}/_search\n${json}`;
 	}
