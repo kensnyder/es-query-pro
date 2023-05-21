@@ -37,9 +37,10 @@
 	"devDependencies": {
 		"@vitest/coverage-istanbul": "0.31.1",
 		"prettier": "2.8.8",
+		"prettier-plugin-organize-imports": "3.2.2",
 		"rimraf": "5.0.1",
+		"ts-migrate": "0.1.35",
 		"typescript": "5.0.4",
-		"vitest": "0.31.1",
-		"prettier-plugin-organize-imports": "3.2.2"
+		"vitest": "0.31.1"
 	}
 }
