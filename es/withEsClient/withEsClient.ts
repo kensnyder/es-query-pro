@@ -1,6 +1,8 @@
+// @ts-expect-error TS(2451): Cannot redeclare block-scoped variable 'getEsClien... Remove this comment to see the full error message
 const getEsClient = require('../getEsClient/getEsClient.js');
 
-async function withEsClient(handler) {
+// @ts-expect-error TS(2451): Cannot redeclare block-scoped variable 'withEsClie... Remove this comment to see the full error message
+async function withEsClient(handler: any) {
   const client = getEsClient();
   let result = null;
   let error = null;
@@ -16,4 +18,5 @@ async function withEsClient(handler) {
   return { result, error };
 }
 
+// @ts-expect-error TS(2580): Cannot find name 'module'. Do you need to install ... Remove this comment to see the full error message
 module.exports = withEsClient;

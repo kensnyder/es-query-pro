@@ -1,9 +1,21 @@
+// @ts-expect-error TS(2451): Cannot redeclare block-scoped variable 'fulltext'.
 const fulltext = require('../fulltext/fulltext.js');
 
 /**
  * Build ElasticSearch query
  */
+// @ts-expect-error TS(2451): Cannot redeclare block-scoped variable 'QueryBuild... Remove this comment to see the full error message
 class QueryBuilder {
+  _aggs: any;
+  _fields: any;
+  _functionScore: any;
+  _highlighter: any;
+  _limit: any;
+  _must: any;
+  _mustNot: any;
+  _page: any;
+  _sortByRandom: any;
+  _sorts: any;
   /**
    * Initialize all private properties
    */
@@ -63,7 +75,7 @@ class QueryBuilder {
    * @param {String[]} fields  The fields to select
    * @return QueryBuilder
    */
-  fields(fields) {
+  fields(fields: any) {
     this._fields = fields;
     return this;
   }
@@ -74,7 +86,7 @@ class QueryBuilder {
    * @param {String} field  The name of the field to search
    * @param {*} valueOrValues  A value or array of possible values
    */
-  _addFilterAny(filters, matchType, field, valueOrValues) {
+  _addFilterAny(filters: any, matchType: any, field: any, valueOrValues: any) {
     if (!Array.isArray(valueOrValues)) {
       valueOrValues = [valueOrValues];
     }
@@ -98,7 +110,7 @@ class QueryBuilder {
    * @param {String[]} fields  The name of the fields to search
    * @param {*} valueOrValues  A value or array of possible values
    */
-  _addMultiMatchAny(filters, fields, valueOrValues) {
+  _addMultiMatchAny(filters: any, fields: any, valueOrValues: any) {
     if (!Array.isArray(valueOrValues)) {
       valueOrValues = [valueOrValues];
     }
@@ -123,7 +135,7 @@ class QueryBuilder {
    * @param {Array} fields  The name of the fields to search
    * @param {*} value  A value
    */
-  _addMultiTermAny(filters, fields, value) {
+  _addMultiTermAny(filters: any, fields: any, value: any) {
     const terms = [];
     for (const field of fields) {
       terms.push({
@@ -141,7 +153,7 @@ class QueryBuilder {
    * @param {String|Array} fieldOrFields  The name of the field to search (or names for multiMatch)
    * @param {String|Array} valueOrValues  A value or array of possible values
    */
-  _addFilterAll(filters, matchType, fieldOrFields, valueOrValues) {
+  _addFilterAll(filters: any, matchType: any, fieldOrFields: any, valueOrValues: any) {
     if (!Array.isArray(valueOrValues)) {
       valueOrValues = [valueOrValues];
     }
@@ -156,7 +168,7 @@ class QueryBuilder {
    * @param {Array} fields  The name of the fields to search
    * @param {String|Array} valueOrValues  A value or array of possible values
    */
-  _addMultiMatchAll(filters, fields, valueOrValues) {
+  _addMultiMatchAll(filters: any, fields: any, valueOrValues: any) {
     if (!Array.isArray(valueOrValues)) {
       valueOrValues = [valueOrValues];
     }
@@ -175,7 +187,7 @@ class QueryBuilder {
    * @param {Array} fields  The name of the fields to search
    * @param {*} value  A value
    */
-  _addMultiTermAll(filters, fields, value) {
+  _addMultiTermAll(filters: any, fields: any, value: any) {
     for (const field of fields) {
       filters.push({
         term: {
@@ -191,7 +203,7 @@ class QueryBuilder {
    * @param {String} op  One of the following: > < >= <= gt lt gte lte between
    * @param {String|Number|String[]|Number[]} value  The limit(s) to search against
    */
-  _addRange(filters, field, op, value) {
+  _addRange(filters: any, field: any, op: any, value: any) {
     const ops = {
       '<': 'lt',
       '<=': 'lte',
@@ -209,6 +221,7 @@ class QueryBuilder {
       });
       return;
     }
+    // @ts-expect-error TS(7053): Element implicitly has an 'any' type because expre... Remove this comment to see the full error message
     const opName = ops[op] || op.toLowerCase();
     filters.push({
       range: {
@@ -224,7 +237,7 @@ class QueryBuilder {
    * @return {QueryBuilder}
    * @chainable
    */
-  match(field, valueOrValues, type = 'ANY') {
+  match(field: any, valueOrValues: any, type = 'ANY') {
     if (type.toUpperCase() === 'ALL') {
       this._addFilterAll(this._must, 'match', field, valueOrValues);
     } else {
@@ -239,7 +252,7 @@ class QueryBuilder {
    * @return {QueryBuilder}
    * @chainable
    */
-  matchPhrase(field, phraseOrPhrases) {
+  matchPhrase(field: any, phraseOrPhrases: any) {
     if (!Array.isArray(phraseOrPhrases)) {
       phraseOrPhrases = [phraseOrPhrases];
     }
@@ -263,7 +276,7 @@ class QueryBuilder {
    * @return {QueryBuilder}
    * @chainable
    */
-  matchPhrasePrefix(fieldOrFields, phraseOrPhrases) {
+  matchPhrasePrefix(fieldOrFields: any, phraseOrPhrases: any) {
     if (!Array.isArray(phraseOrPhrases)) {
       phraseOrPhrases = [phraseOrPhrases];
     }
@@ -314,14 +327,17 @@ class QueryBuilder {
    * @return {QueryBuilder}
    * @chainable
    */
-  matchBoostedPhrase(fields, terms, options = {}) {
+  matchBoostedPhrase(fields: any, terms: any, options = {}) {
     if (typeof terms === 'string') {
       terms = [terms];
     }
     // enumerate options
+    // @ts-expect-error TS(2339): Property 'expand' does not exist on type '{}'.
     const expand = options.expand || true;
+    // @ts-expect-error TS(2339): Property 'boosts' does not exist on type '{}'.
     const boosts = options.boosts || [1, 3, 5];
     // build subquery
+    // @ts-expect-error TS(2351): This expression is not constructable.
     const subquery = new this.constructor();
     if (expand) {
       subquery.multiMatchWithPhrase(fields, terms, {
@@ -348,7 +364,7 @@ class QueryBuilder {
    * @return {QueryBuilder}
    * @chainable
    */
-  multiMatch(fields, valueOrValues, type = 'ANY') {
+  multiMatch(fields: any, valueOrValues: any, type = 'ANY') {
     if (type.toUpperCase() === 'ALL') {
       this._addMultiMatchAll(this._must, fields, valueOrValues);
     } else {
@@ -366,7 +382,7 @@ class QueryBuilder {
    * @return {QueryBuilder}
    * @chainable
    */
-  multiMatchWithPhrase(fields, valueOrValues, options = {}) {
+  multiMatchWithPhrase(fields: any, valueOrValues: any, options = {}) {
     if (typeof valueOrValues === 'string') {
       valueOrValues = [valueOrValues];
     }
@@ -389,7 +405,7 @@ class QueryBuilder {
    * @return {QueryBuilder}
    * @chainable
    */
-  multiTerm(fields, value, type = 'ANY') {
+  multiTerm(fields: any, value: any, type = 'ANY') {
     if (type.toUpperCase() === 'ALL') {
       this._addMultiTermAll(this._must, fields, value);
     } else {
@@ -404,7 +420,7 @@ class QueryBuilder {
    * @return {QueryBuilder}
    * @chainable
    */
-  notMatch(field, valueOrValues) {
+  notMatch(field: any, valueOrValues: any) {
     this._addFilterAny(this._mustNot, 'match', field, valueOrValues);
     return this;
   }
@@ -415,7 +431,7 @@ class QueryBuilder {
    * @return {QueryBuilder}
    * @chainable
    */
-  notMultiMatch(fields, valueOrValues) {
+  notMultiMatch(fields: any, valueOrValues: any) {
     this._addMultiMatchAny(this._mustNot, fields, valueOrValues);
     return this;
   }
@@ -426,7 +442,7 @@ class QueryBuilder {
    * @return {QueryBuilder}
    * @chainable
    */
-  notMultiTerm(fields, value) {
+  notMultiTerm(fields: any, value: any) {
     this._addMultiTermAny(this._mustNot, fields, value);
     return this;
   }
@@ -438,7 +454,7 @@ class QueryBuilder {
    * @return {QueryBuilder}
    * @chainable
    */
-  term(fieldOrFields, valueOrValues, type = 'ANY') {
+  term(fieldOrFields: any, valueOrValues: any, type = 'ANY') {
     if (valueOrValues === null) {
       this.notExists(fieldOrFields);
       return this;
@@ -455,7 +471,7 @@ class QueryBuilder {
    * @param {String|String[]} fieldOrFields  The name or names of the fields
    * @returns {QueryBuilder}
    */
-  exists(fieldOrFields) {
+  exists(fieldOrFields: any) {
     const fields = Array.isArray(fieldOrFields)
       ? fieldOrFields
       : [fieldOrFields];
@@ -469,7 +485,7 @@ class QueryBuilder {
    * @param {String|String[]} fieldOrFields  The name or names of the fields
    * @returns {QueryBuilder}
    */
-  notExists(fieldOrFields) {
+  notExists(fieldOrFields: any) {
     const fields = Array.isArray(fieldOrFields)
       ? fieldOrFields
       : [fieldOrFields];
@@ -485,7 +501,7 @@ class QueryBuilder {
    * @return {QueryBuilder}
    * @chainable
    */
-  queryString(fieldOrFields, query) {
+  queryString(fieldOrFields: any, query: any) {
     const fields = Array.isArray(fieldOrFields)
       ? fieldOrFields
       : [fieldOrFields];
@@ -504,7 +520,7 @@ class QueryBuilder {
    * @return {QueryBuilder}
    * @chainable
    */
-  notTerm(field, valueOrValues) {
+  notTerm(field: any, valueOrValues: any) {
     this._addFilterAny(this._mustNot, 'match', field, valueOrValues);
     return this;
   }
@@ -516,7 +532,7 @@ class QueryBuilder {
    * @return {QueryBuilder}
    * @chainable
    */
-  range(field, op, value) {
+  range(field: any, op: any, value: any) {
     this._addRange(this._must, field, op, value);
     return this;
   }
@@ -528,7 +544,7 @@ class QueryBuilder {
    * @return {QueryBuilder}
    * @chainable
    */
-  notRange(field, op, value) {
+  notRange(field: any, op: any, value: any) {
     this._addRange(this._mustNot, field, op, value);
     return this;
   }
@@ -539,11 +555,12 @@ class QueryBuilder {
    * @return {QueryBuilder}
    * @chainable
    */
-  includeFacets(forFields, limit = 25) {
+  includeFacets(forFields: any, limit = 25) {
     let entries;
     if (Array.isArray(forFields)) {
       entries = forFields.map(field => [field, field]);
     } else {
+      // @ts-expect-error TS(2550): Property 'entries' does not exist on type 'ObjectC... Remove this comment to see the full error message
       entries = Object.entries(forFields);
     }
     for (const [name, field] of entries) {
@@ -567,7 +584,7 @@ class QueryBuilder {
    * @return {QueryBuilder}
    * @chainable
    */
-  aggregateTerm(field, limit = 10, exclusions = []) {
+  aggregateTerm(field: any, limit = 10, exclusions = []) {
     this._aggs[field] = {
       terms: {
         field: field,
@@ -590,7 +607,7 @@ class QueryBuilder {
    * @return {QueryBuilder}
    * @chainable
    */
-  dateHistogram(dateField, intervalName, timezone) {
+  dateHistogram(dateField: any, intervalName: any, timezone: any) {
     // see https://www.elastic.co/guide/en/elasticsearch/reference/current/mapping-date-format.html
     const intervals = {
       year: { code: '1y', format: 'yyyy' },
@@ -602,6 +619,7 @@ class QueryBuilder {
       minute: { code: '1m', format: 'yyyy-MM-ddTHH:mm' },
       second: { code: '1s', format: 'yyyy-MM-ddTHH:mm:ss' },
     };
+    // @ts-expect-error TS(7053): Element implicitly has an 'any' type because expre... Remove this comment to see the full error message
     const interval = intervals[intervalName];
     if (!interval) {
       const supported = Object.keys(intervals).join(', ');
@@ -642,9 +660,10 @@ class QueryBuilder {
    * @param {Number} timezone
    * @return {String}
    */
-  _offsetIntToString(offset) {
-    const pad2 = n => `${n < 10 ? '0' : ''}${n}`;
+  _offsetIntToString(offset: any) {
+    const pad2 = (n: any) => `${n < 10 ? '0' : ''}${n}`;
     const timezone = offset * -1;
+    // @ts-expect-error TS(2304): Cannot find name 'n'.
     const sign = n < 1 ? '-' : '+';
     const hour = Math.floor(timezone / 60);
     const min = timezone % 60;
@@ -657,7 +676,7 @@ class QueryBuilder {
    * @return {QueryBuilder}
    * @chainable
    */
-  limit(limit) {
+  limit(limit: any) {
     this._limit = limit;
     return this;
   }
@@ -668,7 +687,7 @@ class QueryBuilder {
    * @return {QueryBuilder}
    * @chainable
    */
-  page(page) {
+  page(page: any) {
     this._page = page;
     return this;
   }
@@ -681,9 +700,10 @@ class QueryBuilder {
    * @return {QueryBuilder}
    * @chainable
    */
-  sort(field, directionOrOptions = null) {
+  sort(field: any, directionOrOptions = null) {
     // DESC string such as "-created_at"
     if (typeof field === 'string' && field.slice(0, 1) === '-') {
+      // @ts-expect-error TS(2322): Type '"desc"' is not assignable to type 'null'.
       directionOrOptions = 'desc';
       field = field.slice(1);
     }
@@ -705,7 +725,7 @@ class QueryBuilder {
    * Clear out a query property
    * @param {String} field  Valid values: sort, page, limit, must, mustNot, aggs, fields, highlighter, functionScore
    */
-  clear(field) {
+  clear(field: any) {
     if (field === 'sort') {
       this._sorts = [];
       this._sortByRandom = false;
@@ -752,14 +772,17 @@ class QueryBuilder {
    */
   decayFunctionScore({
     field,
-    query, // TODO: consider sticking the body of this instance into a function score instead
+
+    // TODO: consider sticking the body of this instance into a function score instead
+    query,
+
     decayFunction = 'gauss',
     decayOffset = 0,
     decayScale = '30d',
     decayNumber = 0.5,
     multiValueMode = undefined,
-    decayOrigin = undefined,
-  }) {
+    decayOrigin = undefined
+  }: any) {
     const functions = [
       {
         [decayFunction]: {
@@ -799,7 +822,7 @@ class QueryBuilder {
    * @return {QueryBuilder}
    * @chainable
    */
-  should(subquery) {
+  should(subquery: any) {
     this._must.push({
       bool: {
         should: subquery.getMust(),
@@ -813,7 +836,7 @@ class QueryBuilder {
    * @return {QueryBuilder}
    * @chainable
    */
-  shouldAny(subqueries) {
+  shouldAny(subqueries: any) {
     const shoulds = [];
     for (const query of subqueries) {
       shoulds.push({
@@ -835,7 +858,7 @@ class QueryBuilder {
    * @return {QueryBuilder}
    * @chainable
    */
-  shouldNot(subquery) {
+  shouldNot(subquery: any) {
     this._must.push({
       bool: {
         should: {
@@ -867,7 +890,7 @@ class QueryBuilder {
    *   tags_schema: 'styled'
    * }
    */
-  useHighlighter(value) {
+  useHighlighter(value: any) {
     this._highlighter = value;
     return this;
   }
@@ -885,34 +908,48 @@ class QueryBuilder {
   getBody() {
     const body = {};
     if (this._must.length > 0) {
+      // @ts-expect-error TS(2339): Property 'query' does not exist on type '{}'.
       body.query = { bool: { must: this._must } };
     }
     if (this._mustNot.length > 0) {
+      // @ts-expect-error TS(2339): Property 'query' does not exist on type '{}'.
       if (!body.query) {
+        // @ts-expect-error TS(2339): Property 'query' does not exist on type '{}'.
         body.query = { bool: {} };
       }
+      // @ts-expect-error TS(2339): Property 'query' does not exist on type '{}'.
       body.query.bool.must_not = this._mustNot;
     }
     if (this._highlighter) {
+      // @ts-expect-error TS(2339): Property 'highlight' does not exist on type '{}'.
       body.highlight = this._highlighter;
     }
     if (!isEmptyObject(this._aggs)) {
+      // @ts-expect-error TS(2339): Property 'aggs' does not exist on type '{}'.
       body.aggs = this._aggs;
     }
     if (this._sortByRandom) {
+      // @ts-expect-error TS(2339): Property 'query' does not exist on type '{}'.
       if (!body.query) {
+        // @ts-expect-error TS(2339): Property 'query' does not exist on type '{}'.
         body.query = {};
       }
+      // @ts-expect-error TS(2339): Property 'query' does not exist on type '{}'.
       body.query.function_score = {
+        // @ts-expect-error TS(2339): Property 'query' does not exist on type '{}'.
         query: { bool: body.query.bool },
         // random_store must be an empty JSON object
         random_score: {},
       };
+      // @ts-expect-error TS(2339): Property 'query' does not exist on type '{}'.
       body.query.bool = undefined;
     } else if (this._functionScore) {
+      // @ts-expect-error TS(2339): Property 'query' does not exist on type '{}'.
       if (!body.query) {
+        // @ts-expect-error TS(2339): Property 'query' does not exist on type '{}'.
         body.query = {};
       }
+      // @ts-expect-error TS(2339): Property 'query' does not exist on type '{}'.
       body.query.function_score = this._functionScore;
     }
     return body;
@@ -924,12 +961,15 @@ class QueryBuilder {
   getOptions() {
     const options = {};
     if (this._limit !== null) {
+      // @ts-expect-error TS(2339): Property 'size' does not exist on type '{}'.
       options.size = this._limit;
       if (this._page > 1) {
+        // @ts-expect-error TS(2339): Property 'from' does not exist on type '{}'.
         options.from = this._limit * (this._page - 1);
       }
     }
     if (this._sorts.length > 0) {
+      // @ts-expect-error TS(2339): Property 'sort' does not exist on type '{}'.
       options.sort = this._sorts;
     }
     return options;
@@ -967,13 +1007,13 @@ class QueryBuilder {
    * @param {String} index  The index to pull the name from
    * @return {String}
    */
-  toKibana(index) {
+  toKibana(index: any) {
     const json = JSON.stringify(this.getQuery(), null, 4);
     return `GET ${index}/_search\n${json}`;
   }
 }
 
-function isEmptyObject(obj) {
+function isEmptyObject(obj: any) {
   if (!obj) {
     // not an object
     return false;
@@ -987,4 +1027,5 @@ function isEmptyObject(obj) {
   return true;
 }
 
+// @ts-expect-error TS(2580): Cannot find name 'module'. Do you need to install ... Remove this comment to see the full error message
 module.exports = QueryBuilder;

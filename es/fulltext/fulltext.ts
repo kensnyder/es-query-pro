@@ -16,7 +16,7 @@ const _unProcessors = [
  * @param {String} text  The text going into the database
  * @returns {String}
  */
-function processText(text) {
+function processText(text: any) {
   for (const [find, replace] of _processors) {
     text = text.replace(find, replace);
   }
@@ -27,7 +27,7 @@ function processText(text) {
  * Process all content_* fields with the processText() function
  * @param {Object} record  A record with field-value pairs
  */
-function processRecord(record) {
+function processRecord(record: any) {
   for (const field of Object.keys(record)) {
     if (/^content_/.test(field) && typeof record[field] === 'string') {
       record[field] = processText(record[field]);
@@ -40,7 +40,7 @@ function processRecord(record) {
  * @param {String} text  The text coming from the database
  * @returns {String}
  */
-function unProcessText(text) {
+function unProcessText(text: any) {
   for (const [find, replace] of _unProcessors) {
     text = text.replace(find, replace);
   }
@@ -51,7 +51,7 @@ function unProcessText(text) {
  * Process all content_* fields with the unProcessText() function
  * @param {Object} record  A record with field-value pairs
  */
-function unProcessRecord(record) {
+function unProcessRecord(record: any) {
   for (const field of Object.keys(record)) {
     if (/^content_/.test(field) && typeof record[field] === 'string') {
       record[field] = unProcessText(record[field]);
@@ -73,7 +73,7 @@ const _joinString = ' ψ ';
  * @param {Array} array  The items
  * @returns {String}
  */
-function joinArray(array) {
+function joinArray(array: any) {
   if (Array.isArray(array)) {
     return array.join(_joinString);
   }
@@ -85,13 +85,14 @@ function joinArray(array) {
  * @param {String} string  The string to split
  * @returns {Array}
  */
-function splitToArray(string) {
+function splitToArray(string: any) {
   if (typeof string === 'string') {
     return string.split(_joinString);
   }
   return [];
 }
 
+// @ts-expect-error TS(2451): Cannot redeclare block-scoped variable 'fulltext'.
 const fulltext = {
   processText,
   processRecord,
@@ -101,4 +102,5 @@ const fulltext = {
   splitToArray,
 };
 
+// @ts-expect-error TS(2580): Cannot find name 'module'. Do you need to install ... Remove this comment to see the full error message
 module.exports = fulltext;

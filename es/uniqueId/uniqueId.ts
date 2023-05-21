@@ -1,3 +1,4 @@
+// @ts-expect-error TS(2580): Cannot find name 'require'. Do you need to install... Remove this comment to see the full error message
 const { customAlphabet } = require('nanoid');
 const alphabet = '123456789BCDFGHJKLMNPQRSTVWXYZbcdfghjklmnpqrstvwxyz';
 
@@ -12,10 +13,14 @@ const generators = {};
  * @returns {String}  A random string with no symbols, no vowels, and no "0"
  */
 function uniqueId(length = 40) {
+  // @ts-expect-error TS(7053): Element implicitly has an 'any' type because expre... Remove this comment to see the full error message
   if (!generators[length]) {
+    // @ts-expect-error TS(7053): Element implicitly has an 'any' type because expre... Remove this comment to see the full error message
     generators[length] = customAlphabet(alphabet, length);
   }
+  // @ts-expect-error TS(7053): Element implicitly has an 'any' type because expre... Remove this comment to see the full error message
   return generators[length]();
 }
 
+// @ts-expect-error TS(2580): Cannot find name 'module'. Do you need to install ... Remove this comment to see the full error message
 module.exports = uniqueId;

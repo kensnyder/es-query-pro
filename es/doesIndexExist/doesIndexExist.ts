@@ -1,3 +1,4 @@
+// @ts-expect-error TS(2451): Cannot redeclare block-scoped variable 'withEsClie... Remove this comment to see the full error message
 const withEsClient = require('../withEsClient/withEsClient.js');
 
 /**
@@ -5,8 +6,9 @@ const withEsClient = require('../withEsClient/withEsClient.js');
  * @param {String} index  The name of the index
  * @returns {Promise<{result: Boolean, details: Object, error: Error}>}
  */
-async function doesIndexExist(index) {
-  const { result, error } = await withEsClient(client => {
+// @ts-expect-error TS(2451): Cannot redeclare block-scoped variable 'doesIndexE... Remove this comment to see the full error message
+async function doesIndexExist(index: any) {
+  const { result, error } = await withEsClient((client: any) => {
     return client.indices.exists({ index });
   });
   return {
@@ -16,4 +18,5 @@ async function doesIndexExist(index) {
   };
 }
 
+// @ts-expect-error TS(2580): Cannot find name 'module'. Do you need to install ... Remove this comment to see the full error message
 module.exports = doesIndexExist;

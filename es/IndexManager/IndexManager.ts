@@ -1,13 +1,24 @@
+// @ts-expect-error TS(2451): Cannot redeclare block-scoped variable 'indexName'... Remove this comment to see the full error message
 const indexName = require('../indexName/indexName.js');
+// @ts-expect-error TS(2451): Cannot redeclare block-scoped variable 'doesIndexE... Remove this comment to see the full error message
 const doesIndexExist = require('../doesIndexExist/doesIndexExist.js');
+// @ts-expect-error TS(2451): Cannot redeclare block-scoped variable 'schemaToMa... Remove this comment to see the full error message
 const schemaToMappings = require('../schemaToMappings/schemaToMappings.js');
+// @ts-expect-error TS(2451): Cannot redeclare block-scoped variable 'createInde... Remove this comment to see the full error message
 const createIndex = require('../createIndex/createIndex.js');
+// @ts-expect-error TS(2451): Cannot redeclare block-scoped variable 'findBy'.
 const findBy = require('../findBy/findBy.js');
+// @ts-expect-error TS(2580): Cannot find name 'require'. Do you need to install... Remove this comment to see the full error message
 const createSlug = require('../createSlug/createSlug.js');
+// @ts-expect-error TS(2451): Cannot redeclare block-scoped variable 'putRecord'... Remove this comment to see the full error message
 const putRecord = require('../putRecord/putRecord.js');
+// @ts-expect-error TS(2451): Cannot redeclare block-scoped variable 'updateReco... Remove this comment to see the full error message
 const updateRecord = require('../updateRecord/updateRecord.js');
+// @ts-expect-error TS(2451): Cannot redeclare block-scoped variable 'deleteReco... Remove this comment to see the full error message
 const deleteRecord = require('../deleteRecord/deleteRecord.js');
+// @ts-expect-error TS(2451): Cannot redeclare block-scoped variable 'createAlia... Remove this comment to see the full error message
 const createAlias = require('../createAlias/createAlias.js');
+// @ts-expect-error TS(2451): Cannot redeclare block-scoped variable 'doesAliasE... Remove this comment to see the full error message
 const doesAliasExist = require('../doesAliasExist/doesAliasExist.js');
 
 /**
@@ -15,6 +26,11 @@ const doesAliasExist = require('../doesAliasExist/doesAliasExist.js');
  * for a particular index
  */
 class IndexManager {
+  index: any;
+  language: any;
+  schema: any;
+  settings: any;
+  version: any;
   /**
    * Define the index with the given configuration
    * @param {String} index  The base index name such as
@@ -22,7 +38,12 @@ class IndexManager {
    * @param {Object} schema  The schema definition (see schemaToMappings.spec.js)
    * @param {Object} settings  The ElasticSearch settings; e.g. for sort hints
    */
-  constructor({ index, version, schema, settings }) {
+  constructor({
+    index,
+    version,
+    schema,
+    settings
+  }: any) {
     this.index = index;
     this.version = version;
     this.schema = schema;
@@ -61,7 +82,7 @@ class IndexManager {
    * @see https://www.elastic.co/guide/en/elasticsearch/reference/7.17/analysis-lang-analyzer.html
    * @returns {IndexManager}
    */
-  setLanguage(language) {
+  setLanguage(language: any) {
     this.language = language;
     return this;
   }
@@ -133,7 +154,7 @@ class IndexManager {
    * @param {String} id
    * @returns {Promise<{result: Object, details: Object, error:Error}>}
    */
-  async findById(id) {
+  async findById(id: any) {
     return await findBy.id(this.getIndexName(), id);
   }
 
@@ -143,7 +164,7 @@ class IndexManager {
    * @param {Object} [moreBody]  Additional body params such as size and from
    * @returns {Promise<{result: {records: Object[], total: Number}, details: Object, error:Error}>}
    */
-  async findByCriteria(criteria, moreBody) {
+  async findByCriteria(criteria: any, moreBody: any) {
     return await findBy.criteria(this.getAliasName(), criteria, moreBody);
   }
 
@@ -154,7 +175,7 @@ class IndexManager {
    * @param {Object} [moreBody]  Additional body params such as size and from
    * @returns {Promise<{result: {records: Object[], total: Number}, details: Object, error:Error}>}
    */
-  async findByPhrase(phrase, criteria, moreBody) {
+  async findByPhrase(phrase: any, criteria: any, moreBody: any) {
     return await findBy.phrase(this.getAliasName(), phrase, criteria, moreBody);
   }
 
@@ -163,7 +184,7 @@ class IndexManager {
    * @param {QueryBuilder} query  Criteria
    * @returns {Promise<{result: {records: Object[], total: Number}, details: Object, error:Error}>}
    */
-  async findByQuery(query) {
+  async findByQuery(query: any) {
     return await findBy.query(this.getAliasName(), query);
   }
 
@@ -173,7 +194,10 @@ class IndexManager {
    * @param {Object} data  The record to save
    * @returns {Promise<{result: String, details: Object, error: Error}>}
    */
-  async put({ savedBy, data }) {
+  async put({
+    savedBy,
+    data
+  }: any) {
     if (!data.id) {
       data.id = createSlug(25);
       if (savedBy !== undefined) {
@@ -198,7 +222,11 @@ class IndexManager {
    * @param {Object} data  The record to save
    * @returns {Promise<{result: String, details: Object, error: Error}>}
    */
-  async patch({ id, savedBy, data }) {
+  async patch({
+    id,
+    savedBy,
+    data
+  }: any) {
     if (savedBy !== undefined) {
       data.modified_at = Date.now();
       data.modified_by = savedBy;
@@ -217,7 +245,7 @@ class IndexManager {
    * @param {String} deletedBy  The user who deleted it
    * @returns {Promise<{result: Boolean, details: Object, error: Error}>}
    */
-  async softDelete(id, deletedBy) {
+  async softDelete(id: any, deletedBy: any) {
     if (!id) {
       return { result: true, error: null, details: 'Not yet in database' };
     }
@@ -234,7 +262,7 @@ class IndexManager {
    * @param {String} id  The id of the record
    * @returns {Promise<{result: Boolean, details: Object, error: Error}>}
    */
-  async delete(id) {
+  async delete(id: any) {
     if (!id) {
       return { result: true, error: null, details: 'Not yet in database' };
     }
@@ -242,4 +270,5 @@ class IndexManager {
   }
 }
 
+// @ts-expect-error TS(2580): Cannot find name 'module'. Do you need to install ... Remove this comment to see the full error message
 module.exports = IndexManager;

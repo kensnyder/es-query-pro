@@ -1,5 +1,8 @@
+// @ts-expect-error TS(2451): Cannot redeclare block-scoped variable 'withEsClie... Remove this comment to see the full error message
 const withEsClient = require('../withEsClient/withEsClient.js');
+// @ts-expect-error TS(2451): Cannot redeclare block-scoped variable 'dates'.
 const dates = require('../dates/dates.js');
+// @ts-expect-error TS(2451): Cannot redeclare block-scoped variable 'fulltext'.
 const fulltext = require('../fulltext/fulltext.js');
 
 /**
@@ -9,12 +12,13 @@ const fulltext = require('../fulltext/fulltext.js');
  * @param {Object} [moreBody]  Additional options such as size and from
  * @returns {Promise<{result: {records: Object[], total: Number}, details: Object, error:Error}>}
  */
-async function criteria(index, criteria, moreBody = {}) {
-  const musts = [];
+async function criteria(index: any, criteria: any, moreBody = {}) {
+  const musts: any = [];
+  // @ts-expect-error TS(2550): Property 'entries' does not exist on type 'ObjectC... Remove this comment to see the full error message
   for (const [field, value] of Object.entries(criteria)) {
     musts.push({ match: { [field]: value } });
   }
-  const { result, error } = await withEsClient(client => {
+  const { result, error } = await withEsClient((client: any) => {
     return client.search({
       index,
       body: {
@@ -40,7 +44,7 @@ async function criteria(index, criteria, moreBody = {}) {
  * @param {String} id  The document id
  * @returns {Promise<{result: (Object|null), details: *, error}>}
  */
-async function id(index, id) {
+async function id(index: any, id: any) {
   const { result, error, details } = await criteria(index, { id });
   return { result: result?.records?.[0] || null, error, details };
 }
@@ -53,9 +57,10 @@ async function id(index, id) {
  * @param {Object} [moreBody]  Additional options such as size and from
  * @returns {Promise<{result: {records: Object[], total: Number}, details: Object, error:Error}>}
  */
-async function phrase(index, phrase, criteria = {}, moreBody = {}) {
+async function phrase(index: any, phrase: any, criteria = {}, moreBody = {}) {
   phrase = fulltext.processText(phrase);
   const musts = [];
+  // @ts-expect-error TS(2550): Property 'entries' does not exist on type 'ObjectC... Remove this comment to see the full error message
   for (const [field, value] of Object.entries(criteria)) {
     musts.push({ match: { [field]: value } });
   }
@@ -85,7 +90,7 @@ async function phrase(index, phrase, criteria = {}, moreBody = {}) {
     },
   ];
 
-  const { result, error } = await withEsClient(client => {
+  const { result, error } = await withEsClient((client: any) => {
     return client.search({
       index,
       body: {
@@ -112,8 +117,8 @@ async function phrase(index, phrase, criteria = {}, moreBody = {}) {
  * @param {QueryBuilder} query  The query object
  * @returns {Promise<{result: {records: Object[], total: Number}, details: Object, error:Error}>}
  */
-async function query(index, query) {
-  const { result, error } = await withEsClient(client => {
+async function query(index: any, query: any) {
+  const { result, error } = await withEsClient((client: any) => {
     return client.search({
       index,
       body: query.getQuery(),
@@ -132,7 +137,7 @@ async function query(index, query) {
  * @returns {Object}
  * @private
  */
-function _formatRecords(result) {
+function _formatRecords(result: any) {
   if (result?.body?.hits?.hits) {
     const records = [];
     for (const hit of result.body.hits.hits) {
@@ -153,6 +158,8 @@ function _formatRecords(result) {
   return { records: [], total: null, took: result?.took, aggregations: null };
 }
 
+// @ts-expect-error TS(2451): Cannot redeclare block-scoped variable 'findBy'.
 const findBy = { criteria, id, phrase, query };
 
+// @ts-expect-error TS(2580): Cannot find name 'module'. Do you need to install ... Remove this comment to see the full error message
 module.exports = findBy;
