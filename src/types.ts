@@ -1,12 +1,11 @@
-import QueryBuilder from './QueryBuilder/QueryBuilder';
-import isEmptyObject from './isEmptyObject/isEmptyObject';
-
 export type BoostType = {
 	expand?: boolean;
-	boosts?: [number, number, number];
+	boosts?: [or: number, and: number, phrase: number];
 };
 
-export type AnyAll = 'ANY' | 'ALL' | 'any' | 'all';
+export type AnyAllType = 'ANY' | 'ALL' | 'any' | 'all';
+
+export type MatchType = 'match' | 'term';
 
 export type MultiMatchType = {
 	type?:
@@ -61,14 +60,13 @@ export type FieldType =
 	| 'fields'
 	| 'excludeFields'
 	| 'highlighter'
-	| 'functionScore'
+	| 'functionScores'
 	| 'textProcessor';
 
 export type FieldTypeOrTypes = FieldType | FieldType[] | null;
 
-export type FunctionScoreType = {
+export type FunctionScoreItemType = {
 	field: string;
-	query: QueryBuilder;
 	decayFunction?: 'gauss' | 'exp' | 'linear';
 	decayOffset?: number;
 	decayScale?: string;
@@ -77,55 +75,83 @@ export type FunctionScoreType = {
 	multiValueMode?: 'min' | 'max' | 'avg' | 'sum';
 };
 
-export type SizeAndFrom = {
-	size: number;
-	from: number;
+export type EsClientType = {
+	search: Function;
+	close: Function;
+};
+
+export type SourceType = {
+	_source?: string[];
+	_sourceExclude?: string[];
+};
+
+export type FilterType = Record<string, any>;
+
+export type AggregatesType = Record<string, any>;
+
+export type RangeableType = string | number | string[] | number[];
+
+export type SortType =
+	| '_score'
+	| {
+			[field: string]: 'asc' | 'desc';
+	  }
+	| {
+			[field: string]: {
+				order: 'asc' | 'desc';
+				format?: string;
+			};
+	  };
+
+export type SizeFromSort = {
+	size?: number;
+	from?: number;
+	sort?: SortType[];
 };
 
 export type BodyType = {
-	query?: object;
-	highlight: HighlightType;
-	aggs: object;
+	query?: Record<string, any>;
+	highlight?: HighlightType;
+	aggs?: Record<string, any>;
+	functions?: Record<string, any>[];
 };
 
 export type RunResultType = {
-	result:
-		| object
-		| {
-				took: number;
-				_shards: {
-					total: number;
-					successful: number;
-					failed: number;
-					failures?: Array<{
-						shard: number;
-						index: string;
-						node: string;
-						reason: {
-							type: string;
-							reason: string;
-						};
-					}>;
-					skipped: number;
-					shared: number;
+	result: {
+		took: number;
+		_shards: {
+			total: number;
+			successful: number;
+			failed: number;
+			failures?: Array<{
+				shard: number;
+				index: string;
+				node: string;
+				reason: {
+					type: string;
+					reason: string;
 				};
-				hits: {
-					total:
-						| number
-						| {
-								value: number;
-								relation: 'gt' | 'lt' | 'gte' | 'lte';
-						  };
-					hits: Array<{
-						_index: string;
-						_id: string;
-						_score: number;
-						_source?: object;
-						_type?: string;
-						fields?: object;
-					}>;
-				};
-		  };
+			}>;
+			skipped: number;
+			shared: number;
+		};
+		hits: {
+			total:
+				| number
+				| {
+						value: number;
+						relation: 'gt' | 'lt' | 'gte' | 'lte';
+				  };
+			hits: Array<{
+				_index: string;
+				_id: string;
+				_score: number;
+				_source?: Record<string, any>;
+				_type?: string;
+				fields?: Record<string, any>;
+			}>;
+		};
+	};
 	error?: string;
 };
 
@@ -135,7 +161,7 @@ export type HighlightType = {
 	boundary_scanner?: 'chars' | 'sentence' | 'word';
 	boundary_scanner_locale?: string;
 	encoder?: 'default' | 'html';
-	fields?: object;
+	fields?: Record<string, any>;
 	force_source?: boolean;
 	fragmenter?: 'simple' | 'span';
 	fragment_size?: number;

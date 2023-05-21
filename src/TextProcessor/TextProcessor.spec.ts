@@ -1,4 +1,5 @@
-import TextProcessor from './TextProcessor.ts';
+import { describe, it, expect } from 'vitest';
+import TextProcessor from './TextProcessor';
 
 describe('TextProcessor', () => {
 	it('should be a function', () => {

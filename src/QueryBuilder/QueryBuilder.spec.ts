@@ -1,3 +1,4 @@
+import { describe, it, expect } from 'vitest';
 import QueryBuilder from './QueryBuilder';
 
 describe('QueryBuilder', () => {
@@ -352,7 +353,7 @@ describe('QueryBuilder', () => {
 	});
 	it('should fulltext NOT multi match with phrase using AND', () => {
 		const query = new QueryBuilder();
-		query.notMultiMatch(['category', 'tag'], 'Sports', 'ALL');
+		query.notMultiMatch(['category', 'tag'], 'Sports');
 		expect(query.getBody().query).toEqual({
 			bool: {
 				must_not: [
