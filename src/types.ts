@@ -76,8 +76,17 @@ export type FunctionScoreItemType = {
 };
 
 export type EsClientType = {
-	search: Function;
-	close: Function;
+  search: (params: {
+    index: string;
+    body?: Record<string, any>;
+    [key: string]: any;
+  }) => Promise<{
+    body: any;
+    statusCode?: number;
+    headers: Record<string, string>;
+    meta: any;
+  }>;
+  close: () => Promise<void>;
 };
 
 export type SourceType = {

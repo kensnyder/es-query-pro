@@ -16,9 +16,9 @@ export default class TextProcessor {
 	}> = [];
 
 	/**
-	 * The character used to join arrays of text (defaults to Ξ)
+	 * The character used to join arrays of text (defaults to ᛞ)
 	 */
-	#arrayJoiner : string = 'Ξ';
+	#arrayJoiner : string = 'ᛞ';
 
 	/**
 	 * The fields that need processing
@@ -26,7 +26,7 @@ export default class TextProcessor {
 	#fields : Array<string | RegExp> = [];
 
 	/**
-	 * Set the character used to join arrays of text (e.g. Ξ)
+	 * Set the character used to join arrays of text (e.g. ᛞ)
 	 * @param char
 	 */
 	setArrayJoiner(char) {

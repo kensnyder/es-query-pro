@@ -1,4 +1,3 @@
-// @ts-expect-error TS(2580): Cannot find name 'require'. Do you need to install... Remove this comment to see the full error message
 import dateParser from 'any-date-parser';
 
 function _isDateField(field: any) {

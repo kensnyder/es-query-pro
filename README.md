@@ -1,15 +1,32 @@
 # es-query-pro
 
-[![NPM Link](https://img.shields.io/npm/v/es-query-pro?v=1.0.0)](https://npmjs.com/package/es-query-pro)
-[![Build Status](https://ci.appveyor.com/api/projects/status/github/kensnyder/es-query-pro?branch=master&svg=true&v=1.0.0)](https://ci.appveyor.com/project/kensnyder/es-query-pro/branch/master)
-[![Code Coverage](https://codecov.io/gh/kensnyder/es-query-pro/branch/master/graph/badge.svg?v=1.0.0)](https://codecov.io/gh/kensnyder/es-query-pro)
-[![ISC License](https://img.shields.io/npm/l/es-query-pro.svg?v=1.0.0)](https://opensource.org/licenses/ISC)
+[![NPM Link](https://badgen.net/npm/v/es-query-pro?v=2.0.0-beta.1)](https://npmjs.com/package/es-query-pro)
+[![Language](https://badgen.net/static/language/TS?v=2.0.0-beta.1)](https://github.com/search?q=repo:kensnyder/es-query-pro++language:TypeScript&type=code)
+[![Build Status](https://github.com/kensnyder/es-query-pro/actions/workflows/node.js.yml/badge.svg?v=2.0.0-beta.1)](https://github.com/kensnyder/es-query-pro/actions)
+[![Code Coverage](https://codecov.io/gh/kensnyder/es-query-pro/branch/main/graph/badge.svg?v=2.0.0-beta.1)](https://codecov.io/gh/kensnyder/es-query-pro)
+![GzippedSize](https://deno.bundlejs.com/?q=aes-query-pro&badge&v=2.0.0-beta.1)
+[![Tree shakeable](https://badgen.net/bundlephobia/tree-shaking/es-query-pro?v=2.0.0-beta.1)](https://www.npmjs.com/package/es-query-pro)
+[![ISC License](https://badgen.net/static/license/ISC/green?v=2.0.0-beta.1)](https://opensource.org/licenses/ISC)
 
 Simple and powerful ElasticSearch query builder
 
 ## Installation
 
 `npm install es-query-pro`
+
+## Basic usage
+
+```ts
+import EsQueryBuilder from 'es-query-pro';
+
+const query = new EsQueryBuilder();
+query.term('author', 15);
+query.matchBoostedPhrase(['fulltext_*'], 'Cold pressed juice');
+query.range('created_at', '>=', '2021-01-01');
+query.sort('created_at', 'desc');
+query.limit(25);
+query.page(2);
+```
 
 ## Function reference
 
@@ -104,8 +121,8 @@ query.page(2);
 const textProcessor = new TextProcessor();
 textProcessor.setArrayJoiner('ψ');
 textProcessor.registerPattern(
-	{ find: /([a-z])&([a-z0-9])/gi, replace: '$1ε$2' },
-	{ find: /([a-z])ε([a-z0-9])/gi, replace: '$1&$2' }
+  { find: /([a-z])&([a-z0-9])/gi, replace: '$1ε$2' },
+  { find: /([a-z])ε([a-z0-9])/gi, replace: '$1&$2' }
 );
 textProcessor.registerField(/^fulltext_/);
 QueryBuilder.registerProcessor(textProcessor);

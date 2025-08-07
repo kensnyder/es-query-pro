@@ -1,6 +1,7 @@
-import withEsClient from '../withEsClient/withEsClient.js';
+import { Client } from '@elastic/elasticsearch';
 import dates from '../dates/dates.js';
 import fulltext from '../fulltext/fulltext.js';
+import withEsClient from '../withEsClient/withEsClient.js';
 
 /**
  * Return records matching simple field-value pairs
@@ -9,24 +10,30 @@ import fulltext from '../fulltext/fulltext.js';
  * @param {Object} [moreBody]  Additional options such as size and from
  * @returns {Promise<{result: {records: Object[], total: Number}, details: Object, error:Error}>}
  */
-async function criteria(index: any, criteria: any, moreBody = {}) {
+async function criteria(
+  index: string,
+  criteria: Record<string, any>,
+  moreBody: Record<string, any> = {}
+) {
   const musts: any = [];
   for (const [field, value] of Object.entries(criteria)) {
     musts.push({ match: { [field]: value } });
   }
-  const { result, error } = await withEsClient((client: any) => {
+  const { result, error } = await withEsClient((client: Client) => {
     return client.search({
       index,
-      body: {
-        query: {
-          bool: {
-            must: musts,
-          },
+      query: {
+        match: {
+          content_review: 'love',
         },
-        ...moreBody,
+        // bool: {
+        //   must: musts,
+        // },
       },
+      ...moreBody,
     });
   });
+  console.log('findBy.criteria result=', result);
   return {
     result: _formatRecords(result),
     error,

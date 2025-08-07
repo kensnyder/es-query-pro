@@ -3,51 +3,56 @@ import doesIndexExist from '../doesIndexExist/doesIndexExist';
 import schemaToMappings from '../schemaToMappings/schemaToMappings';
 import createIndex from '../createIndex/createIndex';
 import findBy from '../findBy/findBy';
-import createSlug from '../createSlug/createSlug';
 import putRecord from '../putRecord/putRecord';
 import updateRecord from '../updateRecord/updateRecord';
 import deleteRecord from '../deleteRecord/deleteRecord';
 import createAlias from '../createAlias/createAlias';
 import doesAliasExist from '../doesAliasExist/doesAliasExist';
+import type QueryBuilder from "../QueryBuilder/QueryBuilder";
 
 /**
  * ElasticSearch index manager for creating, searching and saving data
  * for a particular index
  */
-export default class IndexManager {
-  index: any;
-  language: any;
-  schema: any;
+export default class IndexManager<Schema extends Record<string, string>> {
+  index: string;
+  language: string;
+  schema: Schema;
   settings: any;
-  version: any;
+  version: number | string;
+  prefix: string;
   /**
    * Define the index with the given configuration
-   * @param {String} index  The base index name such as
-   * @param {Number} version  Digit indicating the revision for this configuration
-   * @param {Object} schema  The schema definition (see schemaToMappings.spec.js)
-   * @param {Object} settings  The ElasticSearch settings; e.g. for sort hints
+   * @param index  The base index name such as "blogPosts"
+   * @param version  Digit indicating the revision for this configuration
+   * @param schema  The schema definition (see schemaToMappings.spec.js)
+   * @param settings  The ElasticSearch settings; e.g. for sort hints
+   * @param prefix  A prefix to isolate these tables from another application or environment
+   * @param language  A language code or analyzer
    */
   constructor({
     index,
-    version,
+    version = 1,
     schema,
-    settings
+    settings,
+    prefix = '',
+    language = 'englishplus',
   }: any) {
     this.index = index;
     this.version = version;
     this.schema = schema;
     this.settings = settings;
-    this.language = 'englishplus';
+    this.language = language;
+    this.prefix = prefix;
   }
 
   /**
    * Return the full name including prefix, language and version
-   * @returns {String}
    */
   getIndexName() {
     return indexName.build({
-      prefix: 'bw',
-      language: 'englishplus',
+      prefix: this.prefix,
+      language: this.language,
       index: this.index,
       version: this.version,
     });
@@ -55,21 +60,19 @@ export default class IndexManager {
 
   /**
    * Return the full name including prefix, language and version
-   * @returns {String}
    */
   getAliasName() {
     return indexName.alias({
-      prefix: 'bw',
-      language: 'englishplus',
+      prefix: this.prefix,
+      language: this.language,
       index: this.index,
     });
   }
 
   /**
    * Update the language which will be reflected in getIndexName()
-   * @param {String} language  An analyzer name such as cjk, spanish, englishplus
+   * @param language  An analyzer name such as cjk, spanish, englishplus
    * @see https://www.elastic.co/guide/en/elasticsearch/reference/7.17/analysis-lang-analyzer.html
-   * @returns {IndexManager}
    */
   setLanguage(language: any) {
     this.language = language;
@@ -97,7 +100,7 @@ export default class IndexManager {
    * @returns {Promise<{result: Boolean, details: Object, error: Error}>}
    */
   async create() {
-    const mappings = schemaToMappings(this.schema);
+    const mappings = schemaToMappings(this.schema, this.language);
     const settings = this.settings;
     return createIndex(this.getIndexName(), { mappings, settings });
   }
@@ -110,6 +113,10 @@ export default class IndexManager {
     return createAlias(this.getIndexName(), this.getAliasName());
   }
 
+  /**
+   * Create the index, but only if needed
+   * @returns {Promise<{result: Boolean, details: Object, error: Error}>}
+   */
   async createIfNeeded() {
     const { result: alreadyExists, error, details } = await this.exists();
     if (alreadyExists === true) {
@@ -124,6 +131,11 @@ export default class IndexManager {
     }
   }
 
+  /**
+   * Create the alias, but only if needed
+   *
+   * @returns {Promise<{result: Boolean, details: Object, error: Error}>}
+   */
   async createAliasIfNeeded() {
     const { result: alreadyExists, error, details } = await this.aliasExists();
     if (alreadyExists === true) {
@@ -140,64 +152,49 @@ export default class IndexManager {
 
   /**
    * Find a single record by the given id
-   * @param {String} id
+   * @param id  The record id
    * @returns {Promise<{result: Object, details: Object, error:Error}>}
    */
-  async findById(id: any) {
+  async findById(id: number | string) {
     return await findBy.id(this.getIndexName(), id);
   }
 
   /**
    * Find records that match the given criteria
-   * @param {Object} criteria  Field-value pairs of fields to match
-   * @param {Object} [moreBody]  Additional body params such as size and from
+   * @param criteria  Field-value pairs of fields to match
+   * @param [moreBody]  Additional body params such as size and from
    * @returns {Promise<{result: {records: Object[], total: Number}, details: Object, error:Error}>}
    */
-  async findByCriteria(criteria: any, moreBody: any) {
+  async findByCriteria(criteria: Record<string,any>, moreBody: Record<string,any>) {
     return await findBy.criteria(this.getAliasName(), criteria, moreBody);
   }
 
   /**
    * Find records that have content_* columns matching the given term or phrase
-   * @param {String} phrase  A word or phrase to search for
-   * @param {Object} criteria  Field-value pairs of fields to match
-   * @param {Object} [moreBody]  Additional body params such as size and from
+   * @param phrase  A word or phrase to search for
+   * @param criteria  Field-value pairs of fields to match
+   * @param [moreBody]  Additional body params such as size and from
    * @returns {Promise<{result: {records: Object[], total: Number}, details: Object, error:Error}>}
    */
-  async findByPhrase(phrase: any, criteria: any, moreBody: any) {
+  async findByPhrase(phrase: string, criteria: Record<string,any>, moreBody: Record<string,any>) {
     return await findBy.phrase(this.getAliasName(), phrase, criteria, moreBody);
   }
 
   /**
    * Find records matching the given QueryBuilder object
-   * @param {QueryBuilder} query  Criteria
+   * @param query  A QueryBuilder instance
    * @returns {Promise<{result: {records: Object[], total: Number}, details: Object, error:Error}>}
    */
-  async findByQuery(query: any) {
+  async findByQuery(query: QueryBuilder) {
     return await findBy.query(this.getAliasName(), query);
   }
 
   /**
    * Save the given record and return its id (uses PUT)
-   * @param {String} savedBy  The user who saved it
-   * @param {Object} data  The record to save
+   * @param data  The record to save
    * @returns {Promise<{result: String, details: Object, error: Error}>}
    */
-  async put({
-    savedBy,
-    data
-  }: any) {
-    if (!data.id) {
-      data.id = createSlug(25);
-      if (savedBy !== undefined) {
-        data.created_at = Date.now();
-        data.created_by = savedBy;
-      }
-    }
-    if (savedBy !== undefined) {
-      data.modified_at = Date.now();
-      data.modified_by = savedBy;
-    }
+  async put(data: Record<keyof Schema,any>) {
     const { result, error, details } = await putRecord(
       this.getAliasName(),
       data
@@ -207,19 +204,11 @@ export default class IndexManager {
 
   /**
    * Save the given partial record (uses updateRecord())
-   * @param {String} savedBy  The user who saved it
-   * @param {Object} data  The record to save
+   * @param id  The record id
+   * @param data  The record to save
    * @returns {Promise<{result: String, details: Object, error: Error}>}
    */
-  async patch({
-    id,
-    savedBy,
-    data
-  }: any) {
-    if (savedBy !== undefined) {
-      data.modified_at = Date.now();
-      data.modified_by = savedBy;
-    }
+  async patch(id: number | string, data: Record<keyof Schema,any>) {
     const { result, error, details } = await updateRecord(
       this.getAliasName(),
       id,
@@ -229,29 +218,11 @@ export default class IndexManager {
   }
 
   /**
-   * Update the modified_* and deleted_* fields to signify record was deleted
-   * @param {String} id  The id of the record
-   * @param {String} deletedBy  The user who deleted it
-   * @returns {Promise<{result: Boolean, details: Object, error: Error}>}
-   */
-  async softDelete(id: any, deletedBy: any) {
-    if (!id) {
-      return { result: true, error: null, details: 'Not yet in database' };
-    }
-    return await updateRecord(this.getAliasName(), id, {
-      modified_at: Date.now(),
-      modified_by: deletedBy,
-      deleted_at: Date.now(),
-      deleted_by: deletedBy,
-    });
-  }
-
-  /**
    * Remove record from database
    * @param {String} id  The id of the record
    * @returns {Promise<{result: Boolean, details: Object, error: Error}>}
    */
-  async delete(id: any) {
+  async delete(id: number | string) {
     if (!id) {
       return { result: true, error: null, details: 'Not yet in database' };
     }

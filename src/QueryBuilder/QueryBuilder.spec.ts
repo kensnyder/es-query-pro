@@ -231,7 +231,7 @@ describe('QueryBuilder', () => {
 							should: [
 								{
 									multi_match: {
-										fields: ['body'],
+										fields: ['fulltext_*'],
 										operator: 'or',
 										query: 'Sports medicine doctor',
 										boost: 2,
@@ -239,7 +239,7 @@ describe('QueryBuilder', () => {
 								},
 								{
 									multi_match: {
-										fields: ['body'],
+										fields: ['fulltext_*'],
 										operator: 'and',
 										query: 'Sports medicine doctor',
 										boost: 4,
@@ -247,9 +247,69 @@ describe('QueryBuilder', () => {
 								},
 								{
 									multi_match: {
-										fields: ['body'],
+										fields: ['fulltext_*'],
 										type: 'phrase',
 										query: 'Sports medicine doctor',
+										boost: 7,
+									},
+								},
+							],
+						},
+					},
+				],
+			},
+		});
+	});
+	it.skip('should fulltext match single boostedPhrase against nested field', () => {
+		const query = new QueryBuilder();
+		query.matchBoostedPhrase('categories.value', 'Sports medicine doctor', {
+			expand: true,
+			boosts: [2, 4, 7],
+		});
+		expect(query.getBody().query).toEqual({
+			bool: {
+				must: [
+					{
+						bool: {
+							should: [
+								{
+									nested: {
+										path: 'categories',
+										query: {
+											match: {
+												'categories.value': {
+													query: 'Sports medicine doctor',
+													operator: 'or',
+												},
+											},
+										},
+										boost: 2,
+									},
+								},
+								{
+									nested: {
+										path: 'categories',
+										query: {
+											match: {
+												'categories.value': {
+													query: 'Sports medicine doctor',
+													operator: 'and',
+												},
+											},
+										},
+										boost: 4,
+									},
+								},
+								{
+									nested: {
+										path: 'categories',
+										query: {
+											match_phrase: {
+												'categories.value': {
+													query: 'Sports medicine doctor',
+												},
+											},
+										},
 										boost: 7,
 									},
 								},

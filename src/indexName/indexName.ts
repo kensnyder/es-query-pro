@@ -1,43 +1,50 @@
 /**
  * Given index info, get the index name
- * @param {Object}
- * @property {String} prefix  The app prefix such as bw
- * @property {String} index  The index base name
- * @property {Number} version  The version number for this index
- * @property {String} language  The indexing language
- * @returns {string}
+ * @param spec
+ * @property prefix  The app prefix such as bw
+ * @property index  The index base name
+ * @property version  The version number for this index
+ * @property language  The indexing language
  */
 function build({
  prefix,
  language,
  index,
  version
-}: any) {
-  return `${prefix}-${language}-${index}-v${version}`;
+}: {
+  prefix: string;
+  language: string;
+  index: string;
+  version: number | string;
+}) {
+  return `${prefix}${language}-${index}-v${version}`;
 }
 
 /**
  * Given index info, get the alias name (i.e. build() without the version number)
- * @param {Object}
- * @property {String} prefix  The app prefix such as bw
- * @property {String} index  The index base name
- * @property {String} language  The indexing language
- * @returns {string}
+ * @param spec
+ * @property prefix  The app prefix such as bw
+ * @property index  The index base name
+ * @property language  The indexing language
  */
 function alias({
  prefix,
  language,
  index
-}: any) {
-  return `${prefix}-${language}-${index}`;
+}: {
+  prefix: string;
+  language: string;
+  index: string;
+}) {
+  return `${prefix}${language}-${index}`;
 }
 
 /**
  * Given an index name, split into parts
- * @param {String} name  A name such as bw-englishplus-login_history-v1
+ * @param {String} name  A name such as prod-englishplus-loginHistory-v1
  * @returns {{prefix: String, language: String, index: String, version: Number}}
  */
-function parse(name: any) {
+function parse(name: string) {
   const [prefix, language, index, versionString] = name.split('-');
   const version = parseInt(versionString.slice(1)); // remove leading v
   return { prefix, language, index, version };

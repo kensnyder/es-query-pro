@@ -1,22 +1,20 @@
 {
   "compilerOptions": {
+    "lib": ["DOM", "DOM.Iterable", "ESNext"],
     "module": "ESNext",
     "target": "ESNext",
+    "moduleDetection": "force",
     "outDir": "./dist",
     "declaration": true,
     "removeComments": false,
     "noEmit": false,
     "pretty": true,
     "isolatedModules": true,
-    "lib": ["DOM", "DOM.Iterable", "ESNext"],
     "sourceMap": false,
     "skipLibCheck": true,
-    "moduleResolution": "node",
-    "allowSyntheticDefaultImports": true,
-    "jsx": "react-jsx"
+    "moduleResolution": "Bundler",
+    "allowSyntheticDefaultImports": true
   },
-  "include": [
-    "src/**/*.ts"
-  ],
+  "include": ["src/**/*.ts"],
   "files": ["index.ts"]
 }

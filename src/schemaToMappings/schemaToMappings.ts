@@ -1,9 +1,10 @@
 /**
  * Convert shorthand schema format to ElasticSearch mappings
  * @param schema  name-type pairs for each field in an index
+ * @param language  The name of the analyzer to use for fulltext fields
  * @returns Object suitable for setting ElasticSearch mappings
  */
-export default function schemaToMappings(schema: Record<string,string>) {
+export default function schemaToMappings(schema: Record<string,string>,language:string) {
   const properties = {};
   for (const [name, type] of Object.entries(schema)) {
     if (type.includes('.')) {
@@ -27,7 +28,7 @@ export default function schemaToMappings(schema: Record<string,string>) {
           },
           fulltext: {
             type: 'text',
-            analyzer: 'englishplus',
+            analyzer: language,
           },
         },
         // see https://www.elastic.co/guide/en/elasticsearch/reference/7.17/highlighting.html#fast-vector-highlighter

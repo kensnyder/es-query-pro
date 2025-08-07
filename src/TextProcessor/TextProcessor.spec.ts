@@ -26,9 +26,9 @@ describe('TextProcessor', () => {
 	});
 	it('should join and split text', () => {
 		const proc = new TextProcessor();
-		proc.setArrayJoiner('Ξ');
-		expect(proc.join(['foo', 'bar'])).toBe('foo Ξ bar');
-		expect(proc.split('foo Ξ bar')).toEqual(['foo', 'bar']);
+		proc.setArrayJoiner('ᛟ');
+		expect(proc.join(['foo', 'bar'])).toBe('foo ᛟ bar');
+		expect(proc.split('foo ᛟ bar')).toEqual(['foo', 'bar']);
 	});
 	it('should process records', () => {
 		const proc = new TextProcessor();
