@@ -1,4 +1,4 @@
-# es-query-pro
+# es-builder-pro
 
 [![NPM Link](https://badgen.net/npm/v/es-query-pro?v=2.0.0-beta.1)](https://npmjs.com/package/es-query-pro)
 [![Language](https://badgen.net/static/language/TS?v=2.0.0-beta.1)](https://github.com/search?q=repo:kensnyder/es-query-pro++language:TypeScript&type=code)
@@ -8,24 +8,24 @@
 [![Tree shakeable](https://badgen.net/bundlephobia/tree-shaking/es-query-pro?v=2.0.0-beta.1)](https://www.npmjs.com/package/es-query-pro)
 [![ISC License](https://badgen.net/static/license/ISC/green?v=2.0.0-beta.1)](https://opensource.org/licenses/ISC)
 
-Simple and powerful ElasticSearch query builder
+Simple and powerful ElasticSearch builder builder
 
 ## Installation
 
-`npm install es-query-pro`
+`npm install es-builder-pro`
 
 ## Basic usage
 
 ```ts
-import EsQueryBuilder from 'es-query-pro';
+import EsQueryBuilder from 'es-builder-pro';
 
-const query = new EsQueryBuilder();
-query.term('author', 15);
-query.matchBoostedPhrase(['fulltext_*'], 'Cold pressed juice');
-query.range('created_at', '>=', '2021-01-01');
-query.sort('created_at', 'desc');
-query.limit(25);
-query.page(2);
+const builder = new EsQueryBuilder();
+builder.term('author', 15);
+builder.matchBoostedPhrase(['fulltext_*'], 'Cold pressed juice');
+builder.range('created_at', '>=', '2021-01-01');
+builder.sort('created_at', 'desc');
+builder.limit(25);
+builder.page(2);
 ```
 
 ## Function reference
@@ -49,7 +49,7 @@ query.page(2);
 | matchPhrasePrefix(fieldOrFields, phraseOrPhrases)    | Full-text         | matchPhrasePrefix('title', 'Little Red R')                   |
 | multiMatch(fields, valueOrValues, anyOrAll)          | Full-text         | multiMatch(\['title','body'], \['phone','mobile'], 'ALL')    |
 | multiMatchWithPhrase(fields, valueOrValues, options) | Full-text         | multiMatchWithPhrase(\['title','body'], \['phone','mobile']) |
-| queryString(fieldOrFields, query)                    | Lucene expression | queryString('body', '(tech AND support) OR (service desk)')  |
+| queryString(fieldOrFields, builder)                  | Lucene expression | queryString('body', '(tech AND support) OR (service desk)')  |
 
 boostedPhrase??
 
@@ -95,26 +95,26 @@ boostedPhrase??
 
 ## Inspection
 
-| Function     | Purpose                                      |
-| ------------ | -------------------------------------------- |
-| toKibana()   | Get a string suitable for running in Kibana  |
-| getFields()  | Get the list of fields that will be returned |
-| getBody()    | Get the structure of the query body          |
-| getOptions() | Get the size, from, sort                     |
-| getQuery()   | Return the fields, body and options to query |
+| Function     | Purpose                                        |
+| ------------ | ---------------------------------------------- |
+| toKibana()   | Get a string suitable for running in Kibana    |
+| getFields()  | Get the list of fields that will be returned   |
+| getBody()    | Get the structure of the builder body          |
+| getOptions() | Get the size, from, sort                       |
+| getQuery()   | Return the fields, body and options to builder |
 
 ## Examples
 
 ```js
-const EsQueryBuilder = require('es-query-pro');
+const EsQueryBuilder = require('es-builder-pro');
 
-const query = new EsQueryBuilder();
-query.term('author', 15);
-query.matchBoostedPhrase(['fulltext_*'], 'Cold pressed juice');
-query.range('created_at', '>=', '2021-01-01');
-query.sort('created_at', 'desc');
-query.limit(25);
-query.page(2);
+const builder = new EsQueryBuilder();
+builder.term('author', 15);
+builder.matchBoostedPhrase(['fulltext_*'], 'Cold pressed juice');
+builder.range('created_at', '>=', '2021-01-01');
+builder.sort('created_at', 'desc');
+builder.limit(25);
+builder.page(2);
 ```
 
 ```js

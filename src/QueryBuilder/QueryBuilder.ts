@@ -1,3 +1,8 @@
+import { estypes } from '@elastic/elasticsearch';
+import {
+  QueryDslDecayFunctionBase,
+  QueryDslFunctionScoreContainer,
+} from '@elastic/elasticsearch/lib/api/types';
 import isEmptyObject from '../isEmptyObject/isEmptyObject';
 import TextProcessor from '../TextProcessor/TextProcessor';
 import {
@@ -22,7 +27,7 @@ import {
 } from '../types';
 
 /**
- * Build ElasticSearch query
+ * Build ElasticSearch builder
  */
 export default class QueryBuilder {
   /**
@@ -38,27 +43,27 @@ export default class QueryBuilder {
   /**
    * The must filters
    */
-  #must: FilterType[] = [];
+  #must: estypes.QueryDslQueryContainer[] = [];
 
   /**
    * The must_not filters
    */
-  #mustNot: FilterType[] = [];
+  #mustNot: estypes.QueryDslQueryContainer[] = [];
 
   /**
-   * The "aggs" to add to the query
+   * The "aggs" to add to the builder
    */
-  #aggs: AggregatesType = {};
+  #aggs: estypes.SearchRequest['aggs'] = {};
 
   /**
-   * The function score query
+   * The function score builder
    */
-  #functionScores: FunctionScoreItemType[] = [];
+  #functionScores: QueryDslDecayFunctionBase[] = [];
 
   /**
    * The highlight definition
    */
-  #highlighter: HighlightType = null;
+  #highlighter: estypes.SearchRequest['highlight'] = null;
 
   /**
    * The max number of records to return
@@ -73,7 +78,7 @@ export default class QueryBuilder {
   /**
    * Fields to sort by
    */
-  #sorts: SortType[] = [];
+  #sorts: estypes.SearchRequest['sort'][] = [];
 
   /**
    * If true, use "random_score" for a function score
@@ -440,7 +445,7 @@ export default class QueryBuilder {
           multi_match: {
             fields: ['fulltext_*'],
             operator: 'or',
-            query: 'Sports medicine doctor',
+            builder: 'Sports medicine doctor',
             boost: 1,
           },
         },
@@ -450,7 +455,7 @@ export default class QueryBuilder {
           multi_match: {
             fields: ['fulltext_*'],
             operator: 'and',
-            query: 'Sports medicine doctor',
+            builder: 'Sports medicine doctor',
             boost: 3,
           },
         },
@@ -460,7 +465,7 @@ export default class QueryBuilder {
           multi_match: {
             fields: ['fulltext_*'],
             type: 'phrase',
-            query: 'Sports medicine doctor',
+            builder: 'Sports medicine doctor',
             boost: 5,
           },
         },
@@ -469,10 +474,10 @@ export default class QueryBuilder {
         {
           nested: {
             path: 'categories',
-            query: {
+            builder: {
               match: {
                 'categories.value': {
-                  query: 'Sports medicine doctor',
+                  builder: 'Sports medicine doctor',
                   operator: 'or',
                 },
               },
@@ -485,10 +490,10 @@ export default class QueryBuilder {
         {
           nested: {
             path: 'categories',
-            query: {
+            builder: {
               match: {
                 'categories.value': {
-                  query: 'Sports medicine doctor',
+                  builder: 'Sports medicine doctor',
                   operator: 'and',
                 },
               },
@@ -501,10 +506,10 @@ export default class QueryBuilder {
         {
           nested: {
             path: 'categories',
-            query: {
+            builder: {
               match_phrase: {
                 'categories.value': {
-                  query: 'Sports medicine doctor',
+                  builder: 'Sports medicine doctor',
                 },
               },
             },
@@ -540,7 +545,7 @@ export default class QueryBuilder {
 
   /**
    * Create a basic multi_match clause and add any of the available options.
-   * than they would be in a regular multi_match query
+   * than they would be in a regular multi_match builder
    * See the "Combining OR, AND, and match phrase queries" section of https://www.elastic.co/blog/how-to-improve-elasticsearch-search-relevance-with-boolean-queries.
    * @param fieldOrFields The field(s) to search
    * @param valueOrValues  The value(s) to match on
@@ -676,7 +681,7 @@ export default class QueryBuilder {
   /**
    * Add a Lucene expression condition
    * @param fieldOrFields  The name of the field(s) to search
-   * @param query A query string containing special operators such as AND, NOT, OR, ~, *
+   * @param query A builder string containing special operators such as AND, NOT, OR, ~, *
    * @return {QueryBuilder}
    * @chainable
    */
@@ -917,7 +922,7 @@ export default class QueryBuilder {
   }
 
   /**
-   * Clear out one or more query properties
+   * Clear out one or more builder properties
    * @param field  Valid values: sort, page, limit, must, mustNot, aggs, fields, highlighter, functionScore, textProcessor
    */
   clear(field: FieldTypeOrTypes = null) {
@@ -977,36 +982,13 @@ export default class QueryBuilder {
   }
 
   /**
-   * Add a decay function score query
+   * Add a decay function score builder
    * @see https://www.elastic.co/guide/en/elasticsearch/reference/7.17/query-dsl-function-score-query.html#function-decay
-   * @param field  The name of the field to apply the decay function
-   * @param decayFunction  One of gauss, exp or linear
-   * @param decayOffset  The central point from which distance is calculated
-   * @param decayScale  For dates, a scale in format such as 90d, 2M, 1y etc; For geo, can be distance in km
-   * @param decayOrigin
-   * @param decayNumber  A number between 0 and 1 designating the rate of decay
-   * @param multiValueMode
    * @return {QueryBuilder}
    * @chainable
    */
-  decayFunctionScore({
-    field,
-    decayFunction = 'gauss',
-    decayOffset = 0,
-    decayScale = '30d',
-    decayOrigin = undefined,
-    decayNumber = 0.5,
-    multiValueMode = undefined,
-  }: FunctionScoreItemType) {
-    this.#functionScores.push({
-      field,
-      decayFunction,
-      decayOffset,
-      decayScale,
-      decayOrigin,
-      decayNumber,
-      multiValueMode,
-    });
+  decayFunctionScore(functionScore: estypes.QueryDslDecayFunctionBase) {
+    this.#functionScores.push(functionScore);
     return this;
   }
 
@@ -1028,7 +1010,7 @@ export default class QueryBuilder {
 
   /**
    * Require matching of a subquery
-   * @param subquery  The query object
+   * @param subquery  The builder object
    * @return This instance
    * @chainable
    */
@@ -1042,7 +1024,7 @@ export default class QueryBuilder {
   }
 
   /**
-   * Build a nested bool "must" query inside a bool "should"
+   * Build a nested bool "must" builder inside a bool "should"
    * @param subqueries - An array of subqueries to add
    * @return This instance
    * @chainable
@@ -1066,7 +1048,7 @@ export default class QueryBuilder {
 
   /**
    * Require non-matching of a subquery
-   * @param subquery  The query object
+   * @param subquery  The builder object
    * @return This instance
    * @chainable
    */
@@ -1076,7 +1058,7 @@ export default class QueryBuilder {
         should: {
           bool: {
             must_not: subquery.getMust(),
-          },
+          } as estypes.QueryDslBoolQuery,
         },
       },
     });
@@ -1103,7 +1085,7 @@ export default class QueryBuilder {
    *   tags_schema: 'styled'
    * }
    */
-  useHighlighter(value: HighlightType) {
+  useHighlighter(value: estypes.SearchRequest['highlight']) {
     this.#highlighter = value;
     return this;
   }
@@ -1117,7 +1099,7 @@ export default class QueryBuilder {
   }
 
   /**
-   * Run this query using the given client object and index name
+   * Run this builder using the given client object and index name
    * @param client
    * @param index
    */
@@ -1138,27 +1120,34 @@ export default class QueryBuilder {
         // Only try to close the client if it has a close method
         if (client && typeof client.close === 'function') {
           await client.close().catch((e: Error) => {
-            console.error('Error closing Elasticsearch client in QueryBuilder:', e);
+            console.error(
+              'Error closing Elasticsearch client in QueryBuilder:',
+              e
+            );
           });
         }
       } catch (e) {
-        console.error('Unexpected error when closing Elasticsearch client in QueryBuilder:', e);
+        console.error(
+          'Unexpected error when closing Elasticsearch client in QueryBuilder:',
+          e
+        );
       }
     }
   }
 
   /**
-   * Return the query body
+   * Return the builder body
    * @return {Object}
    */
-  getBody(): BodyType {
-    const body: BodyType = {};
+  getBody() {
+    const body: Pick<estypes.SearchRequest, 'query' | 'highlight' | 'aggs'> =
+      {};
     if (this.#must.length > 0) {
-      body.query = { bool: { must: this.#must } };
+      body.query = { bool: { must: this.#must } as estypes.QueryDslBoolQuery };
     }
     if (this.#mustNot.length > 0) {
       if (!body.query) {
-        body.query = { bool: {} };
+        body.query = { bool: {} as estypes.QueryDslBoolQuery };
       }
       body.query.bool.must_not = this.#mustNot;
     }
@@ -1176,42 +1165,42 @@ export default class QueryBuilder {
         query: { bool: body.query.bool },
         // random_store must be an empty JSON object
         random_score: {},
-      };
+      } as estypes.QueryDslFunctionScoreQuery;
       body.query.bool = undefined;
     }
-    if (this.#functionScores.length > 0) {
-      body.functions = this.#functionScores.map(
-        ({
-          field,
-          decayFunction,
-          decayOffset,
-          decayScale,
-          decayNumber,
-          decayOrigin,
-          multiValueMode,
-        }) => {
-          return {
-            [decayFunction]: {
-              [field]: {
-                offset: decayOffset,
-                scale: decayScale,
-                decay: decayNumber,
-                origin: decayOrigin,
-              },
-              multi_value_mode: multiValueMode,
-            },
-          };
-        }
-      );
-    }
+    // if (this.#functionScores.length > 0) {
+    //   body.functions = this.#functionScores.map(
+    //     ({
+    //       field,
+    //       decayFunction,
+    //       decayOffset,
+    //       decayScale,
+    //       decayNumber,
+    //       decayOrigin,
+    //       multiValueMode,
+    //     }) => {
+    //       return {
+    //         [decayFunction]: {
+    //           [field]: {
+    //             offset: decayOffset,
+    //             scale: decayScale,
+    //             decay: decayNumber,
+    //             origin: decayOrigin,
+    //           },
+    //           multi_value_mode: multiValueMode,
+    //         },
+    //       };
+    //     }
+    //   );
+    // }
     return body;
   }
 
   /**
    * Return the "size" and "from" based on "limit" and "page"
-   * @return The options to send in the query
+   * @return The options to send in the builder
    */
-  getOptions(): SizeFromSort {
+  getOptions(): Pick<estypes.SearchRequest, 'size' | 'from' | 'sort'> {
     const options = {} as SizeFromSort;
     if (this.#limit !== null) {
       options.size = this.#limit;
@@ -1226,17 +1215,20 @@ export default class QueryBuilder {
   }
 
   /**
-   * Get an object representation of the query body
+   * Get an object representation of the builder body
    * suitable for the Elasticsearch SDK or Kibana
    * @return {Object}
    */
-  getQuery(overrides: object = {}): BodyType {
-    const source: SourceType = {};
+  getQuery(
+    overrides: Partial<estypes.SearchRequest> = {}
+  ): estypes.SearchRequest {
+    const source: Pick<estypes.SearchRequest, '_source' | '_source_excludes'> =
+      {};
     if (this.#fields.length > 0) {
       source._source = this.#fields;
     }
     if (this.#excludeFields.length > 0) {
-      source._sourceExclude = this.#excludeFields;
+      source._source_excludes = this.#excludeFields;
     }
     return {
       ...source,
@@ -1251,20 +1243,19 @@ export default class QueryBuilder {
    * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/JSON/stringify#tojson_behavior
    * @returns {String}
    */
-  toJSON(): BodyType {
+  toJSON() {
     return this.getQuery();
   }
 
   /**
    * For getting value, simply use the value returned from getQuery()
-   * @returns {String}
    */
-  valueOf(): BodyType {
+  valueOf() {
     return this.getQuery();
   }
 
   /**
-   * Get a full Kibana query string for the given query
+   * Get a full Kibana builder string for the given builder
    * @param {String} index  The index to pull the name from
    * @return {String}
    */

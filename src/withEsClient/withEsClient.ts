@@ -9,7 +9,6 @@ export default async function withEsClient<T>(
     const handlerResult = handler(client);
     const result: T =
       handlerResult instanceof Promise ? await handlerResult : handlerResult;
-    console.log('withEsClient result -------------\n', result);
     return { result, error: null };
   } catch (e) {
     const error = e as Error;

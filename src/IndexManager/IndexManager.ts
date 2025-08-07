@@ -160,7 +160,7 @@ export default class IndexManager<Schema extends Record<string, string>> {
   }
 
   /**
-   * Find records that match the given criteria
+   * Find records that match the given where
    * @param criteria  Field-value pairs of fields to match
    * @param [moreBody]  Additional body params such as size and from
    * @returns {Promise<{result: {records: Object[], total: Number}, details: Object, error:Error}>}
