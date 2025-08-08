@@ -1,24 +1,21 @@
 import { estypes } from '@elastic/elasticsearch';
 import IndexManager from '../IndexManager/IndexManager';
 import isEmptyObject from '../isEmptyObject/isEmptyObject';
+import TextProcessor from '../TextProcessor/TextProcessor';
 import {
   AnyAllType,
   BoostType,
-  ElasticsearchRecord,
   FieldTypeOrTypes,
   IntervalType,
   MatchType,
   OperatorType,
-  SchemaShape,
 } from '../types';
 
 /**
  * Build ElasticSearch builder
  */
-export default class QueryBuilder<
-  ThisSchema extends SchemaShape = SchemaShape,
-> {
-  public index: IndexManager<ThisSchema>;
+export default class QueryBuilder {
+  public textProcessor: TextProcessor;
   /**
    * The fields to fetch
    */
@@ -74,10 +71,9 @@ export default class QueryBuilder<
    */
   private _shouldSortByRandom: boolean = false;
 
-  constructor(index: IndexManager<ThisSchema>) {
-    this.index = index;
+  constructor(textProcessor: TextProcessor = new TextProcessor()) {
+    this.textProcessor = textProcessor;
   }
-
   /**
    * Set the fields to fetch
    * @param fields  The fields to select
@@ -297,7 +293,7 @@ export default class QueryBuilder<
     valueOrValues: string | string[],
     type: AnyAllType = 'ANY'
   ) {
-    valueOrValues = this.index.textProcessor.processText(valueOrValues);
+    valueOrValues = this.textProcessor.processText(valueOrValues);
     if (type.toUpperCase() === 'ALL') {
       this.addFilterAll(this._must, 'match', field, valueOrValues);
     } else {
@@ -314,7 +310,7 @@ export default class QueryBuilder<
    * @chainable
    */
   matchPhrase(field: string, phraseOrPhrases: string | string[]) {
-    phraseOrPhrases = this.index.textProcessor.processText(phraseOrPhrases);
+    phraseOrPhrases = this.textProcessor.processText(phraseOrPhrases);
     if (!Array.isArray(phraseOrPhrases)) {
       phraseOrPhrases = [phraseOrPhrases];
     }
@@ -342,7 +338,7 @@ export default class QueryBuilder<
     fieldOrFields: string | string[],
     phraseOrPhrases: string | string[]
   ) {
-    phraseOrPhrases = this.index.textProcessor.processText(phraseOrPhrases);
+    phraseOrPhrases = this.textProcessor.processText(phraseOrPhrases);
     if (!Array.isArray(phraseOrPhrases)) {
       phraseOrPhrases = [phraseOrPhrases];
     }
@@ -406,7 +402,7 @@ export default class QueryBuilder<
     const expand = 'expand' in options ? options.expand : true;
     const boosts = options.boosts || [1, 3, 5];
     // build subquery
-    const subquery = new QueryBuilder(this.index);
+    const subquery = new QueryBuilder(this.textProcessor);
     if (expand) {
       subquery.multiMatchWithPhrase(fields, terms, {
         operator: 'or',
@@ -551,7 +547,7 @@ export default class QueryBuilder<
     for (const value of values) {
       const baseMultiMatch = {
         fields,
-        query: this.index.textProcessor.processText(value),
+        query: this.textProcessor.processText(value),
       };
       this._must.push({
         multi_match: { ...baseMultiMatch, ...options },
@@ -1081,23 +1077,6 @@ export default class QueryBuilder<
    */
   getFields(): string[] {
     return this._fields;
-  }
-
-  /**
-   * Run this builder using the given client object and index name
-   */
-  async run(more: Omit<estypes.SearchRequest, 'index' | 'query'> = {}) {
-    try {
-      const result: estypes.SearchResponse<ElasticsearchRecord<ThisSchema>> =
-        await this.index.client.search({
-          index: this.index.getAliasName(),
-          ...this.getBody(),
-          ...more,
-        });
-      return { result, error: null };
-    } catch (e) {
-      return { result: null, error: e as Error };
-    }
   }
 
   /**
