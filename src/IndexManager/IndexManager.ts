@@ -439,6 +439,23 @@ export default class IndexManager<
   }
 
   /**
+   * Save the given records
+   * @param records  The records to save
+   */
+  async putBulk(records: ElasticsearchRecord<ThisSchema>[]) {
+    records.forEach(r => fulltext.processRecord(r));
+    try {
+      const result = await this.client.bulk({
+        index: this.getAliasName(),
+        body: records,
+      });
+      return { result, error: null };
+    } catch (e) {
+      return { result: null, error: e as Error };
+    }
+  }
+
+  /**
    * Save the given partial record (uses updateRecord())
    * @param id  The record id
    * @param body  The record to save
@@ -475,7 +492,7 @@ export default class IndexManager<
 
   /**
    * Migrate the index if needed
-   * - First check if the index exists
+   * - Index may need to be crea
    *   - If not, create it and create an alias
    *   - If it does, create alias if needed
    * - Otherwise check the alias name in ElasticSearch matches this alias name
@@ -496,8 +513,9 @@ export default class IndexManager<
 
         // Get the index that the alias points to
         const indexInfo = await this.getIndexNameByAlias();
+        const oldIndexName = indexInfo.name;
 
-        if (indexInfo.name === currentIndexName) {
+        if (oldIndexName === currentIndexName) {
           // No index at all
           await this.createAlias();
           return {
@@ -510,32 +528,110 @@ export default class IndexManager<
           };
         }
 
-        // Version number has changed
+        // Get the current sequence number before starting reindex
+        const stats = await this.client.indices.stats({
+          index: oldIndexName,
+          metric: ['seq_no'],
+        });
+        const maxSeqNo =
+          stats.indices?.[oldIndexName]?.total?.translog?.operations || 0;
+
+        // Version number has changed - perform initial reindex
         await this.client.reindex({
           wait_for_completion: true,
-          source: { index: indexInfo.name },
+          source: { index: oldIndexName },
           dest: { index: currentIndexName },
+          conflicts: 'proceed',
         });
 
-        // Update alias to point to the new index
-        await this.client.indices.updateAliases({
-          actions: [
-            { remove: { index: indexInfo.name, alias: this.getAliasName() } },
-            { add: { index: currentIndexName, alias: this.getAliasName() } },
-          ],
-        });
+        try {
+          // Stop writes to old index
+          await this.client.indices.putSettings({
+            index: oldIndexName,
+            body: { 'index.blocks.write': true },
+          });
 
-        // Delete the old index
-        await this.client.indices.delete({ index: indexInfo.name });
+          // Update alias to point to the new index atomically
+          await this.client.indices.updateAliases({
+            actions: [
+              { remove: { index: oldIndexName, alias: this.getAliasName() } },
+              { add: { index: currentIndexName, alias: this.getAliasName() } },
+            ],
+          });
 
-        return {
-          success: true,
-          took: Date.now() - start,
-          code: 'MIGRATED',
-          oldName: indexInfo.name,
-          newName: currentIndexName,
-          ...this.formatNonError(indexExists),
-        };
+          let manualMigrationCount = 0;
+
+          const migrateChanges = async (batchSize = 100, from = 0) => {
+            // Fetch any documents that were updated/created during reindex
+            const changes = await this.client.search({
+              index: oldIndexName,
+              query: {
+                range: {
+                  _seq_no: { gt: maxSeqNo },
+                },
+              },
+              from,
+              size: batchSize,
+            });
+
+            // Migrate any other writes that happened during reindex
+            if (changes.hits.hits.length > 0) {
+              const bulkBody = [];
+              for (const hit of changes.hits.hits) {
+                bulkBody.push(
+                  { index: { _index: currentIndexName, _id: hit._id } },
+                  hit._source
+                );
+              }
+              await this.client.bulk({
+                body: bulkBody,
+                refresh: true,
+              });
+            }
+
+            manualMigrationCount += changes.hits.hits.length;
+
+            if (changes.hits.hits.length === batchSize) {
+              await migrateChanges(from + batchSize);
+            }
+
+          };
+
+          await migrateChanges();
+
+          // Allow writes to new index so we can delete
+          await this.client.indices.putSettings({
+            index: oldIndexName,
+            body: { 'index.blocks.write': null },
+          });
+
+          // We should be good to delete
+          await this.client.indices.delete({ index: oldIndexName });
+
+          return {
+            success: true,
+            took: Date.now() - start,
+            code: 'MIGRATED',
+            oldName: oldIndexName,
+            newName: currentIndexName,
+            ...this.formatNonError(indexExists),
+          };
+        } catch (e) {
+          return {
+            success: false,
+            took: Date.now() - start,
+            code: 'MIGRATION_FAILED',
+            oldName: oldIndexName,
+            newName: currentIndexName,
+            ...this.formatError(e),
+          };
+        } finally {
+          // Ensure we reinstate writes to old index
+          await this.client.indices.putSettings({
+            index: oldIndexName,
+            body: { 'index.blocks.write': null },
+          });
+        }
       }
 
       // Alias already points to the correct index
