@@ -1,3 +1,5 @@
+import { estypes } from '@elastic/elasticsearch';
+
 const englishplus = {
   analysis: {
     filter: {
@@ -23,6 +25,6 @@ const englishplus = {
       },
     },
   },
-};
+} as estypes.IndicesIndexSettingsAnalysis;
 
 export default englishplus;

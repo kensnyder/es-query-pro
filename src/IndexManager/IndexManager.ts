@@ -8,7 +8,7 @@ import updateRecord from '../updateRecord/updateRecord';
 import deleteRecord from '../deleteRecord/deleteRecord';
 import createAlias from '../createAlias/createAlias';
 import doesAliasExist from '../doesAliasExist/doesAliasExist';
-import type QueryBuilder from "../QueryBuilder/QueryBuilder";
+import type QueryBuilder from '../QueryBuilder/QueryBuilder';
 
 /**
  * ElasticSearch index manager for creating, searching and saving data
@@ -165,7 +165,10 @@ export default class IndexManager<Schema extends Record<string, string>> {
    * @param [moreBody]  Additional body params such as size and from
    * @returns {Promise<{result: {records: Object[], total: Number}, details: Object, error:Error}>}
    */
-  async findByCriteria(criteria: Record<string,any>, moreBody: Record<string,any>) {
+  async findByCriteria(
+    criteria: Record<string, any>,
+    moreBody: Record<string, any>
+  ) {
     return await findBy.criteria(this.getAliasName(), criteria, moreBody);
   }
 
@@ -176,7 +179,11 @@ export default class IndexManager<Schema extends Record<string, string>> {
    * @param [moreBody]  Additional body params such as size and from
    * @returns {Promise<{result: {records: Object[], total: Number}, details: Object, error:Error}>}
    */
-  async findByPhrase(phrase: string, criteria: Record<string,any>, moreBody: Record<string,any>) {
+  async findByPhrase(
+    phrase: string,
+    criteria: Record<string, any>,
+    moreBody: Record<string, any>
+  ) {
     return await findBy.phrase(this.getAliasName(), phrase, criteria, moreBody);
   }
 
@@ -194,7 +201,7 @@ export default class IndexManager<Schema extends Record<string, string>> {
    * @param data  The record to save
    * @returns {Promise<{result: String, details: Object, error: Error}>}
    */
-  async put(data: Record<keyof Schema,any>) {
+  async put(data: Record<keyof Schema, any>) {
     const { result, error, details } = await putRecord(
       this.getAliasName(),
       data
@@ -208,7 +215,7 @@ export default class IndexManager<Schema extends Record<string, string>> {
    * @param data  The record to save
    * @returns {Promise<{result: String, details: Object, error: Error}>}
    */
-  async patch(id: number | string, data: Record<keyof Schema,any>) {
+  async patch(id: number | string, data: Record<keyof Schema, any>) {
     const { result, error, details } = await updateRecord(
       this.getAliasName(),
       id,

@@ -1,24 +1,33 @@
-// @ts-expect-error TS(2451): Cannot redeclare block-scoped variable 'withEsClie... Remove this comment to see the full error message
-import withEsClient from '../withEsClient/withEsClient.js';
-import settings from '../analyzers/englishplus.js';
+import { Client, estypes } from '@elastic/elasticsearch';
+import englishplus from '../analyzers/englishplus';
+import getEsClient from '../getEsClient/getEsClient';
 
-export default async function createIndex(index: any, body = {}) {
-  const { result, error } = await withEsClient((client: any) => {
-    return client.indices.create({
+export default async function createIndex({
+  client = getEsClient(),
+  index,
+  settings,
+  body,
+}: {
+  client?: Client;
+  index: string;
+  settings?: estypes.IndicesIndexSettings;
+  body?: Record<string, any>;
+}) {
+  try {
+    const result = await client.indices.create({
       index,
-      body: {
-        ...body,
-        settings: {
-          ...settings,
-          // @ts-expect-error TS(2339): Property 'settings' does not exist on type '{}'.
-          ...(body.settings || {}),
-        },
+      body,
+      settings: {
+        ...englishplus,
+        ...settings,
       },
     });
-  });
-  return {
-    result: result?.statusCode === 200,
-    error,
-    details: result || error?.meta,
-  };
+    return {
+      result,
+      error: null,
+    };
+  } catch (e) {
+    const error = e as Error;
+    return { result: null, error };
+  }
 }

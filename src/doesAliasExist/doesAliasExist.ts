@@ -1,16 +1,15 @@
-import withEsClient from '../withEsClient/withEsClient.js';
+import { Client, estypes } from '@elastic/elasticsearch';
+import { Merge } from 'type-fest';
+import { getEsClient } from '../index';
 
-export default async function doesAliasExist(name: any, body = {}) {
-  const { result, error } = await withEsClient((client: any) => {
-    return client.indices.existsAlias({
-      name,
-      body,
-    });
-  });
-  return {
-    result: result?.statusCode === 200,
-    error,
-    details: result || error?.meta,
-  };
+export default async function doesAliasExist({
+  client = getEsClient(),
+  ...request
+}: Merge<estypes.IndicesExistsAliasRequest, { client?: Client }>) {
+  try {
+    const result = await client.indices.existsAlias(request);
+    return { result, error: null };
+  } catch (e) {
+    return { result: null, error: e as Error };
+  }
 }
-

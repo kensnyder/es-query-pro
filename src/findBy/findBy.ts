@@ -1,4 +1,4 @@
-import { estypes } from '@elastic/elasticsearch';
+import { type Client, type estypes } from '@elastic/elasticsearch';
 import dates from '../dates/dates.js';
 import fulltext from '../fulltext/fulltext.js';
 import getEsClient from '../getEsClient/getEsClient';
@@ -15,16 +15,19 @@ export default {
  * Return records matching simple field-value pairs
  * @param index  The name of the index
  * @param criteria  Some simple field-value pairs
- * @param [moreBody]  Additional options such as size and from
+ * @param [client]  An ElasticSearch client
+ * @param [more]  Additional options such as size and from
  */
 export async function criteria<T extends estypes.SearchResponse = any>({
+  client = getEsClient(),
   index,
   where,
-  overrides = {},
+  more = {},
 }: {
+  client?: Client;
   index: string;
   where: Record<string, any>;
-  overrides?: Partial<estypes.SearchRequest>;
+  more?: Partial<estypes.SearchRequest>;
 }) {
   const musts: estypes.QueryDslQueryContainer[] = [];
 
@@ -32,7 +35,6 @@ export async function criteria<T extends estypes.SearchResponse = any>({
     musts.push({ match: { [field]: value } });
   }
   try {
-    const client = getEsClient();
     const result = await client.search<T>({
       index,
       query: {
@@ -40,7 +42,7 @@ export async function criteria<T extends estypes.SearchResponse = any>({
           must: musts,
         } as estypes.QueryDslBoolQuery,
       },
-      ...overrides,
+      ...more,
     });
     return {
       result: _formatRecords(result),
@@ -55,50 +57,68 @@ export async function criteria<T extends estypes.SearchResponse = any>({
 
 /**
  * Return the record with the given id, or null
+ * @param [client]  The elasticsearch client
  * @param index  The name of the index
  * @param id  The document id
  */
-export async function id(index: string, id: string | number) {
-  const { result, error, raw } = await criteria({
-    index,
-    where: { id },
-  });
-  return { result: result?.records?.[0] || null, error, raw };
+export async function id<T extends estypes.GetResponse>({
+  client = getEsClient(),
+  index,
+  id,
+}: {
+  client?: Client;
+  index: string;
+  id: string;
+}) {
+  try {
+    const result = await client.get<T>({
+      index,
+      id,
+    });
+    const record = { ...result._source };
+    fulltext.unProcessRecord(record);
+    dates.unProcessRecord(record);
+    return { result: record, error: null, raw: result };
+  } catch (e) {
+    return { result: null, error: e as Error };
+  }
 }
 
 /**
  * Find records that match the given term or phrase
+ * @param [client]  The elasticsearch client
  * @param index  The name of the index
  * @param phrase  The term or phrase to search for
  * @param fields  The list of fields to match agains
  * @param [boosts]  The 3-member array of numbers representing boosts for or, and, phrase
- * @param [criteria]  Some simple field-value pairs
- * @param [moreBody]  Additional options such as size and from
+ * @param [where]  Some simple field-value pairs
+ * @param [more]  Additional options such as size and from
  */
 export async function boostedPhrase<T extends estypes.SearchResponse = any>({
+  client = getEsClient(),
   index,
   phrase,
   boosts = [1, 3, 5],
   fields = ['content_*'],
-  criteria = {},
-  moreBody = {},
+  where = {},
+  more = {},
 }: {
+  client?: Client;
   index: string;
   phrase: string;
   fields?: string[];
   boosts?: [number, number, number];
-  criteria?: Record<string, any>;
-  moreBody?: Omit<estypes.SearchRequest, 'index' | 'query'>;
+  where?: Record<string, any>;
+  more?: Omit<estypes.SearchRequest, 'index' | 'query'>;
 }) {
   phrase = fulltext.processText(phrase);
 
   const musts: estypes.QueryDslQueryContainer[] = [];
 
-  for (const [field, value] of Object.entries(criteria)) {
+  for (const [field, value] of Object.entries(where)) {
     musts.push({ match: { [field]: value } });
   }
   try {
-    const client = getEsClient();
     const result = await client.search<T>({
       index,
       query: {
@@ -131,7 +151,7 @@ export async function boostedPhrase<T extends estypes.SearchResponse = any>({
           ],
         } as estypes.QueryDslBoolQuery,
       },
-      ...moreBody,
+      ...more,
     });
     return {
       result: _formatRecords(result),
@@ -148,23 +168,23 @@ export async function boostedPhrase<T extends estypes.SearchResponse = any>({
  * Return results from a QueryBuilder object
  * @param index  The name of the index
  * @param query  The builder object
- * @param [moreBody]  Additional options such as size and from
+ * @param [more]  Additional options such as size and from
  */
 async function query<T extends estypes.SearchResponse = any>({
   index,
   builder,
-  moreBody = {},
+  more = {},
 }: {
   index: string;
   builder: QueryBuilder;
-  moreBody?: Partial<estypes.SearchRequest>;
+  more?: Partial<estypes.SearchRequest>;
 }) {
   try {
     const client = getEsClient();
     const result = await client.search<T>({
       index,
       ...builder.getQuery(),
-      ...moreBody,
+      ...more,
     });
     return {
       result: _formatRecords(result),
