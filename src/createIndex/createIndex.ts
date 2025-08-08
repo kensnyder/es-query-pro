@@ -1,4 +1,5 @@
 import { Client, estypes } from '@elastic/elasticsearch';
+import { Merge } from 'type-fest';
 import englishplus from '../analyzers/englishplus';
 import getEsClient from '../getEsClient/getEsClient';
 
@@ -7,12 +8,8 @@ export default async function createIndex({
   index,
   settings,
   body,
-}: {
-  client?: Client;
-  index: string;
-  settings?: estypes.IndicesIndexSettings;
-  body?: Record<string, any>;
-}) {
+  ...request
+}: Merge<estypes.IndicesCreateRequest, { client?: Client }>) {
   try {
     const result = await client.indices.create({
       index,
@@ -21,6 +18,7 @@ export default async function createIndex({
         ...englishplus,
         ...settings,
       },
+      ...request,
     });
     return {
       result,

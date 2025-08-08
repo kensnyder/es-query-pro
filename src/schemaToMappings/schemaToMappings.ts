@@ -1,43 +1,57 @@
+import { estypes } from '@elastic/elasticsearch';
+import { ElasticsearchType } from '../types';
+
 /**
- * Convert shorthand schema format to ElasticSearch mappings
- * @param schema  name-type pairs for each field in an index
- * @param language  The name of the analyzer to use for fulltext fields
- * @returns Object suitable for setting ElasticSearch mappings
+ * Convert a schema object to Elasticsearch mapping properties
  */
-export default function schemaToMappings(schema: Record<string,string>,language:string) {
-  const properties = {};
-  for (const [name, type] of Object.entries(schema)) {
-    if (type.includes('.')) {
-      const [main, format] = type.split('.');
-      if (format === 'unsearchable') {
-        if (main === 'object') {
-          properties[name] = { type: main, enabled: false };
-        } else {
-          properties[name] = { type: main, index: false };
-        }
-      } else {
-        properties[name] = { type: main, format };
-      }
-    } else if (type === 'fulltext') {
-      properties[name] = {
-        type: 'text',
-        fields: {
-          exact: {
-            type: 'text',
-            analyzer: 'standard',
-          },
-          fulltext: {
-            type: 'text',
-            analyzer: language,
-          },
-        },
-        // see https://www.elastic.co/guide/en/elasticsearch/reference/7.17/highlighting.html#fast-vector-highlighter
-        // see https://www.elastic.co/guide/en/elasticsearch/reference/7.17/term-vector.html
-        term_vector: 'with_positions_offsets',
+export default function schemaToMappings<Schema>(
+  schema: Schema,
+  analyzerName: string = 'englishplus'
+) {
+  const properties: estypes.MappingProperty = {};
+
+  for (const [field, typeOrObject] of Object.entries(schema)) {
+    if (typeof typeOrObject === 'string') {
+      // Simple field with type
+      properties[field] = getPropertyType(
+        typeOrObject as ElasticsearchType,
+        analyzerName
+      );
+    } else if (typeof typeOrObject === 'object' && typeOrObject !== null) {
+      // Nested object
+      properties[field] = {
+        type: 'nested',
+        properties: schemaToMappings(typeOrObject, analyzerName),
       };
-    } else {
-      properties[name] = { type };
     }
   }
-  return { properties };
+
+  return properties;
+}
+
+/**
+ * Convert a schema type to Elasticsearch mapping property
+ */
+function getPropertyType(
+  type: ElasticsearchType,
+  analyzerName: string
+): estypes.MappingProperty {
+  switch (type) {
+    case 'keyword':
+      return {
+        type: 'text',
+        fields: {
+          keyword: {
+            type: 'keyword',
+            ignore_above: 256,
+          },
+        },
+      };
+    case 'text':
+      return {
+        type: 'text',
+        analyzer: analyzerName,
+      };
+  }
+  return { type };
 }

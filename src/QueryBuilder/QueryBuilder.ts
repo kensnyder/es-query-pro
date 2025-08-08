@@ -1,104 +1,81 @@
 import { estypes } from '@elastic/elasticsearch';
-import {
-  QueryDslDecayFunctionBase,
-  QueryDslFunctionScoreContainer,
-} from '@elastic/elasticsearch/lib/api/types';
+import IndexManager from '../IndexManager/IndexManager';
 import isEmptyObject from '../isEmptyObject/isEmptyObject';
-import TextProcessor from '../TextProcessor/TextProcessor';
 import {
-  AggregatesType,
   AnyAllType,
-  BodyType,
   BoostType,
-  EsClientType,
+  ElasticsearchRecord,
   FieldTypeOrTypes,
-  FilterType,
-  FunctionScoreItemType,
-  HighlightType,
   IntervalType,
   MatchType,
-  MultiMatchType,
   OperatorType,
-  RangeableType,
-  RunResultType,
-  SizeFromSort,
-  SortType,
-  SourceType,
+  SchemaShape,
 } from '../types';
 
 /**
  * Build ElasticSearch builder
  */
-export default class QueryBuilder {
+export default class QueryBuilder<
+  ThisSchema extends SchemaShape = SchemaShape,
+> {
+  public index: IndexManager<ThisSchema>;
   /**
    * The fields to fetch
    */
-  #fields: string[] = ['*'];
+  private _fields: string[] = ['*'];
 
   /**
    * Fields to exclude from list
    */
-  #excludeFields: string[] = [];
+  private _excludeFields: string[] = [];
 
   /**
    * The must filters
    */
-  #must: estypes.QueryDslQueryContainer[] = [];
+  private _must: estypes.QueryDslQueryContainer[] = [];
 
   /**
    * The must_not filters
    */
-  #mustNot: estypes.QueryDslQueryContainer[] = [];
+  private _mustNot: estypes.QueryDslQueryContainer[] = [];
 
   /**
    * The "aggs" to add to the builder
    */
-  #aggs: estypes.SearchRequest['aggs'] = {};
+  private _aggs: estypes.SearchRequest['aggs'] = {};
 
   /**
    * The function score builder
    */
-  #functionScores: QueryDslDecayFunctionBase[] = [];
+  private _functionScores: estypes.QueryDslDecayFunctionBase[] = [];
 
   /**
    * The highlight definition
    */
-  #highlighter: estypes.SearchRequest['highlight'] = null;
+  private _highlighter: estypes.SearchRequest['highlight'] = null;
 
   /**
    * The max number of records to return
    */
-  #limit: number = null;
+  private _limit: number = null;
 
   /**
    * The page of records to fetch
    */
-  #page: number = 1;
+  private _page: number = 1;
 
   /**
    * Fields to sort by
    */
-  #sorts: estypes.SearchRequest['sort'][] = [];
+  private _sorts: estypes.SortCombinations[] = [];
 
   /**
    * If true, use "random_score" for a function score
    */
-  #sortByRandom: boolean = false;
+  private _shouldSortByRandom: boolean = false;
 
-  /**
-   * Processes text passing into and coming from ElasticSearch
-   * @private
-   */
-  #textProcessor: TextProcessor = new TextProcessor();
-
-  /**
-   * Process text going into and coming out of ElasticSearch
-   * @param {TextProcessor} textProcessor
-   * @return {QueryBuilder}
-   */
-  setTextProcessor(textProcessor: TextProcessor) {
-    this.#textProcessor = textProcessor;
-    return this;
+  constructor(index: IndexManager<ThisSchema>) {
+    this.index = index;
   }
 
   /**
@@ -107,7 +84,7 @@ export default class QueryBuilder {
    * @return This instance
    */
   fields(fields: string[]) {
-    this.#fields = fields;
+    this._fields = fields;
     return this;
   }
 
@@ -117,18 +94,18 @@ export default class QueryBuilder {
    * @return This instance
    */
   excludeFields(fields: string[]) {
-    this.#excludeFields = fields;
+    this._excludeFields = fields;
     return this;
   }
 
   /**
    * Append a multi_match condition to the given filter object (match any of the given values against the given fields)
-   * @param filters  Either this.#must or this.#mustNot
+   * @param filters  Either this._must or this._mustNot
    * @param fields  The name of the fields to search
    * @param valueOrValues  A value or array of possible values
    */
-  #addMultiMatchAny(
-    filters: FilterType[],
+  addMultiMatchAny(
+    filters: estypes.QueryDslQueryContainer[],
     fields: string[],
     valueOrValues: any | any[]
   ) {
@@ -153,11 +130,15 @@ export default class QueryBuilder {
 
   /**
    * Add a series of term condition to the given filter object (find full-word matches any of the given values against the given field)
-   * @param filters  Either this.#must or this.#mustNot
+   * @param filters  Either this._must or this._mustNot
    * @param fields  The name of the fields to search
    * @param value  A value
    */
-  #addMultiTermAny(filters: FilterType[], fields: string[], value: any) {
+  addMultiTermAny(
+    filters: estypes.QueryDslQueryContainer[],
+    fields: string[],
+    value: any
+  ) {
     const terms = [];
     for (const field of fields) {
       terms.push({
@@ -171,11 +152,15 @@ export default class QueryBuilder {
 
   /**
    * Add a series of term condition to the given filter object (find full-word matches any of the given values against the given field)
-   * @param filters  Either this.#must or this.#mustNot
+   * @param filters  Either this._must or this._mustNot
    * @param fields  The name of the fields to search
    * @param value  A value to search for
    */
-  #addMultiTermAll(filters: FilterType[], fields: string[], value: any) {
+  addMultiTermAll(
+    filters: estypes.QueryDslQueryContainer[],
+    fields: string[],
+    value: any
+  ) {
     for (const field of fields) {
       filters.push({
         term: {
@@ -187,13 +172,13 @@ export default class QueryBuilder {
 
   /**
    * Append filters to the given filter object (match any of the given values)
-   * @param filters  Either this.#must or this.#mustNot
+   * @param filters  Either this._must or this._mustNot
    * @param matchType  Either "match" or "term"
    * @param field  The name of the field to search
    * @param valueOrValues  A value or array of possible values
    */
-  #addFilterAny(
-    filters: FilterType[],
+  addFilterAny(
+    filters: estypes.QueryDslQueryContainer[],
     matchType: 'match' | 'term',
     field: string,
     valueOrValues: any | any[]
@@ -218,13 +203,13 @@ export default class QueryBuilder {
 
   /**
    * Append filters to the given filter object (match all the values given)
-   * @param filters  Either this.#must or this.#mustNot
+   * @param filters  Either this._must or this._mustNot
    * @param matchType  Either "match" or "term"
    * @param field  The name of the field to search
    * @param valueOrValues  A value or array of possible values
    */
-  #addFilterAll(
-    filters: FilterType[],
+  addFilterAll(
+    filters: estypes.QueryDslQueryContainer[],
     matchType: MatchType,
     field: string,
     valueOrValues: any | any[]
@@ -239,12 +224,12 @@ export default class QueryBuilder {
 
   /**
    * Append a multi_match condition to the given filter object (match any of the given values against the given fields)
-   * @param filters  Either this.#must or this.#mustNot
+   * @param filters  Either this._must or this._mustNot
    * @param fields  The name of the fields to search
    * @param valueOrValues  A value or array of possible values
    */
-  #addMultiMatchAll(
-    filters: FilterType[],
+  addMultiMatchAll(
+    filters: estypes.QueryDslQueryContainer[],
     fields: string[],
     valueOrValues: any | any[]
   ) {
@@ -263,16 +248,16 @@ export default class QueryBuilder {
 
   /**
    * Append filters for the given range expression
-   * @param filters  Either this.#must or this.#mustNot
+   * @param filters  Either this._must or this._mustNot
    * @param field  The name of the field to search
    * @param op  One of the following: > < >= <= gt lt gte lte between
    * @param value  The limit(s) to search against
    */
-  #addRange(
-    filters: FilterType[],
+  addRange(
+    filters: estypes.QueryDslQueryContainer[],
     field: string,
     op: OperatorType,
-    value: RangeableType
+    value: estypes.MappingRangePropertyBase
   ) {
     const ops = {
       '<': 'lt',
@@ -312,11 +297,11 @@ export default class QueryBuilder {
     valueOrValues: string | string[],
     type: AnyAllType = 'ANY'
   ) {
-    valueOrValues = this.#textProcessor.processText(valueOrValues);
+    valueOrValues = this.index.textProcessor.processText(valueOrValues);
     if (type.toUpperCase() === 'ALL') {
-      this.#addFilterAll(this.#must, 'match', field, valueOrValues);
+      this.addFilterAll(this._must, 'match', field, valueOrValues);
     } else {
-      this.#addFilterAny(this.#must, 'match', field, valueOrValues);
+      this.addFilterAny(this._must, 'match', field, valueOrValues);
     }
     return this;
   }
@@ -329,7 +314,7 @@ export default class QueryBuilder {
    * @chainable
    */
   matchPhrase(field: string, phraseOrPhrases: string | string[]) {
-    phraseOrPhrases = this.#textProcessor.processText(phraseOrPhrases);
+    phraseOrPhrases = this.index.textProcessor.processText(phraseOrPhrases);
     if (!Array.isArray(phraseOrPhrases)) {
       phraseOrPhrases = [phraseOrPhrases];
     }
@@ -338,9 +323,9 @@ export default class QueryBuilder {
       terms.push({ match_phrase: { [field]: phrase } });
     }
     if (terms.length === 1) {
-      this.#must.push(terms[0]);
+      this._must.push(terms[0]);
     } else {
-      this.#must.push({ bool: { should: terms } });
+      this._must.push({ bool: { should: terms } });
     }
     return this;
   }
@@ -357,7 +342,7 @@ export default class QueryBuilder {
     fieldOrFields: string | string[],
     phraseOrPhrases: string | string[]
   ) {
-    phraseOrPhrases = this.#textProcessor.processText(phraseOrPhrases);
+    phraseOrPhrases = this.index.textProcessor.processText(phraseOrPhrases);
     if (!Array.isArray(phraseOrPhrases)) {
       phraseOrPhrases = [phraseOrPhrases];
     }
@@ -375,9 +360,9 @@ export default class QueryBuilder {
         });
       }
       if (clauses.length === 1) {
-        this.#must.push(clauses[0]);
+        this._must.push(clauses[0]);
       } else {
-        this.#must.push({ bool: { should: clauses } });
+        this._must.push({ bool: { should: clauses } });
       }
       return this;
     }
@@ -387,9 +372,9 @@ export default class QueryBuilder {
       clauses.push({ match_phrase_prefix: { [fieldOrFields]: phrase } });
     }
     if (clauses.length === 1) {
-      this.#must.push(clauses[0]);
+      this._must.push(clauses[0]);
     } else {
-      this.#must.push({ bool: { should: clauses } });
+      this._must.push({ bool: { should: clauses } });
     }
     return this;
   }
@@ -421,7 +406,7 @@ export default class QueryBuilder {
     const expand = 'expand' in options ? options.expand : true;
     const boosts = options.boosts || [1, 3, 5];
     // build subquery
-    const subquery = new QueryBuilder();
+    const subquery = new QueryBuilder(this.index);
     if (expand) {
       subquery.multiMatchWithPhrase(fields, terms, {
         operator: 'or',
@@ -536,9 +521,9 @@ export default class QueryBuilder {
     type: AnyAllType = 'ANY'
   ) {
     if (type.toUpperCase() === 'ALL') {
-      this.#addMultiMatchAll(this.#must, fields, valueOrValues);
+      this.addMultiMatchAll(this._must, fields, valueOrValues);
     } else {
-      this.#addMultiMatchAny(this.#must, fields, valueOrValues);
+      this.addMultiMatchAny(this._must, fields, valueOrValues);
     }
     return this;
   }
@@ -550,13 +535,12 @@ export default class QueryBuilder {
    * @param fieldOrFields The field(s) to search
    * @param valueOrValues  The value(s) to match on
    * @param options  Additional options, including `type`, `analyzer`, `boost`, `operator`, `minimum_should_match`, `fuzziness`, `lenient`, `prefix_length`, `max_expansions`, `fuzzy_rewrite`, `zero_terms_query`, `cutoff_frequency`, and `fuzzy_transpositions`
-   * @return {QueryBuilder}
    * @chainable
    */
   multiMatchWithPhrase(
     fieldOrFields: string | string[],
     valueOrValues: string | string[],
-    options: MultiMatchType = {}
+    options: Omit<estypes.QueryDslMultiMatchQuery, 'query' | 'fields'> = {}
   ) {
     const fields = Array.isArray(fieldOrFields)
       ? fieldOrFields
@@ -567,9 +551,9 @@ export default class QueryBuilder {
     for (const value of values) {
       const baseMultiMatch = {
         fields,
-        query: this.#textProcessor.processText(value),
+        query: this.index.textProcessor.processText(value),
       };
-      this.#must.push({
+      this._must.push({
         multi_match: { ...baseMultiMatch, ...options },
       });
     }
@@ -586,9 +570,9 @@ export default class QueryBuilder {
    */
   multiTerm(fields: string[], value: any, type: AnyAllType = 'ANY') {
     if (type.toUpperCase() === 'ALL') {
-      this.#addMultiTermAll(this.#must, fields, value);
+      this.addMultiTermAll(this._must, fields, value);
     } else {
-      this.#addMultiTermAny(this.#must, fields, value);
+      this.addMultiTermAny(this._must, fields, value);
     }
     return this;
   }
@@ -601,7 +585,7 @@ export default class QueryBuilder {
    * @chainable
    */
   notMatch(field: string, valueOrValues: any | any[]) {
-    this.#addFilterAny(this.#mustNot, 'match', field, valueOrValues);
+    this.addFilterAny(this._mustNot, 'match', field, valueOrValues);
     return this;
   }
 
@@ -613,7 +597,7 @@ export default class QueryBuilder {
    * @chainable
    */
   notMultiMatch(fields: string[], valueOrValues: any | any[]) {
-    this.#addMultiMatchAny(this.#mustNot, fields, valueOrValues);
+    this.addMultiMatchAny(this._mustNot, fields, valueOrValues);
     return this;
   }
 
@@ -625,7 +609,7 @@ export default class QueryBuilder {
    * @chainable
    */
   notMultiTerm(fields: string[], value: any) {
-    this.#addMultiTermAny(this.#mustNot, fields, value);
+    this.addMultiTermAny(this._mustNot, fields, value);
     return this;
   }
 
@@ -641,9 +625,9 @@ export default class QueryBuilder {
     if (valueOrValues === null) {
       this.notExists(field);
     } else if (type.toUpperCase() === 'ALL') {
-      this.#addFilterAll(this.#must, 'term', field, valueOrValues);
+      this.addFilterAll(this._must, 'term', field, valueOrValues);
     } else {
-      this.#addFilterAny(this.#must, 'term', field, valueOrValues);
+      this.addFilterAny(this._must, 'term', field, valueOrValues);
     }
     return this;
   }
@@ -658,7 +642,7 @@ export default class QueryBuilder {
       ? fieldOrFields
       : [fieldOrFields];
     for (const field of fields) {
-      this.#must.push({ exists: { field } });
+      this._must.push({ exists: { field } });
     }
     return this;
   }
@@ -673,7 +657,7 @@ export default class QueryBuilder {
       ? fieldOrFields
       : [fieldOrFields];
     for (const field of fields) {
-      this.#mustNot.push({ exists: { field } });
+      this._mustNot.push({ exists: { field } });
     }
     return this;
   }
@@ -689,7 +673,7 @@ export default class QueryBuilder {
     const fields = Array.isArray(fieldOrFields)
       ? fieldOrFields
       : [fieldOrFields];
-    this.#must.push({
+    this._must.push({
       query_string: {
         fields: fields,
         query: query,
@@ -706,7 +690,7 @@ export default class QueryBuilder {
    * @chainable
    */
   notTerm(field: string, valueOrValues: any | any[]) {
-    this.#addFilterAny(this.#mustNot, 'match', field, valueOrValues);
+    this.addFilterAny(this._mustNot, 'match', field, valueOrValues);
     return this;
   }
 
@@ -718,8 +702,12 @@ export default class QueryBuilder {
    * @return {QueryBuilder}
    * @chainable
    */
-  range(field: string, op: OperatorType, value: RangeableType) {
-    this.#addRange(this.#must, field, op, value);
+  range(
+    field: string,
+    op: OperatorType,
+    value: estypes.MappingRangePropertyBase
+  ) {
+    this.addRange(this._must, field, op, value);
     return this;
   }
 
@@ -731,8 +719,12 @@ export default class QueryBuilder {
    * @return {QueryBuilder}
    * @chainable
    */
-  notRange(field: string, op: OperatorType, value: RangeableType) {
-    this.#addRange(this.#mustNot, field, op, value);
+  notRange(
+    field: string,
+    op: OperatorType,
+    value: estypes.MappingRangePropertyBase
+  ) {
+    this.addRange(this._mustNot, field, op, value);
     return this;
   }
 
@@ -751,7 +743,7 @@ export default class QueryBuilder {
       entries = Object.entries(forFields);
     }
     for (const [name, field] of entries) {
-      this.#aggs[name] = {
+      this._aggs[name] = {
         terms: {
           field,
           size: limit,
@@ -773,7 +765,7 @@ export default class QueryBuilder {
    * @chainable
    */
   aggregateTerm(field: string, limit: number = 10, exclusions: any[] = []) {
-    this.#aggs[field] = {
+    this._aggs[field] = {
       terms: {
         field: field,
         size: limit,
@@ -821,7 +813,7 @@ export default class QueryBuilder {
     }
     const timezoneString =
       typeof timezone === 'number'
-        ? this.#offsetIntToString(timezone)
+        ? this.offsetIntToString(timezone)
         : timezone;
     if (!/^[+-]\d\d:\d\d$/.test(timezoneString)) {
       throw new Error(
@@ -829,7 +821,7 @@ export default class QueryBuilder {
       );
     }
 
-    this.#aggs[dateField] = {
+    this._aggs[dateField] = {
       date_histogram: {
         field: dateField,
         interval: interval.code,
@@ -852,7 +844,7 @@ export default class QueryBuilder {
    *    0 => +00:00
    * @param offset
    */
-  #offsetIntToString(offset) {
+  offsetIntToString(offset: number) {
     const pad2 = n => `${n < 10 ? '0' : ''}${n}`;
     const timezone = offset * -1;
     const sign = offset < 1 ? '-' : '+';
@@ -864,31 +856,28 @@ export default class QueryBuilder {
   /**
    * Set the max number of results to return
    * @param limit  The max
-   * @return {QueryBuilder}
    * @chainable
    */
   limit(limit: number) {
-    this.#limit = limit;
+    this._limit = limit;
     return this;
   }
 
   /**
    * Set the page of results to return
    * @param page  Where 1 is the first page
-   * @return {QueryBuilder}
    * @chainable
    */
   page(page: number) {
-    this.#page = page;
+    this._page = page;
     return this;
   }
 
   /**
    * Add a sort field
    * @param field  The field to sort by
-   * @param  directionOrOptions  The direction, asc or desc or an array of direction options
+   * @param  maybeDirection  The direction, asc or desc
    * @see https://www.elastic.co/guide/en/elasticsearch/reference/current/sort-search-results.html
-   * @return {QueryBuilder}
    * @chainable
    * @examples:
    *   qb.sort('-created_at');
@@ -897,26 +886,25 @@ export default class QueryBuilder {
    *   qb.sort({ created_at: 'desc' });
    *   qb.sort([ { name: 'asc' }, { created_at: 'desc' } ]);
    */
-  sort(
-    field: string | SortType,
-    directionOrOptions: string | object | object[] = null
-  ) {
+  sort(field: estypes.SortCombinations, maybeDirection?: 'asc' | 'desc') {
     // DESC string such as "-created_at"
     if (typeof field === 'string' && field.slice(0, 1) === '-') {
-      directionOrOptions = 'desc';
-      field = field.slice(1);
-    }
-    if (
-      // object such as {"order" : "asc", "format": "strict_date_optional_time_nanos"}
-      typeof directionOrOptions === 'object' ||
-      // the string "asc" or "desc"
-      /^(asc|desc)$/i.test(directionOrOptions)
+      this._sorts.push({ [field.slice(1)]: { order: 'desc' } });
+    } else if (
+      typeof field === 'string' &&
+      typeof maybeDirection === 'string'
     ) {
-      this.#sorts.push({ [field as string]: directionOrOptions } as SortType);
+      this._sorts.push({ [field]: { order: maybeDirection } });
+    } else if (Array.isArray(field)) {
+      field.forEach(f => {
+        const field = Object.keys(f)[0];
+        const direction = f[field];
+        this._sorts.push({ [field]: { order: direction } });
+      });
     } else {
       // keyword such as "_score"
       // or object such as { "name" : "desc" }
-      this.#sorts.push(field as SortType);
+      this._sorts.push(field);
     }
     return this;
   }
@@ -937,7 +925,6 @@ export default class QueryBuilder {
       'excludeFields',
       'highlighter',
       'functionScores',
-      'textProcessor',
     ];
     if (field === null) {
       field = all;
@@ -945,28 +932,26 @@ export default class QueryBuilder {
     if (Array.isArray(field)) {
       field.forEach(name => this.clear(name));
     } else if (field === 'sort') {
-      this.#sorts = [];
-      this.#sortByRandom = false;
+      this._sorts = [];
+      this._shouldSortByRandom = false;
     } else if (field === 'page') {
-      this.#page = 1;
+      this._page = 1;
     } else if (field === 'limit') {
-      this.#limit = null;
+      this._limit = null;
     } else if (field === 'must') {
-      this.#must = [];
+      this._must = [];
     } else if (field === 'mustNot') {
-      this.#mustNot = [];
+      this._mustNot = [];
     } else if (field === 'aggs') {
-      this.#aggs = {};
+      this._aggs = {};
     } else if (field === 'fields') {
-      this.#fields = [];
+      this._fields = [];
     } else if (field === 'excludeFields') {
-      this.#excludeFields = [];
+      this._excludeFields = [];
     } else if (field === 'highlighter') {
-      this.#highlighter = null;
+      this._highlighter = null;
     } else if (field === 'functionScores') {
-      this.#functionScores = [];
-    } else if (field === 'textProcessor') {
-      this.#textProcessor = new TextProcessor();
+      this._functionScores = [];
     }
   }
 
@@ -977,7 +962,7 @@ export default class QueryBuilder {
    * @chainable
    */
   sortByRandom(trueOrFalse: boolean = true) {
-    this.#sortByRandom = trueOrFalse;
+    this._shouldSortByRandom = trueOrFalse;
     return this;
   }
 
@@ -988,7 +973,7 @@ export default class QueryBuilder {
    * @chainable
    */
   decayFunctionScore(functionScore: estypes.QueryDslDecayFunctionBase) {
-    this.#functionScores.push(functionScore);
+    this._functionScores.push(functionScore);
     return this;
   }
 
@@ -997,7 +982,7 @@ export default class QueryBuilder {
    * @return
    */
   getFunctionScores() {
-    return this.#functionScores;
+    return this._functionScores;
   }
 
   /**
@@ -1005,7 +990,7 @@ export default class QueryBuilder {
    * @return
    */
   getMust(): Record<string, any> {
-    return this.#must;
+    return this._must;
   }
 
   /**
@@ -1015,7 +1000,7 @@ export default class QueryBuilder {
    * @chainable
    */
   should(subquery: QueryBuilder) {
-    this.#must.push({
+    this._must.push({
       bool: {
         should: subquery.getMust(),
       },
@@ -1038,7 +1023,7 @@ export default class QueryBuilder {
         },
       });
     }
-    this.#must.push({
+    this._must.push({
       bool: {
         should: shoulds,
       },
@@ -1053,7 +1038,7 @@ export default class QueryBuilder {
    * @chainable
    */
   shouldNot(subquery: QueryBuilder) {
-    this.#must.push({
+    this._must.push({
       bool: {
         should: {
           bool: {
@@ -1086,7 +1071,7 @@ export default class QueryBuilder {
    * }
    */
   useHighlighter(value: estypes.SearchRequest['highlight']) {
-    this.#highlighter = value;
+    this._highlighter = value;
     return this;
   }
 
@@ -1095,69 +1080,48 @@ export default class QueryBuilder {
    * @return
    */
   getFields(): string[] {
-    return this.#fields;
+    return this._fields;
   }
 
   /**
    * Run this builder using the given client object and index name
-   * @param client
-   * @param index
    */
-  async run(client: EsClientType, index: string): Promise<RunResultType> {
-    let result = null;
-    let error = null;
+  async run(more: Omit<estypes.SearchRequest, 'index' | 'query'> = {}) {
     try {
-      result = await client.search({
-        index: index,
-        body: this.getBody(),
-      });
-      return { result, error };
+      const result: estypes.SearchResponse<ElasticsearchRecord<ThisSchema>> =
+        await this.index.client.search({
+          index: this.index.getAliasName(),
+          ...this.getBody(),
+          ...more,
+        });
+      return { result, error: null };
     } catch (e) {
-      error = e as Error;
-      return { result: null, error };
-    } finally {
-      try {
-        // Only try to close the client if it has a close method
-        if (client && typeof client.close === 'function') {
-          await client.close().catch((e: Error) => {
-            console.error(
-              'Error closing Elasticsearch client in QueryBuilder:',
-              e
-            );
-          });
-        }
-      } catch (e) {
-        console.error(
-          'Unexpected error when closing Elasticsearch client in QueryBuilder:',
-          e
-        );
-      }
+      return { result: null, error: e as Error };
     }
   }
 
   /**
    * Return the builder body
-   * @return {Object}
    */
   getBody() {
     const body: Pick<estypes.SearchRequest, 'query' | 'highlight' | 'aggs'> =
       {};
-    if (this.#must.length > 0) {
-      body.query = { bool: { must: this.#must } as estypes.QueryDslBoolQuery };
+    if (this._must.length > 0) {
+      body.query = { bool: { must: this._must } as estypes.QueryDslBoolQuery };
     }
-    if (this.#mustNot.length > 0) {
+    if (this._mustNot.length > 0) {
       if (!body.query) {
         body.query = { bool: {} as estypes.QueryDslBoolQuery };
       }
-      body.query.bool.must_not = this.#mustNot;
+      body.query.bool.must_not = this._mustNot;
     }
-    if (this.#highlighter) {
-      body.highlight = this.#highlighter;
+    if (this._highlighter) {
+      body.highlight = this._highlighter;
     }
-    if (!isEmptyObject(this.#aggs)) {
-      body.aggs = this.#aggs;
+    if (!isEmptyObject(this._aggs)) {
+      body.aggs = this._aggs;
     }
-    if (this.#sortByRandom) {
+    if (this._shouldSortByRandom) {
       if (!body.query) {
         body.query = {};
       }
@@ -1168,8 +1132,8 @@ export default class QueryBuilder {
       } as estypes.QueryDslFunctionScoreQuery;
       body.query.bool = undefined;
     }
-    // if (this.#functionScores.length > 0) {
-    //   body.functions = this.#functionScores.map(
+    // if (this.functionScores.length > 0) {
+    //   body.functions = this.functionScores.map(
     //     ({
     //       field,
     //       decayFunction,
@@ -1200,17 +1164,15 @@ export default class QueryBuilder {
    * Return the "size" and "from" based on "limit" and "page"
    * @return The options to send in the builder
    */
-  getOptions(): Pick<estypes.SearchRequest, 'size' | 'from' | 'sort'> {
-    const options = {} as SizeFromSort;
-    if (this.#limit !== null) {
-      options.size = this.#limit;
-      if (this.#page > 1) {
-        options.from = this.#limit * (this.#page - 1);
+  getOptions() {
+    const options: Pick<estypes.SearchRequest, 'size' | 'from' | 'sort'> = {};
+    if (this._limit !== null) {
+      options.size = this._limit;
+      if (this._page > 1) {
+        options.from = this._limit * (this._page - 1);
       }
     }
-    if (this.#sorts.length > 0) {
-      options.sort = this.#sorts;
-    }
+    options.sort = this._sorts;
     return options;
   }
 
@@ -1224,11 +1186,11 @@ export default class QueryBuilder {
   ): estypes.SearchRequest {
     const source: Pick<estypes.SearchRequest, '_source' | '_source_excludes'> =
       {};
-    if (this.#fields.length > 0) {
-      source._source = this.#fields;
+    if (this._fields.length > 0) {
+      source._source = this._fields;
     }
-    if (this.#excludeFields.length > 0) {
-      source._source_excludes = this.#excludeFields;
+    if (this._excludeFields.length > 0) {
+      source._source_excludes = this._excludeFields;
     }
     return {
       ...source,
@@ -1241,7 +1203,6 @@ export default class QueryBuilder {
   /**
    * For JSON serialization, simply use the value returned from getQuery()
    * @see https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/JSON/stringify#tojson_behavior
-   * @returns {String}
    */
   toJSON() {
     return this.getQuery();

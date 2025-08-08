@@ -1,17 +1,24 @@
-import withEsClient from '../withEsClient/withEsClient.js';
-import fulltext from '../fulltext/fulltext.js';
+import { Client, estypes } from '@elastic/elasticsearch';
+import { Merge } from 'type-fest';
 import dates from '../dates/dates.js';
+import fulltext from '../fulltext/fulltext.js';
+import getEsClient from '../getEsClient/getEsClient';
 
-export default async function putRecord(index: any, data: any) {
-  fulltext.processRecord(data);
-  dates.processRecord(data);
-  const { result, error } = await withEsClient((client: any) => {
-    return client.index({ index, id: data.id, body: data });
-  });
-  return {
-    result: result?.statusCode === 201,
-    error,
-    details: result || error?.meta,
-  };
+export default async function putRecord({
+  client = getEsClient(),
+  index,
+  document,
+}: Merge<estypes.IndicesExistsAliasRequest, { client?: Client }>) {
+  fulltext.processRecord(document);
+  dates.processRecord(document);
+  try {
+    const result = await client.index({
+      index,
+      id: document.id,
+      body: document,
+    });
+    return { result, error: null };
+  } catch (e) {
+    return { result: null, error: e as Error };
+  }
 }
-
