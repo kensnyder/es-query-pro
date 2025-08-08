@@ -13,9 +13,44 @@ export default class QueryRunner<ThisSchema extends SchemaShape> {
   }
 
   /**
+   * return the returned _source for each hit
+   * @param response  The result from withEsClient()
+   * @private
+   */
+  formatResponse(
+    response: estypes.SearchResponse<ElasticsearchRecord<ThisSchema>>
+  ) {
+    if (response?.hits?.hits) {
+      const records: ElasticsearchRecord<ThisSchema>[] = [];
+      for (const hit of response.hits.hits) {
+        records.push(this.index.textProcessor.prepareResult(hit._source));
+      }
+      return {
+        records,
+        total:
+          typeof response.hits.total === 'number'
+            ? response.hits.total
+            : response.hits.total?.value,
+        took: response.took,
+        aggregations: response.aggregations,
+        response,
+        error: null,
+      };
+    }
+    return {
+      records: [],
+      total: 0,
+      took: response?.took,
+      aggregations: {},
+      response,
+      error: new Error('response.hits.hits not found'),
+    };
+  }
+
+  /**
    * Run this builder and return results
    */
-  async _search(more: Omit<estypes.SearchRequest, 'index' | 'query'> = {}) {
+  async search(more: Omit<estypes.SearchRequest, 'index' | 'query'> = {}) {
     try {
       const result: estypes.SearchResponse<ElasticsearchRecord<ThisSchema>> =
         await this.index.client.search({
@@ -23,9 +58,16 @@ export default class QueryRunner<ThisSchema extends SchemaShape> {
           ...this.builder.getBody(),
           ...more,
         });
-      return { result, error: null };
+      return this.formatResponse(result);
     } catch (e) {
-      return { result: null, error: e as Error };
+      return {
+        records: [],
+        total: null,
+        took: null,
+        aggregations: null,
+        response: null,
+        error: e as Error,
+      };
     }
   }
 
@@ -33,23 +75,35 @@ export default class QueryRunner<ThisSchema extends SchemaShape> {
    * Run this builder and return result.hits.hits
    */
   async findMany(more: Omit<estypes.SearchRequest, 'index' | 'query'> = {}) {
-    const { result, error } = await this._search(more);
-    if (error) {
-      throw error;
-    }
-    return result.hits.hits;
+    return this.search(more);
   }
 
   /**
-   * Run this builder and return result.hits.hits
+   * Run this builder and return result.hits.hits[0]
    */
   async findFirst(more: Omit<estypes.SearchRequest, 'index' | 'query'> = {}) {
-    const hits = await this.findMany(more);
-    return hits[0] || null;
+    const { records, ...result } = await this.search(more);
+    return { record: records[0], ...result };
+  }
+
+  /**
+   * Count the number of documents matching the current query
+   * @returns The count of matching documents
+   */
+  async count(more: Omit<estypes.CountRequest, 'index' | 'query'>) {
+    try {
+      const response = await this.index.client.count({
+        index: this.index.getAliasName(),
+        ...this.builder.getBody(),
+        ...more,
+      });
+      return { total: response.count, error: null, response };
+    } catch (e) {
+      return { total: null, error: e as Error, response: null };
+    }
   }
 
   // aggregate
-  // count
   // groupBy
   // delete
 }

@@ -1,26 +1,37 @@
 import indexName from '../indexName/indexName';
-import schemaToMappings  from '../schemaToMappings/schemaToMappings';
+import schemaToMappings from '../schemaToMappings/schemaToMappings';
 import findBy from '../findBy/findBy';
 import QueryBuilder from '../QueryBuilder/QueryBuilder';
 import getEsClient from '../getEsClient/getEsClient';
-import { Client, estypes } from '@elastic/elasticsearch';
+import { Client, estypes, errors } from '@elastic/elasticsearch';
 import fulltext from '../fulltext/fulltext';
-import { ElasticsearchRecord, IndexName, SchemaShape } from '../types';
+import {
+  BoostType,
+  ElasticsearchRecord,
+  IndexName,
+  SchemaShape,
+} from '../types';
 import TextProcessor from '../TextProcessor/TextProcessor';
+import QueryRunner from '../QueryRunner/QueryRunner';
+import SchemaManager from '../SchemaManager/SchemaManager';
 
 /**
  * ElasticSearch index manager for creating, searching and saving data
  * for a particular index
  */
-export default class IndexManager<ThisSchema extends SchemaShape = SchemaShape> {
+export default class IndexManager<
+  ThisSchema extends SchemaShape = SchemaShape,
+> {
   public index: IndexName;
   public client: Client;
   public language: string;
-  public schema: ThisSchema;
+  public schema: SchemaManager<ThisSchema>;
   public settings: any;
   public version: number | string;
   public prefix: string;
   public textProcessor: TextProcessor;
+  public fulltextFields: string[];
+  public allFields: string[];
   /**
    * Define the index with the given configuration
    * @param client  The client to use
@@ -40,7 +51,6 @@ export default class IndexManager<ThisSchema extends SchemaShape = SchemaShape> 
     settings = {},
     prefix = '',
     language = 'englishplus',
-    textProcessor = new TextProcessor(),
   }: {
     client?: Client;
     name: IndexName;
@@ -49,7 +59,6 @@ export default class IndexManager<ThisSchema extends SchemaShape = SchemaShape> 
     settings?: estypes.IndicesCreateRequest['settings'];
     prefix?: string;
     language?: string;
-    textProcessor?: TextProcessor;
   }) {
     this.client = client;
     this.index = name;
@@ -58,12 +67,15 @@ export default class IndexManager<ThisSchema extends SchemaShape = SchemaShape> 
         'IndexManager: Index name must be only alphanumeric and underscores'
       );
     }
-    this.textProcessor = textProcessor;
+    this.textProcessor = new TextProcessor();
+    this.textProcessor.registerSchema(schema);
     this.version = version;
-    this.schema = schema;
+    this.schema = new SchemaManager(schema);
     this.settings = settings;
     this.language = language;
     this.prefix = prefix;
+    this.fulltextFields = this.schema.getFulltextFields();
+    this.allFields = this.schema.getAllFields();
   }
 
   /**
@@ -99,17 +111,78 @@ export default class IndexManager<ThisSchema extends SchemaShape = SchemaShape> 
     return this;
   }
 
+  private formatError(e: any) {
+    if (e instanceof errors.ResponseError) {
+      // Handle Elasticsearch response errors
+      return {
+        error: e,
+        errorKind: 'response',
+        response: e.meta || null,
+      };
+    }
+    if (e instanceof errors.ConnectionError) {
+      return {
+        error: e,
+        errorKind: 'connection',
+        response: null,
+      };
+    }
+    if (e instanceof errors.TimeoutError) {
+      return {
+        error: e,
+        errorKind: 'timeout',
+        response: null,
+      };
+    }
+    if (e instanceof errors.NoLivingConnectionsError) {
+      return {
+        error: e,
+        errorKind: 'disconnected',
+        response: null,
+      };
+    }
+    // Handle other types of errors
+    return {
+      error: e as Error,
+      errorKind: 'javascript',
+      response: null,
+    };
+  }
+
+  private formatNonError<T>(response: T) {
+    return {
+      error: null,
+      errorKind: null,
+      response,
+    };
+  }
+
   /**
    * Return { result: true } if the index already exists in the database
    */
   async exists() {
     try {
-      const result = await this.client.indices.exists({
+      const response = await this.client.indices.exists({
         index: this.getIndexName(),
       });
-      return { result, error: null };
+      return { exists: response, ...this.formatNonError(null) };
     } catch (e) {
-      return { result: null, error: e as Error };
+      return { exists: null, ...this.formatError(e) };
+    }
+  }
+
+  /**
+   * Return { result: "index_name" } if the alias exists and points to an index
+   */
+  async getIndexNameByAlias() {
+    try {
+      const response = await this.client.indices.getAlias({
+        name: this.getAliasName(),
+      });
+      const indexName = Object.keys(response.body)[0];
+      return { name: indexName, ...this.formatNonError(response) };
+    } catch (e) {
+      return { name: null, ...this.formatError(e) };
     }
   }
 
@@ -118,12 +191,19 @@ export default class IndexManager<ThisSchema extends SchemaShape = SchemaShape> 
    */
   async aliasExists() {
     try {
-      const result = this.client.indices.existsAlias({
+      const response = this.client.indices.existsAlias({
         name: this.getAliasName(),
       });
-      return { result, error: null };
+      return {
+        exists: Object.keys(response)[0],
+        ...this.formatNonError(response),
+      };
     } catch (e) {
-      return { result: null, error: e as Error };
+      const error = e as errors.ResponseError;
+      if (error.statusCode === 404) {
+        return { exists: false, ...this.formatNonError(e.meta || null) };
+      }
+      return { exists: null, ...this.formatError(e) };
     }
   }
 
@@ -134,14 +214,14 @@ export default class IndexManager<ThisSchema extends SchemaShape = SchemaShape> 
     const mappings = schemaToMappings(this.schema, this.language);
     const settings = this.settings;
     try {
-      const result = await this.client.indices.create({
+      const response = await this.client.indices.create({
         index: this.getIndexName(),
         mappings,
         settings,
       });
-      return { result, error: null };
+      return { index: response.index, ...this.formatNonError(response) };
     } catch (e) {
-      return { result: null, error: e as Error };
+      return { index: null, ...this.formatError(e) };
     }
   }
 
@@ -150,13 +230,16 @@ export default class IndexManager<ThisSchema extends SchemaShape = SchemaShape> 
    */
   async createAlias() {
     try {
-      const result = await this.client.indices.putAlias({
+      const response = await this.client.indices.putAlias({
         name: this.getAliasName(),
         index: this.getIndexName(),
       });
-      return { result, error: null };
+      return {
+        success: response.acknowledged,
+        ...this.formatNonError(response),
+      };
     } catch (e) {
-      return { result: null, error: e as Error };
+      return { success: false, ...this.formatError(e) };
     }
   }
 
@@ -164,17 +247,32 @@ export default class IndexManager<ThisSchema extends SchemaShape = SchemaShape> 
    * Create the index, but only if needed
    */
   async createIfNeeded() {
-    const { result: alreadyExists, error } = await this.exists();
-    if (error) {
-      return { result: 'error', error };
-    } else if (alreadyExists === true) {
-      return { result: 'already exists', error: null };
+    const res = await this.exists();
+    if (res.exists) {
+      return {
+        success: true,
+        code: 'ALREADY_EXISTS',
+        error: null,
+        errorKind: null,
+      };
+    } else if (res.error) {
+      return {
+        success: false,
+        code: 'ERROR',
+        error: res.error,
+        errorKind: res.errorKind,
+      };
     } else {
-      const { result: createdOk, error } = await this.create();
-      if (createdOk === true) {
-        return { result: 'created ok', error };
+      const res = await this.create();
+      if (res.index === null) {
+        return {
+          success: false,
+          code: 'ERROR',
+          error: res.error,
+          errorKind: res.errorKind,
+        };
       } else {
-        return { result: 'error', error };
+        return { success: true, code: 'CREATED', error: null, errorKind: null };
       }
     }
   }
@@ -184,17 +282,32 @@ export default class IndexManager<ThisSchema extends SchemaShape = SchemaShape> 
    *
    */
   async createAliasIfNeeded() {
-    const { result: alreadyExists, error } = await this.aliasExists();
-    if (error) {
-      return { result: 'error', error };
-    } else if (alreadyExists === true) {
-      return { result: 'already exists', error: null };
+    const res = await this.aliasExists();
+    if (res.exists) {
+      return {
+        success: true,
+        code: 'ALREADY_EXISTS',
+        error: null,
+        errorKind: null,
+      };
+    } else if (res.error) {
+      return {
+        success: false,
+        code: 'ERROR',
+        error: res.error,
+        errorKind: res.errorKind,
+      };
     } else {
-      const { result: createdOk, error } = await this.createAlias();
-      if (createdOk === true) {
-        return { result: 'created ok', error };
+      const res = await this.createAlias();
+      if (res.success === false) {
+        return {
+          success: false,
+          code: 'ERROR',
+          error: res.error,
+          errorKind: res.errorKind,
+        };
       } else {
-        return { result: 'error', error };
+        return { success: true, code: 'CREATED', error: null, errorKind: null };
       }
     }
   }
@@ -226,38 +339,84 @@ export default class IndexManager<ThisSchema extends SchemaShape = SchemaShape> 
 
   /**
    * Find records that have content_* columns matching the given term or phrase
+   * @param searchFields  specify a subset of fields to search
+   * @param fetchFields  specify a subset of fields to fetch
    * @param phrase  A word or phrase to search for
+   * @param boosts  boost options (defaults to { boosts: [1, 3, 5] })
    * @param where  Field-value pairs of fields to match
    * @param [more]  Additional body params such as size and from
    */
-  async findByPhrase(
-    phrase: string,
-    where: Record<string, any>,
-    more?: Omit<estypes.SearchRequest, 'index' | 'query'>
-  ) {
-    return await findBy.boostedPhrase({
-      client: this.client,
-      index: this.getAliasName(),
-      phrase,
-      where,
-      more,
+  async findByPhrase({
+    searchFields = this.fulltextFields,
+    fetchFields = ['*'],
+    phrase,
+    boosts = {},
+    where = {},
+    more = {},
+  }: {
+    searchFields?: string[];
+    fetchFields?: string[];
+    phrase: string | string[];
+    more?: Omit<estypes.SearchRequest, 'index' | 'query'>;
+    where?: Record<string, any>;
+    boosts: BoostType;
+  }) {
+    return this.run(runner => {
+      const builder = runner.builder;
+      builder.fields(fetchFields);
+      builder.matchBoostedPhrase(searchFields, phrase, boosts);
+      for (const [field, value] of Object.entries(where)) {
+        builder.match(field, value);
+      }
+      return runner.findMany(more);
     });
   }
 
-  getBuilder() {
-    return new QueryBuilder(this);
+  /**
+   * Find records that have content_* columns matching the given term or phrase
+   * @param fetchFields  specify a subset of fields to fetch
+   * @param where  Field-value pairs of fields to match
+   * @param [more]  Additional body params such as size and from
+   */
+  async findWhere({
+    fetchFields = ['*'],
+    where = {},
+    more = {},
+  }: {
+    searchFields?: string[];
+    fetchFields?: string[];
+    more?: Omit<estypes.SearchRequest, 'index' | 'query'>;
+    where?: Record<string, any>;
+    boosts: BoostType;
+  }) {
+    return this.run(runner => {
+      const builder = runner.builder;
+      builder.fields(fetchFields);
+      for (const [field, value] of Object.entries(where)) {
+        builder.match(field, value);
+      }
+      return runner.findMany(more);
+    });
   }
 
-  /**
-   * Find records matching the given QueryBuilder object
-   * @param builder  A QueryBuilder instance
-   * @param [more]  Additional options such as size and from
-   */
-  async findByQuery(
-    builder: QueryBuilder,
-    more?: Partial<estypes.SearchRequest>
-  ) {
-    return await findBy.query({ index: this.getAliasName(), builder, more });
+  run<T>(withQueryRunner: (runner: QueryRunner<ThisSchema>) => T) {
+    return withQueryRunner(new QueryRunner(this));
+  }
+
+  findMany(withQueryBuilder: (builder: QueryBuilder) => void | Promise<void>) {
+    return this.run(async runner => {
+      const builder = runner.builder;
+      await withQueryBuilder(builder);
+      return runner.findMany();
+    });
+  }
+
+  findFirst(withQueryBuilder: (builder: QueryBuilder) => void | Promise<void>) {
+    return this.run(async runner => {
+      const builder = runner.builder;
+      await withQueryBuilder(builder);
+      return runner.findFirst();
+    });
   }
 
   /**
@@ -313,37 +472,129 @@ export default class IndexManager<ThisSchema extends SchemaShape = SchemaShape> 
       return { result: null, error: e as Error };
     }
   }
+
+  /**
+   * Migrate the index if needed
+   * - First check if the index exists
+   *   - If not, create it and create an alias
+   *   - If it does, create alias if needed
+   * - Otherwise check the alias name in ElasticSearch matches this alias name
+   *   - If it matches, do nothing
+   *   - If it doesn't create a new index, copy old data to new index, then update alias to point to the new index
+   *   - Note that ElasticSearch may support an alias pointing to old and new indexes at the same time + deleting on copy
+   */
+  async migrateIfNeeded() {
+    const start = Date.now();
+    const currentIndexName = this.getIndexName();
+    try {
+      // Check if the index exists
+      const indexExists = await this.exists();
+
+      if (!indexExists.exists) {
+        // There is no index at all OR the version number has changed
+        await this.create();
+
+        // Get the index that the alias points to
+        const indexInfo = await this.getIndexNameByAlias();
+
+        if (indexInfo.name === currentIndexName) {
+          // No index at all
+          await this.createAlias();
+          return {
+            success: true,
+            took: Date.now() - start,
+            code: 'CREATED_INDEX',
+            oldName: null,
+            newName: currentIndexName,
+            ...this.formatNonError(indexExists),
+          };
+        }
+
+        // Version number has changed
+        await this.client.reindex({
+          wait_for_completion: true,
+          source: { index: indexInfo.name },
+          dest: { index: currentIndexName },
+        });
+
+        // Update alias to point to the new index
+        await this.client.indices.updateAliases({
+          actions: [
+            { remove: { index: indexInfo.name, alias: this.getAliasName() } },
+            { add: { index: currentIndexName, alias: this.getAliasName() } },
+          ],
+        });
+
+        // Delete the old index
+        await this.client.indices.delete({ index: indexInfo.name });
+
+        return {
+          success: true,
+          took: Date.now() - start,
+          code: 'MIGRATED',
+          oldName: indexInfo.name,
+          newName: currentIndexName,
+          ...this.formatNonError(indexExists),
+        };
+      }
+
+      // Alias already points to the correct index
+      return {
+        success: true,
+        took: Date.now() - start,
+        code: 'NO_CHANGE',
+        oldName: currentIndexName,
+        newName: currentIndexName,
+        ...this.formatNonError(indexExists),
+      };
+    } catch (e) {
+      return {
+        success: false,
+        took: Date.now() - start,
+        code: 'ERROR',
+        oldName: null,
+        newName: null,
+        ...this.formatError(e),
+      };
+    }
+  }
 }
 
 /*
 Example:
 
-const usersIndex = new IndexManager({
-  index: 'users',
-  version: 1,
+export const postIndex = new IndexManager({
+  name: 'post',
+  version: '1',
   schema: {
-    id: 'keyword',
-    email: 'keyword',
-    full_name: 'keyword',
-    domain: 'keyword',
-    service: 'keyword',
-    avatar: 'keyword',
-    content_bio: 'fulltext',
-    last_login_at: 'date.epoch_millis',
-    last_login_ip: 'keyword',
-    created_at: 'date.epoch_millis',
-    created_by: 'keyword',
-    modified_at: 'date.epoch_millis',
-    modified_by: 'keyword',
-    deleted_at: 'date.epoch_millis',
-    deleted_by: 'keyword',
+    id: 'integer',
+    uuid: 'keyword',
+    copiedFrom: 'keyword',
+    externalRef: 'keyword',
+    title: 'text',
+    body: 'text',
+    postType: 'keyword',
+    postSubType: 'keyword',
+    createdAt: 'date',
+    divisionId: 'integer',
+    divisionUuid: 'keyword',
+    mediaFilenames: 'text',
+    mediaContents: 'text',
+    taxonomy: {
+      taxId: 'integer',
+      taxName: 'keyword',
+      taxUuid: 'keyword',
+      choiceId: 'integer',
+      choiceUuid: 'keyword',
+      choiceName: 'keyword',
+    },
   },
   settings: {
-    // Specify fields we might sort by to make sorting faster
+    // Specify fields (other than relevance) we might sort by to make sorting faster
     // See https://www.elastic.co/blog/index-sorting-elasticsearch-6-0
     index: {
-      'sort.field': ['full_name', 'email', 'last_login_at'],
-      'sort.order': ['asc', 'asc', 'desc'],
+      'sort.field': ['createdAt'],
+      'sort.order': ['desc'],
     },
   },
 });

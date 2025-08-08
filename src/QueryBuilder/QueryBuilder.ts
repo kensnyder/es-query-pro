@@ -293,11 +293,13 @@ export default class QueryBuilder {
     valueOrValues: string | string[],
     type: AnyAllType = 'ANY'
   ) {
-    valueOrValues = this.textProcessor.processText(valueOrValues);
+    const values = Array.isArray(valueOrValues)
+      ? valueOrValues.map(v => this.textProcessor.processText(v))
+      : [this.textProcessor.processText(valueOrValues)];
     if (type.toUpperCase() === 'ALL') {
-      this.addFilterAll(this._must, 'match', field, valueOrValues);
+      this.addFilterAll(this._must, 'match', field, values);
     } else {
-      this.addFilterAny(this._must, 'match', field, valueOrValues);
+      this.addFilterAny(this._must, 'match', field, values);
     }
     return this;
   }
@@ -310,12 +312,11 @@ export default class QueryBuilder {
    * @chainable
    */
   matchPhrase(field: string, phraseOrPhrases: string | string[]) {
-    phraseOrPhrases = this.textProcessor.processText(phraseOrPhrases);
-    if (!Array.isArray(phraseOrPhrases)) {
-      phraseOrPhrases = [phraseOrPhrases];
-    }
+    const phrases = Array.isArray(phraseOrPhrases)
+      ? phraseOrPhrases.map(v => this.textProcessor.processText(v))
+      : [this.textProcessor.processText(phraseOrPhrases)];
     const terms = [];
-    for (const phrase of phraseOrPhrases) {
+    for (const phrase of phrases) {
       terms.push({ match_phrase: { [field]: phrase } });
     }
     if (terms.length === 1) {
@@ -338,15 +339,14 @@ export default class QueryBuilder {
     fieldOrFields: string | string[],
     phraseOrPhrases: string | string[]
   ) {
-    phraseOrPhrases = this.textProcessor.processText(phraseOrPhrases);
-    if (!Array.isArray(phraseOrPhrases)) {
-      phraseOrPhrases = [phraseOrPhrases];
-    }
+    const phrases = Array.isArray(phraseOrPhrases)
+      ? phraseOrPhrases.map(v => this.textProcessor.processText(v))
+      : [this.textProcessor.processText(phraseOrPhrases)];
     if (Array.isArray(fieldOrFields)) {
       // we want to do a phrase prefix on more than one fields
       // so we multi_match with a phrase_prefix type
       const clauses = [];
-      for (const phrase of phraseOrPhrases) {
+      for (const phrase of phrases) {
         clauses.push({
           multi_match: {
             fields: fieldOrFields,
@@ -364,7 +364,7 @@ export default class QueryBuilder {
     }
     // fieldOrFields is a string so we can use match_phrase_prefix directly
     const clauses = [];
-    for (const phrase of phraseOrPhrases) {
+    for (const phrase of phrases) {
       clauses.push({ match_phrase_prefix: { [fieldOrFields]: phrase } });
     }
     if (clauses.length === 1) {
@@ -383,24 +383,26 @@ export default class QueryBuilder {
    * in the results.
    * @param fieldOrFields  The names of the fields to search (often ['content_*.fulltext'])
    * @param termOrTerms  The search phrase or phrases (often ['my search here'])
-   * @param options  Additional options
-   * @property options.expand  If true, also match with "OR" but at a lower relevance (default true)
-   * @property options.boosts  The boosts for "OR", "AND", then "phrase" (default [1,3,5])
+   * @param boostOptions  Additional options
+   * @property boostOptions.expand  If true, also match with "OR" but at a lower relevance (default true)
+   * @property boostOptions.boosts  The boosts for "OR", "AND", then "phrase" (default [1,3,5])
    * @return {QueryBuilder}
    * @chainable
    */
   matchBoostedPhrase(
     fieldOrFields: string | string[],
     termOrTerms: string | string[],
-    options: BoostType = {}
+    boostOptions: BoostType = {}
   ) {
     const fields = Array.isArray(fieldOrFields)
       ? fieldOrFields
       : [fieldOrFields];
-    const terms = Array.isArray(termOrTerms) ? termOrTerms : [termOrTerms];
+    const terms = Array.isArray(termOrTerms)
+      ? termOrTerms.map(v => this.textProcessor.processText(v))
+      : [this.textProcessor.processText(termOrTerms)];
     // enumerate options
-    const expand = 'expand' in options ? options.expand : true;
-    const boosts = options.boosts || [1, 3, 5];
+    const expand = 'expand' in boostOptions ? boostOptions.expand : true;
+    const boosts = boostOptions.boosts || [1, 3, 5];
     // build subquery
     const subquery = new QueryBuilder(this.textProcessor);
     if (expand) {
