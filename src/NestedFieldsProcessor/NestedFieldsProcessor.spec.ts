@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'bun:test';
 import NestedFieldsProcessor from './NestedFieldsProcessor';
-import { estypes } from '@elastic/elasticsearch';
 
 describe('NestedFieldsProcessor', () => {
   describe('with default separator', () => {
@@ -40,7 +39,7 @@ describe('NestedFieldsProcessor', () => {
 
     it('should handle must_not with ignore_unmapped', () => {
       const query = { exists: { field: 'metadata->tags' } };
-      const result = processor.createNestedQuery(query, true);
+      const result = processor.createNestedQuery(query, 'must_not');
 
       expect(result).toEqual({
         nested: {
@@ -203,20 +202,20 @@ describe('NestedFieldsProcessor', () => {
       const query = {
         multi_match: {
           query: 'search term',
-          fields: ['title', 'content', 'metadata->keywords']
-        }
+          fields: ['title', 'content', 'metadata->keywords'],
+        },
       };
-      
+
       const result = processor.processNestedFields(query);
-      
+
       expect(result).toEqual({
         bool: {
           should: [
-            { 
-              multi_match: { 
-                query: 'search term', 
-                fields: ['title', 'content']
-              } 
+            {
+              multi_match: {
+                query: 'search term',
+                fields: ['title', 'content'],
+              },
             },
             {
               nested: {
@@ -224,13 +223,13 @@ describe('NestedFieldsProcessor', () => {
                 query: {
                   multi_match: {
                     query: 'search term',
-                    fields: ['metadata.keywords']
-                  }
-                }
-              }
-            }
-          ]
-        }
+                    fields: ['metadata.keywords'],
+                  },
+                },
+              },
+            },
+          ],
+        },
       });
     });
 
@@ -238,20 +237,20 @@ describe('NestedFieldsProcessor', () => {
       const query = {
         multi_match: {
           query: 'search term',
-          fields: ['title', 'content', 'metadata->*']
-        }
+          fields: ['title', 'content', 'metadata->*'],
+        },
       };
-      
+
       const result = processor.processNestedFields(query);
-      
+
       expect(result).toEqual({
         bool: {
           should: [
-            { 
-              multi_match: { 
-                query: 'search term', 
-                fields: ['title', 'content']
-              } 
+            {
+              multi_match: {
+                query: 'search term',
+                fields: ['title', 'content'],
+              },
             },
             {
               nested: {
@@ -259,13 +258,13 @@ describe('NestedFieldsProcessor', () => {
                 query: {
                   multi_match: {
                     query: 'search term',
-                    fields: ['metadata.*']
-                  }
-                }
-              }
-            }
-          ]
-        }
+                    fields: ['metadata.*'],
+                  },
+                },
+              },
+            },
+          ],
+        },
       });
     });
   });

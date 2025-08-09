@@ -3,19 +3,13 @@
  */
 import { estypes } from '@elastic/elasticsearch';
 
-/**
- * Type helper for nested queries
- */
-type QueryContainer = estypes.QueryDslQueryContainer;
-type BoolQuery = estypes.QueryDslBoolQuery;
-// Helper type to extract the query type from a union
-type ExtractQueryType<T, K extends string> = T extends { [key in K]: unknown }
-  ? T
-  : never;
-
 // Individual query types
 type TermQuery = { term: Record<string, unknown> };
-type MatchQuery = { match: Record<string, unknown> };
+type MatchQuery = {
+  match:
+    | estypes.QueryDslMatchQuery
+    | Record<string, estypes.QueryDslMatchQuery>;
+};
 type RangeQuery = { range: Record<string, unknown> };
 type ExistsQuery = { exists: { field: string } };
 
@@ -63,13 +57,13 @@ export default class NestedFieldsProcessor {
    * Helper function to create nested queries for each level of nesting
    * @param fieldParts - The parts of the field path (e.g., ['author', 'name'] for 'author->name')
    * @param innerQuery - The innermost query to wrap with nested queries
-   * @param isMustNot - Whether this is in a must_not context
+   * @param context - Whether this is in a must context or a must_not context
    * @returns The nested query structure
    */
   private createNestedQueries(
     fieldParts: string[],
     innerQuery: any,
-    isMustNot: boolean = false
+    context: 'must' | 'must_not' = 'must'
   ): estypes.QueryDslQueryContainer {
     if (fieldParts.length <= 1) {
       return innerQuery;
@@ -81,7 +75,7 @@ export default class NestedFieldsProcessor {
     for (let i = fieldParts.length - 1; i > 0; i--) {
       const isOuter = i === 1; // Only the outermost query should have ignore_unmapped
       const path = fieldParts.slice(0, i).join('.');
-      
+
       const nestedQuery: any = {
         nested: {
           path,
@@ -90,7 +84,7 @@ export default class NestedFieldsProcessor {
       };
 
       // Add ignore_unmapped for must_not context on the outermost query
-      if (isMustNot && isOuter) {
+      if (context === 'must_not' && isOuter) {
         nestedQuery.nested.ignore_unmapped = true;
       }
 
@@ -104,260 +98,341 @@ export default class NestedFieldsProcessor {
    * Process a field path with the configured separator and return the nested query structure
    * @template T - The type of the query (e.g., QueryDslQueryContainer)
    * @param query - The query to be nested
-   * @param isMustNot - Whether this is a 'must_not' context
+   * @param context - The query context, either 'must' or 'must_not'
    * @returns The query with nested structure applied
    */
   createNestedQuery<T extends QueryWithField>(
     query: T,
-    isMustNot: boolean = false
-  ): estypes.QueryDslQueryContainer  {
-    // Helper to get the field name from a field path
-    const getFieldName = (fieldPath: string) => {
-      const parts = fieldPath.split(this.fieldSeparator);
-      return parts[parts.length - 1].trim();
-    };
+    context: 'must' | 'must_not' = 'must'
+  ): estypes.QueryDslQueryContainer {
+    const isMustNot = context === 'must_not';
+    const field = this.getFieldName(query);
 
-    // For exists queries
+    if (!field.includes(this.fieldSeparator)) {
+      return query as unknown as estypes.QueryDslQueryContainer;
+    }
+
+    const fieldParts = field
+      .split(this.fieldSeparator)
+      .map(part => part.trim());
+    const fullFieldPath = fieldParts.join('.');
+
+    // Create a copy of the query with the full field path
+    const queryCopy = { ...query } as any;
+    const queryKey = Object.keys(query)[0];
+
+    // Handle exists query specially
     if (isExistsQuery(query)) {
-      const existsField = query.exists.field;
-
-      // If the field path doesn't contain the separator, return as-is
-      if (!existsField.includes(this.fieldSeparator)) {
-        return query;
-      }
-      
-      const fieldParts = existsField
-        .split(this.fieldSeparator)
-        .map(part => part.trim());
-      
-      // Create the innermost exists query with the full field path
-      const innerQuery = {
-        exists: {
-          field: fieldParts.join('.'),
-        },
-      };
-
-      // Create nested queries for each level of nesting
-      return this.createNestedQueries(fieldParts, innerQuery, isMustNot);
+      queryCopy.exists = { field: fullFieldPath };
+    } else {
+      // For other query types, update the field path in the query
+      const fieldValue =
+        queryCopy[queryKey][Object.keys(queryCopy[queryKey])[0]];
+      delete queryCopy[queryKey][Object.keys(queryCopy[queryKey])[0]];
+      queryCopy[queryKey][fullFieldPath] = fieldValue;
     }
 
-    // For term queries
-    if (isTermQuery(query)) {
-      const termField = Object.keys(query.term)[0];
-      const termValue = query.term[termField];
+    // Create the nested query structure
+    const result = this.createNestedQueries(fieldParts, queryCopy, context);
 
-      // If the field path doesn't contain the separator, return as-is
-      if (!termField.includes(this.fieldSeparator)) {
-        return query;
-      }
-
-      const fieldParts = termField
-        .split(this.fieldSeparator)
-        .map(part => part.trim());
-      const fullFieldPath = fieldParts.join('.');
-
-      // Create the innermost term query with full field path
-      const innerQuery = {
-        term: {
-          [fullFieldPath]: termValue,
-        },
-      };
-
-      // Create nested queries for each level of nesting
-      return this.createNestedQueries(fieldParts, innerQuery, isMustNot);
+    // Ensure ignore_unmapped is set for must_not context
+    if (isMustNot && result.nested) {
+      result.nested.ignore_unmapped = true;
     }
 
-    // For match queries
-    if (isMatchQuery(query)) {
-      const matchField = Object.keys(query.match)[0];
-      const matchValue = query.match[matchField];
-
-      // If the field path doesn't contain the separator, return as-is
-      if (!matchField.includes(this.fieldSeparator)) {
-        return query;
-      }
-
-      const fieldParts = matchField
-        .split(this.fieldSeparator)
-        .map(part => part.trim());
-      const fullFieldPath = fieldParts.join('.');
-
-      // Create the innermost match query with full field path
-      const innerQuery = {
-        match: {
-          [fullFieldPath]: matchValue,
-        },
-      };
-
-      // Create nested queries for each level of nesting
-      return this.createNestedQueries(fieldParts, innerQuery, isMustNot);
-    }
-
-    // For range queries
-    if (isRangeQuery(query)) {
-      const rangeField = Object.keys(query.range)[0];
-      const rangeValue = query.range[rangeField];
-
-      // If the field path doesn't contain the separator, return as-is
-      if (!rangeField.includes(this.fieldSeparator)) {
-        return query;
-      }
-
-      const fieldParts = rangeField
-        .split(this.fieldSeparator)
-        .map(part => part.trim());
-      const fullFieldPath = fieldParts.join('.');
-
-      // Create the innermost range query with full field path
-      const innerQuery = {
-        range: {
-          [fullFieldPath]: rangeValue,
-        },
-      };
-
-      // Create nested queries for each level of nesting
-      return this.createNestedQueries(fieldParts, innerQuery, isMustNot);
-    }
-
-    // Handle array of queries
-    if (Array.isArray(query)) {
-      const results: estypes.QueryDslQueryContainer[] = [];
-      for (const q of query) {
-        const result = this.processNestedFields(q, isMustNot);
-        if (Array.isArray(result)) {
-          results.push(...result);
-        } else {
-          results.push(result);
-        }
-      }
-      return results;
-    }
-
-    // Handle bool queries
-    if (query && typeof query === 'object' && 'bool' in query && query.bool) {
-      const processedBool: estypes.QueryDslBoolQuery = {};
-      const boolQuery = query as estypes.QueryDslQueryContainer & {
-        bool: estypes.QueryDslBoolQuery;
-      };
-
-      // Process each bool clause type (must, must_not, should, filter)
-      for (const clause of ['must', 'must_not', 'should', 'filter'] as const) {
-        const clauseValue = boolQuery.bool[clause];
-        if (clauseValue) {
-          const nestedQuery: estypes.QueryDslQueryContainer = {
-            bool: { [clause]: clauseValue },
-          };
-          const result = this.processNestedFields(
-            nestedQuery,
-            isMustNot || clause === 'must_not',
-            false
-          );
-
-          if (Array.isArray(result)) {
-            processedBool[clause] = result
-              .flatMap(r =>
-                r && typeof r === 'object' && r.bool ? r.bool[clause] || [] : []
-              )
-              .filter(Boolean);
-          } else if (result?.bool?.[clause]) {
-            processedBool[clause] = result.bool[clause];
-          }
-        }
-      }
-
-      return { bool: processedBool };
-    }
-
-    // For term queries
-    if (isTermQuery(query)) {
-      const termField = Object.keys(query.term)[0];
-      if (termField.includes(this.fieldSeparator)) {
-        const fieldParts = termField.split(this.fieldSeparator).map(part => part.trim());
-        const fullFieldPath = fieldParts.join('.');
-        const innerQuery = { term: { [fullFieldPath]: query.term[termField] } };
-        return createNestedQueries(fieldParts, innerQuery);
-      }
-      return query;
-    }
-
-    // For match queries
-    if (isMatchQuery(query)) {
-      const matchField = Object.keys(query.match)[0];
-      if (matchField.includes(this.fieldSeparator)) {
-        const fieldParts = matchField.split(this.fieldSeparator).map(part => part.trim());
-        const fullFieldPath = fieldParts.join('.');
-        const innerQuery = { match: { [fullFieldPath]: query.match[matchField] } };
-        return createNestedQueries(fieldParts, innerQuery);
-      }
-      return query;
-    }
-
-    // For range queries
-    if (isRangeQuery(query)) {
-      const rangeField = Object.keys(query.range)[0];
-      if (rangeField.includes(this.fieldSeparator)) {
-        const fieldParts = rangeField.split(this.fieldSeparator).map(part => part.trim());
-        const fullFieldPath = fieldParts.join('.');
-        const innerQuery = { range: { [fullFieldPath]: query.range[rangeField] } };
-        return createNestedQueries(fieldParts, innerQuery);
-      }
-      return query;
-    }
-
-    // For bool queries, process each clause
-    if (query && typeof query === 'object' && 'bool' in query && query.bool) {
-      const processedBool: estypes.QueryDslBoolQuery = {};
-      const boolQuery = query as estypes.QueryDslQueryContainer & {
-        bool: estypes.QueryDslBoolQuery;
-      };
-
-      // Process each bool clause type (must, must_not, should, filter)
-      for (const clause of ['must', 'must_not', 'should', 'filter'] as const) {
-        if (clause in boolQuery.bool) {
-          const clauseValue = boolQuery.bool[clause];
-          if (clauseValue) {
-            const nestedQuery: estypes.QueryDslQueryContainer = {
-              bool: { [clause]: clauseValue },
-            };
-            const result = this.processNestedFields(
-              nestedQuery,
-              isMustNot || clause === 'must_not'
-            );
-
-            if (Array.isArray(result)) {
-              processedBool[clause] = result
-                .flatMap(r =>
-                  r && typeof r === 'object' && r.bool ? r.bool[clause] || [] : []
-                )
-                .filter(Boolean);
-            } else if (result?.bool?.[clause]) {
-              processedBool[clause] = result.bool[clause];
-            }
-          }
-        }
-      }
-
-      return { bool: processedBool };
-    }
-
-    // For other query types, return as-is
-    return query;
+    return result;
   }
+
+  /**
+   * Helper to get the field name from a field path
+   * @param query - The query to extract the field name from
+   * @returns The field name
+   */
+  private getFieldName(query: any): string {
+    if (isExistsQuery(query)) {
+      return query.exists.field;
+    }
+
+    if (isTermQuery(query)) {
+      return Object.keys(query.term)[0];
+    }
+
+    if (isMatchQuery(query)) {
+      return Object.keys(query.match)[0];
+    }
+
+    if (isRangeQuery(query)) {
+      return Object.keys(query.range)[0];
+    }
+
+    throw new Error('Unsupported query type');
+  }
+
+  // /**
+  //  * Process a field path with the configured separator and return the nested query structure
+  //  * @template T - The type of the query (e.g., QueryDslQueryContainer)
+  //  * @param query - The query to be nested
+  //  * @param context - The query context, either 'must' or 'must_not'
+  //  * @returns The query with nested structure applied
+  //  */
+  // processNestedFields(
+  //   query: any,
+  //   context: 'must' | 'must_not' = 'must',
+  //   isTopLevel: boolean = true
+  // ): estypes.QueryDslQueryContainer | estypes.QueryDslQueryContainer[] {
+  //   // For exists queries
+  //   if (isExistsQuery(query)) {
+  //     const existsField = query.exists.field;
+  //
+  //     // If the field path doesn't contain the separator, return as-is
+  //     if (!existsField.includes(this.fieldSeparator)) {
+  //       return query;
+  //     }
+  //
+  //     const fieldParts = existsField
+  //       .split(this.fieldSeparator)
+  //       .map(part => part.trim());
+  //
+  //     // Create the innermost exists query with the full field path
+  //     const innerQuery = {
+  //       exists: {
+  //         field: fieldParts.join('.'),
+  //       },
+  //     };
+  //
+  //     // Create nested queries for each level of nesting
+  //     return this.createNestedQueries(fieldParts, innerQuery, context);
+  //   }
+  //
+  //   // For term queries
+  //   if (isTermQuery(query)) {
+  //     const termField = Object.keys(query.term)[0];
+  //     const termValue = query.term[termField];
+  //
+  //     // If the field path doesn't contain the separator, return as-is
+  //     if (!termField.includes(this.fieldSeparator)) {
+  //       return query;
+  //     }
+  //
+  //     const fieldParts = termField
+  //       .split(this.fieldSeparator)
+  //       .map(part => part.trim());
+  //     const fullFieldPath = fieldParts.join('.');
+  //
+  //     // Create the innermost term query with full field path
+  //     const innerQuery = {
+  //       term: {
+  //         [fullFieldPath]: termValue,
+  //       },
+  //     };
+  //
+  //     // Create nested queries for each level of nesting
+  //     return this.createNestedQueries(fieldParts, innerQuery, context);
+  //   }
+  //
+  //   // For match queries
+  //   if (isMatchQuery(query)) {
+  //     const matchField = Object.keys(query.match)[0];
+  //     const matchValue = query.match[matchField];
+  //
+  //     // If the field path doesn't contain the separator, return as-is
+  //     if (!matchField.includes(this.fieldSeparator)) {
+  //       return query;
+  //     }
+  //
+  //     const fieldParts = matchField
+  //       .split(this.fieldSeparator)
+  //       .map(part => part.trim());
+  //     const fullFieldPath = fieldParts.join('.');
+  //
+  //     // Create the innermost match query with full field path
+  //     const innerQuery = {
+  //       match: {
+  //         [fullFieldPath]: matchValue,
+  //       },
+  //     };
+  //
+  //     // Create nested queries for each level of nesting
+  //     return this.createNestedQueries(fieldParts, innerQuery, context);
+  //   }
+  //
+  //   // For range queries
+  //   if (isRangeQuery(query)) {
+  //     const rangeField = Object.keys(query.range)[0];
+  //     const rangeValue = query.range[rangeField];
+  //
+  //     // If the field path doesn't contain the separator, return as-is
+  //     if (!rangeField.includes(this.fieldSeparator)) {
+  //       return query;
+  //     }
+  //
+  //     const fieldParts = rangeField
+  //       .split(this.fieldSeparator)
+  //       .map(part => part.trim());
+  //     const fullFieldPath = fieldParts.join('.');
+  //
+  //     // Create the innermost range query with full field path
+  //     const innerQuery = {
+  //       range: {
+  //         [fullFieldPath]: rangeValue,
+  //       },
+  //     };
+  //
+  //     // Create nested queries for each level of nesting
+  //     return this.createNestedQueries(fieldParts, innerQuery, context);
+  //   }
+  //
+  //   // Handle array of queries
+  //   if (Array.isArray(query)) {
+  //     const results: estypes.QueryDslQueryContainer[] = [];
+  //     for (const q of query) {
+  //       const result = this.processNestedFields(q, context);
+  //       if (Array.isArray(result)) {
+  //         results.push(...result);
+  //       } else {
+  //         results.push(result);
+  //       }
+  //     }
+  //     return results;
+  //   }
+  //
+  //   // Handle bool queries
+  //   if (query && typeof query === 'object' && 'bool' in query && query.bool) {
+  //     const processedBool: estypes.QueryDslBoolQuery = {};
+  //     const boolQuery = query as estypes.QueryDslQueryContainer & {
+  //       bool: estypes.QueryDslBoolQuery;
+  //     };
+  //
+  //     // Process each bool clause type (must, must_not, should, filter)
+  //     for (const clause of ['must', 'must_not', 'should', 'filter'] as const) {
+  //       const clauseValue = boolQuery.bool[clause];
+  //       if (clauseValue) {
+  //         const nestedQuery: estypes.QueryDslQueryContainer = {
+  //           bool: { [clause]: clauseValue },
+  //         };
+  //         const result = this.processNestedFields(
+  //           nestedQuery,
+  //           context === 'must_not' || clause === 'must_not' ? 'must_not' : 'must',
+  //           false
+  //         );
+  //
+  //         if (Array.isArray(result)) {
+  //           processedBool[clause] = result
+  //             .flatMap(r =>
+  //               r && typeof r === 'object' && r.bool ? r.bool[clause] || [] : []
+  //             )
+  //             .filter(Boolean);
+  //         } else if (result?.bool?.[clause]) {
+  //           processedBool[clause] = result.bool[clause];
+  //         }
+  //       }
+  //     }
+  //
+  //     return { bool: processedBool };
+  //   }
+  //
+  //   // For term queries
+  //   if (isTermQuery(query)) {
+  //     const termField = Object.keys(query.term)[0];
+  //     if (termField.includes(this.fieldSeparator)) {
+  //       const fieldParts = termField
+  //         .split(this.fieldSeparator)
+  //         .map(part => part.trim());
+  //       const fullFieldPath = fieldParts.join('.');
+  //       const innerQuery = { term: { [fullFieldPath]: query.term[termField] } };
+  //       return this.createNestedQueries(fieldParts, innerQuery);
+  //     }
+  //     return query;
+  //   }
+  //
+  //   // For match queries
+  //   if (isMatchQuery(query)) {
+  //     const matchField = Object.keys(query.match)[0];
+  //     if (matchField.includes(this.fieldSeparator)) {
+  //       const fieldParts = matchField
+  //         .split(this.fieldSeparator)
+  //         .map(part => part.trim());
+  //       const fullFieldPath = fieldParts.join('.');
+  //       const innerQuery = {
+  //         match: { [fullFieldPath]: query.match[matchField] },
+  //       };
+  //       return this.createNestedQueries(fieldParts, innerQuery);
+  //     }
+  //     return query;
+  //   }
+  //
+  //   // For range queries
+  //   if (isRangeQuery(query)) {
+  //     const rangeField = Object.keys(query.range)[0];
+  //     if (rangeField.includes(this.fieldSeparator)) {
+  //       const fieldParts = rangeField
+  //         .split(this.fieldSeparator)
+  //         .map(part => part.trim());
+  //       const fullFieldPath = fieldParts.join('.');
+  //       const innerQuery = {
+  //         range: { [fullFieldPath]: query.range[rangeField] },
+  //       };
+  //       return this.createNestedQueries(fieldParts, innerQuery);
+  //     }
+  //     return query;
+  //   }
+  //
+  //   // For bool queries, process each clause
+  //   if (query && typeof query === 'object' && 'bool' in query && query.bool) {
+  //     const processedBool: estypes.QueryDslBoolQuery = {};
+  //     const boolQuery = query as estypes.QueryDslQueryContainer & {
+  //       bool: estypes.QueryDslBoolQuery;
+  //     };
+  //
+  //     // Process each bool clause type (must, must_not, should, filter)
+  //     for (const clause of ['must', 'must_not', 'should', 'filter'] as const) {
+  //       if (clause in boolQuery.bool) {
+  //         const clauseValue = boolQuery.bool[clause];
+  //         if (clauseValue) {
+  //           const nestedQuery: estypes.QueryDslQueryContainer = {
+  //             bool: { [clause]: clauseValue },
+  //           };
+  //           const result = this.processNestedFields(
+  //             nestedQuery,
+  //             context === 'must_not' || clause === 'must_not' ? 'must_not' : 'must'
+  //           );
+  //
+  //           if (Array.isArray(result)) {
+  //             processedBool[clause] = result
+  //               .flatMap(r =>
+  //                 r && typeof r === 'object' && r.bool
+  //                   ? r.bool[clause] || []
+  //                   : []
+  //               )
+  //               .filter(Boolean);
+  //           } else if (result?.bool?.[clause]) {
+  //             processedBool[clause] = result.bool[clause];
+  //           }
+  //         }
+  //       }
+  //     }
+  //
+  //     return { bool: processedBool };
+  //   }
+  //
+  //   // For other query types, return as-is
+  //   return query;
+  // }
 
   /**
    * Process query object to handle nested fields by converting '->' notation to nested queries
    * @template T - The type of the query (e.g., QueryDslQueryContainer)
    * @param query - The query to process
-   * @param isMustNot - Whether this is in a must_not context
+   * @param context - Whether this is in a must context or a must_not context
    * @returns The processed query with nested fields properly structured
    */
   processNestedFields<T extends estypes.QueryDslQueryContainer>(
-    query: T | T[], 
-    isMustNot: boolean = false
-  ): estypes.QueryDslQueryContainer | estypes.QueryDslQueryContainer[] {
+    query: T | T[],
+    context: 'must' | 'must_not' = 'must'
+  ): any {
     // Handle array of queries
     if (Array.isArray(query)) {
-      return query.flatMap(q => this.processNestedFields(q, isMustNot));
+      return query.flatMap(q => this.processNestedFields(q, context));
     }
 
     // Helper function to process a simple query with a single field
@@ -368,11 +443,13 @@ export default class NestedFieldsProcessor {
     ) => {
       const field = fieldExtractor(query);
       if (field.includes(this.fieldSeparator)) {
-        const fieldParts = field.split(this.fieldSeparator).map(part => part.trim());
+        const fieldParts = field
+          .split(this.fieldSeparator)
+          .map(part => part.trim());
         const fullFieldPath = fieldParts.join('.');
         const value = Object.values(query[Object.keys(query)[0]])[0];
         const innerQuery = queryBuilder(fullFieldPath, value);
-        return this.createNestedQueries(fieldParts, innerQuery, isMustNot);
+        return this.createNestedQueries(fieldParts, innerQuery, context);
       }
       return query;
     };
@@ -408,10 +485,12 @@ export default class NestedFieldsProcessor {
     if (isExistsQuery(query)) {
       const existsField = query.exists.field;
       if (existsField.includes(this.fieldSeparator)) {
-        const fieldParts = existsField.split(this.fieldSeparator).map(part => part.trim());
+        const fieldParts = existsField
+          .split(this.fieldSeparator)
+          .map(part => part.trim());
         const fullFieldPath = fieldParts.join('.');
         const innerQuery = { exists: { field: fullFieldPath } };
-        return this.createNestedQueries(fieldParts, innerQuery, isMustNot);
+        return this.createNestedQueries(fieldParts, innerQuery, context);
       }
       return query;
     }
@@ -419,7 +498,6 @@ export default class NestedFieldsProcessor {
     // Handle bool queries
     if (query && typeof query === 'object' && 'bool' in query && query.bool) {
       const processedBool: estypes.QueryDslBoolQuery = {};
-      const clauseIsMustNot = isMustNot;
       let hasNestedClauses = false;
 
       // Process each bool clause type (must, must_not, should, filter)
@@ -428,11 +506,19 @@ export default class NestedFieldsProcessor {
         if (clauseValue) {
           const processedClause = Array.isArray(clauseValue)
             ? clauseValue.flatMap(q => {
-                const result = this.processNestedFields(q, clauseIsMustNot || clause === 'must_not');
+                const result = this.processNestedFields(
+                  q,
+                  clause === 'must_not' ? 'must_not' : context
+                );
                 return Array.isArray(result) ? result : [result];
               })
-            : [this.processNestedFields(clauseValue, clauseIsMustNot || clause === 'must_not')];
-          
+            : [
+                this.processNestedFields(
+                  clauseValue,
+                  clause === 'must_not' ? 'must_not' : context
+                ),
+              ];
+
           if (processedClause.length > 0) {
             processedBool[clause] = processedClause.flat();
             hasNestedClauses = true;
@@ -441,15 +527,17 @@ export default class NestedFieldsProcessor {
       }
 
       // Special case: If we have only must clauses with nested queries, we can flatten the structure
-      if (processedBool.must && 
-          Object.keys(processedBool).length === 1 && 
-          processedBool.must.every(clause => 
-            clause && 
-            typeof clause === 'object' && 
-            'nested' in clause && 
-            clause.nested?.path && 
+      if (
+        processedBool.must &&
+        Object.keys(processedBool).length === 1 &&
+        processedBool.must.every(
+          clause =>
+            clause &&
+            typeof clause === 'object' &&
+            'nested' in clause &&
+            clause.nested?.path &&
             clause.nested?.query
-          )
+        )
       ) {
         // For the test case, we want to return the must array directly
         // without the extra bool wrapper
@@ -457,22 +545,34 @@ export default class NestedFieldsProcessor {
           // Special case for the test with exactly two nested conditions
           return {
             bool: {
-              must: processedBool.must
-            }
+              must: processedBool.must,
+            },
           };
         }
-        return processedBool.must.length === 1 ? processedBool.must[0] : { bool: { must: processedBool.must } };
+        return processedBool.must.length === 1
+          ? processedBool.must[0]
+          : { bool: { must: processedBool.must } };
       }
-      
+
       // Handle the case of a single must clause that's a bool
-      if (processedBool.must && processedBool.must.length === 1 && 
-          Object.keys(processedBool).length === 1) {
+      if (
+        processedBool.must &&
+        processedBool.must.length === 1 &&
+        Object.keys(processedBool).length === 1
+      ) {
         const mustClause = processedBool.must[0];
-        if (mustClause && typeof mustClause === 'object' && 'bool' in mustClause) {
+        if (
+          mustClause &&
+          typeof mustClause === 'object' &&
+          'bool' in mustClause
+        ) {
           // If the inner bool has a single must, we can simplify further
           const innerBool = mustClause.bool;
-          if (innerBool.must && innerBool.must.length === 1 && 
-              Object.keys(innerBool).length === 1) {
+          if (
+            innerBool.must &&
+            innerBool.must.length === 1 &&
+            Object.keys(innerBool).length === 1
+          ) {
             return innerBool.must[0];
           }
         }
@@ -526,14 +626,16 @@ export default class NestedFieldsProcessor {
       // Group nested fields by their path
       const nestedByPath: Record<string, string[]> = {};
       for (const field of nestedFields) {
-        const fieldParts = field.split(this.fieldSeparator).map(part => part.trim());
+        const fieldParts = field
+          .split(this.fieldSeparator)
+          .map(part => part.trim());
         const path = fieldParts[0];
         const fieldName = fieldParts.slice(1).join('.');
-        
+
         if (!nestedByPath[path]) {
           nestedByPath[path] = [];
         }
-        
+
         if (fieldName === '*') {
           nestedByPath[path] = ['*'];
           break; // If we have a wildcard, we don't need to add other fields for this path
