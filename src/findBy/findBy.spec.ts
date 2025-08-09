@@ -118,18 +118,4 @@ describe('findBy', () => {
       expect(result.records.map((r: any) => r.id)).toEqual(['101', '102']);
     });
   });
-  // describe('builder()', () => {
-  //   it('should find records on fulltext field', async () => {
-  //     const query = new QueryBuilder();
-  //     query.matchPhrase('content_review', 'love');
-  //     query.term('keywords', 'DOM');
-  //     query.limit(1);
-  //     query.page(2);
-  //     const { result, error } = await findBy.query({ index, builder: query });
-  //     expect(error).toBe(null);
-  //     expect(result.total).toBe(2);
-  //     expect(result.records.length).toBe(1);
-  //     expect(result.records[0].id).toEqual('102');
-  //   });
-  // });
 });

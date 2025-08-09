@@ -2,6 +2,7 @@ import { estypes } from '@elastic/elasticsearch';
 import IndexManager from '../IndexManager/IndexManager';
 import isEmptyObject from '../isEmptyObject/isEmptyObject';
 import TextProcessor from '../TextProcessor/TextProcessor';
+import { processNestedFields } from '../processNestedFields/processNestedFields';
 import {
   AnyAllType,
   BoostType,
@@ -1082,62 +1083,59 @@ export default class QueryBuilder {
   }
 
   /**
+   * Process query object to handle nested fields by converting dot notation to nested queries
+   */
+
+
+  /**
    * Return the builder body
    */
   getBody() {
-    const body: Pick<estypes.SearchRequest, 'query' | 'highlight' | 'aggs'> =
-      {};
-    if (this._must.length > 0) {
-      body.query = { bool: { must: this._must } as estypes.QueryDslBoolQuery };
+    const body: Pick<estypes.SearchRequest, 'query' | 'highlight' | 'aggs'> = {};
+    
+    // Build the base query
+    if (this._must.length > 0 || this._mustNot.length > 0) {
+      const query: estypes.QueryDslQueryContainer = {
+        bool: {
+          ...(this._must.length > 0 ? { must: this._must } : {}),
+          ...(this._mustNot.length > 0 ? { must_not: this._mustNot } : {}),
+        },
+      };
+      
+      // Process nested fields in the query
+      body.query = this.processNestedFields(query);
     }
-    if (this._mustNot.length > 0) {
-      if (!body.query) {
-        body.query = { bool: {} as estypes.QueryDslBoolQuery };
-      }
-      body.query.bool.must_not = this._mustNot;
-    }
+    
+    // Add highlighting if specified
     if (this._highlighter) {
       body.highlight = this._highlighter;
     }
+    
+    // Add aggregations if specified
     if (!isEmptyObject(this._aggs)) {
       body.aggs = this._aggs;
     }
+    
+    // Handle random scoring if needed
     if (this._shouldSortByRandom) {
-      if (!body.query) {
-        body.query = {};
-      }
-      body.query.function_score = {
-        query: { bool: body.query.bool },
-        // random_store must be an empty JSON object
-        random_score: {},
-      } as estypes.QueryDslFunctionScoreQuery;
-      body.query.bool = undefined;
+      body.query = {
+        function_score: {
+          query: body.query || { match_all: {} },
+          functions: [
+            {
+              random_score: {},
+            },
+          ],
+          boost_mode: 'replace',
+        },
+      };
     }
-    // if (this.functionScores.length > 0) {
-    //   body.functions = this.functionScores.map(
-    //     ({
-    //       field,
-    //       decayFunction,
-    //       decayOffset,
-    //       decayScale,
-    //       decayNumber,
-    //       decayOrigin,
-    //       multiValueMode,
-    //     }) => {
-    //       return {
-    //         [decayFunction]: {
-    //           [field]: {
-    //             offset: decayOffset,
-    //             scale: decayScale,
-    //             decay: decayNumber,
-    //             origin: decayOrigin,
-    //           },
-    //           multi_value_mode: multiValueMode,
-    //         },
-    //       };
-    //     }
-    //   );
-    // }
+    
+    // Process nested fields in the final query
+    if (body.query) {
+      body.query = this.processNestedFields(body.query);
+    }
+    
     return body;
   }
 
@@ -1153,7 +1151,9 @@ export default class QueryBuilder {
         options.from = this._limit * (this._page - 1);
       }
     }
-    options.sort = this._sorts;
+    if (this._sorts.length > 0) {
+      options.sort = this._sorts;
+    }
     return options;
   }
 

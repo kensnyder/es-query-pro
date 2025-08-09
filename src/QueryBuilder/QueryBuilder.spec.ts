@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import QueryBuilder from './QueryBuilder';
 
 describe('QueryBuilder', () => {
@@ -231,7 +231,7 @@ describe('QueryBuilder', () => {
               should: [
                 {
                   multi_match: {
-                    fields: ['fulltext_*'],
+                    fields: ['body'],
                     operator: 'or',
                     query: 'Sports medicine doctor',
                     boost: 2,
@@ -239,7 +239,7 @@ describe('QueryBuilder', () => {
                 },
                 {
                   multi_match: {
-                    fields: ['fulltext_*'],
+                    fields: ['body'],
                     operator: 'and',
                     query: 'Sports medicine doctor',
                     boost: 4,
@@ -247,7 +247,7 @@ describe('QueryBuilder', () => {
                 },
                 {
                   multi_match: {
-                    fields: ['fulltext_*'],
+                    fields: ['body'],
                     type: 'phrase',
                     query: 'Sports medicine doctor',
                     boost: 7,
@@ -475,6 +475,84 @@ describe('QueryBuilder', () => {
           },
         ],
       },
+    });
+  });
+
+  describe('nested field support', () => {
+    it('should handle nested term queries', () => {
+      const query = new QueryBuilder();
+      query.term('category->id', '123');
+      const body = query.getBody();
+      expect(body.query).toEqual({
+        nested: {
+          path: 'category',
+          query: {
+            term: {
+              'category.id': '123',
+            },
+          },
+        },
+      });
+    });
+
+    it('should handle nested exists queries', () => {
+      const query = new QueryBuilder();
+      query.exists('author->name');
+      const body = query.getBody();
+      expect(body.query).toEqual({
+        nested: {
+          path: 'author',
+          query: {
+            exists: {
+              field: 'author.name',
+            },
+          },
+        },
+      });
+    });
+
+    it('should handle multiple levels of nesting', () => {
+      const query = new QueryBuilder();
+      query.term('author->contact->email', 'test@example.com');
+      const body = query.getBody();
+      expect(body.query).toEqual({
+        nested: {
+          path: 'author',
+          query: {
+            nested: {
+              path: 'author.contact',
+              query: {
+                term: {
+                  'author.contact.email': 'test@example.com',
+                },
+              },
+            },
+          },
+        },
+      });
+    });
+
+    it('should handle nested fields in must_not', () => {
+      const query = new QueryBuilder();
+      query.notExists('metadata->tags');
+      const body = query.getBody();
+      expect(body.query).toEqual({
+        bool: {
+          must_not: [
+            {
+              nested: {
+                path: 'metadata',
+                query: {
+                  exists: {
+                    field: 'metadata.tags',
+                  },
+                },
+                ignore_unmapped: true,
+              },
+            },
+          ],
+        },
+      });
     });
   });
 });

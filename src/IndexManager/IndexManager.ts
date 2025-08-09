@@ -463,14 +463,18 @@ export default class IndexManager<
   async patch(id: string, body: ElasticsearchRecord<ThisSchema>) {
     fulltext.processRecord(body);
     try {
-      const result = await this.client.update({
+      const response = await this.client.update({
         index: this.getAliasName(),
         id,
         body,
       });
-      return { result, error: null };
+      return {
+        success: true,
+        result: 'updated',
+        ...this.formatNonError(response),
+      };
     } catch (e) {
-      return { result: null, error: e as Error };
+      return { success: false, result: 'error', ...this.formatError(e) };
     }
   }
 
@@ -480,13 +484,13 @@ export default class IndexManager<
    */
   async delete(id: string) {
     try {
-      const result = await this.client.delete({
+      const response = await this.client.delete({
         index: this.getAliasName(),
         id,
       });
-      return { result, error: null };
+      return { success: true, ...this.formatNonError(response) };
     } catch (e) {
-      return { result: null, error: e as Error };
+      return { success: false, ...this.formatError(e) };
     }
   }
 
@@ -594,7 +598,6 @@ export default class IndexManager<
             if (changes.hits.hits.length === batchSize) {
               await migrateChanges(from + batchSize);
             }
-
           };
 
           await migrateChanges();
