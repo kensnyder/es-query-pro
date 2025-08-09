@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { NestedFieldsProcessor } from './NestedFieldsProcessor';
+import NestedFieldsProcessor from './NestedFieldsProcessor';
 
 describe('NestedFieldsProcessor', () => {
   describe('with default separator', () => {
@@ -30,7 +30,7 @@ describe('NestedFieldsProcessor', () => {
           path: 'category',
           query: {
             exists: {
-              field: 'id',
+              field: 'category.id',
             },
           },
         },
@@ -47,7 +47,7 @@ describe('NestedFieldsProcessor', () => {
           path: 'metadata',
           query: {
             exists: {
-              field: 'tags',
+              field: 'metadata.tags',
             },
           },
         },
@@ -56,7 +56,7 @@ describe('NestedFieldsProcessor', () => {
 
     it('should process a simple query with nested fields', () => {
       const query = {
-        term: { 'author->name': 'John' }
+        term: { 'author->name': 'John' },
       };
       const result = processor.processNestedFields(query);
 
@@ -65,10 +65,10 @@ describe('NestedFieldsProcessor', () => {
           path: 'author',
           query: {
             term: {
-              'author.name': 'John'
-            }
-          }
-        }
+              'author.name': 'John',
+            },
+          },
+        },
       });
     });
 
@@ -77,9 +77,9 @@ describe('NestedFieldsProcessor', () => {
         bool: {
           must: [
             { term: { 'category->id': 'cat1' } },
-            { match: { 'author->name': 'John' } }
-          ]
-        }
+            { match: { 'author->name': 'John' } },
+          ],
+        },
       };
 
       const result = processor.processNestedFields(query);
@@ -91,20 +91,20 @@ describe('NestedFieldsProcessor', () => {
               nested: {
                 path: 'category',
                 query: {
-                  term: { 'category.id': 'cat1' }
-                }
-              }
+                  term: { 'category.id': 'cat1' },
+                },
+              },
             },
             {
               nested: {
                 path: 'author',
                 query: {
-                  match: { 'author.name': 'John' }
-                }
-              }
-            }
-          ]
-        }
+                  match: { 'author.name': 'John' },
+                },
+              },
+            },
+          ],
+        },
       });
     });
   });
@@ -130,7 +130,7 @@ describe('NestedFieldsProcessor', () => {
 
     it('should process a query with the custom separator', () => {
       const query = {
-        term: { 'author.name': 'John' }
+        term: { 'author.name': 'John' },
       };
       const result = processor.processNestedFields(query);
 
@@ -139,10 +139,10 @@ describe('NestedFieldsProcessor', () => {
           path: 'author',
           query: {
             term: {
-              'author.name': 'John'
-            }
-          }
-        }
+              'author.name': 'John',
+            },
+          },
+        },
       });
     });
   });

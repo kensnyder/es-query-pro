@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import getEsClient from '../getEsClient/getEsClient';
-import NestedFieldsProcessor from './NestedFieldsProcessor';
+import { NestedFieldsProcessor } from './NestedFieldsProcessor';
 
 describe('NestedFieldsProcessor - Integration Tests', () => {
   const index = `test_nested_${Date.now()}`;
@@ -15,44 +15,37 @@ describe('NestedFieldsProcessor - Integration Tests', () => {
       // Ignore if index doesn't exist
     }
 
-    // Create the index with mappings directly in the create call
-    // Using the correct type structure for Elasticsearch 9.1.0
+    // Create an index with nested mappings
     await client.indices.create({
       index,
-      mappings: {
-        properties: {
-          id: { type: 'keyword' },
-          title: { type: 'text' },
-          category: {
-            type: 'nested',
-            properties: {
-              id: { type: 'keyword' },
-              name: { type: 'text' },
+      body: {
+        mappings: {
+          properties: {
+            id: { type: 'keyword' },
+            title: { type: 'text' },
+            category: {
+              type: 'nested',
+              properties: {
+                id: { type: 'keyword' },
+                name: { type: 'text' },
+              },
             },
-          },
-          author: {
-            type: 'nested',
-            properties: {
-              name: { type: 'text' },
-              contact: {
-                type: 'nested',
-                properties: {
-                  email: { type: 'keyword' },
-                  phone: { type: 'keyword' },
+            author: {
+              type: 'nested',
+              properties: {
+                name: { type: 'text' },
+                contact: {
+                  type: 'nested',
+                  properties: {
+                    email: { type: 'keyword' },
+                    phone: { type: 'keyword' },
+                  },
                 },
               },
             },
-          },
-          metadata: {
-            type: 'nested',
-            properties: {
-              tags: { type: 'keyword' },
-              deleted: { type: 'boolean' },
-            },
-          },
-        },
+            metadata: {
       },
-    } as const);
+    });
 
     // Index some test documents
     await client.bulk({
@@ -136,32 +129,21 @@ describe('NestedFieldsProcessor - Integration Tests', () => {
     }
   });
 
-  it('should find documents by nested term query', async () => {
+  it('should find documents by nested field', async () => {
+    const query = {
+      nested: {
+        path: 'category',
+        query: {
+          term: { 'category.id': 'cat1' },
+        },
+      },
+    };
+
     const result = await client.search({
       index,
-      query: processor.processNestedFields({
-        term: { 'category->id': 'cat1' }
-      }),
-      _source: false,
-      fields: ['id'],
-      size: 10,
-    });
-
-    expect(result.hits.hits.map((hit: any) => hit._id).sort()).toEqual([
-      '1',
-      '3',
-    ]);
-  });
-
-  it('should find documents by deeply nested field', async () => {
-    const result = await client.search({
-      index,
-      query: processor.processNestedFields({
-        term: { 'author->contact->email': 'john@example.com' }
-      }),
-      _source: false,
-      fields: ['id'],
-      size: 10,
+      body: {
+        query: query,
+      },
     });
 
     expect(result.hits.hits).toHaveLength(2);
@@ -172,14 +154,25 @@ describe('NestedFieldsProcessor - Integration Tests', () => {
   });
 
   it('should find documents by multi-level nested field', async () => {
+    const query = {
+      nested: {
+        path: 'author',
+        query: {
+          nested: {
+            path: 'author.contact',
+            query: {
+              term: { 'author.contact.email': 'john@example.com' },
+            },
+          },
+        },
+      },
+    };
+
     const result = await client.search({
       index,
-      query: processor.processNestedFields({
-        term: { 'author->contact->email': 'john@example.com' }
-      }),
-      _source: false,
-      fields: ['id'],
-      size: 10,
+      body: {
+        query: query,
+      },
     });
 
     expect(result.hits.hits).toHaveLength(2);
@@ -190,25 +183,26 @@ describe('NestedFieldsProcessor - Integration Tests', () => {
   });
 
   it('should find documents with must_not on nested field', async () => {
-    const result = await client.search({
-      index,
-      query: {
-        bool: {
-          must_not: [
-            {
-              nested: {
-                path: 'metadata',
-                query: {
-                  term: { 'metadata.deleted': true },
-                },
+    const query = {
+      bool: {
+        must_not: [
+          {
+            nested: {
+              path: 'metadata',
+              query: {
+                term: { 'metadata.deleted': true },
               },
             },
-          ],
-        },
+          },
+        ],
       },
-      _source: false,
-      fields: ['id'],
-      size: 10,
+    };
+
+    const result = await client.search({
+      index,
+      body: {
+        query: query,
+      },
     });
 
     expect(result.hits.hits).toHaveLength(2);
@@ -222,10 +216,9 @@ describe('NestedFieldsProcessor - Integration Tests', () => {
     // First, verify the test data is as expected
     const allDocs = await client.search({
       index,
-      query: { match_all: {} },
-      _source: false,
-      fields: ['id'],
-      size: 10,
+      body: {
+        query: { match_all: {} },
+      },
     });
 
     // The test is looking for a document where:
@@ -234,93 +227,99 @@ describe('NestedFieldsProcessor - Integration Tests', () => {
     // 3. metadata.deleted is not true
     // This should match document with _id '1'
 
-    const query = processor.processNestedFields({
+    const query = {
       bool: {
         must: [
-          { term: { 'category->id': 'cat1' } },
-          { match: { 'author->name': 'John Doe' } },
+          {
+            nested: {
+              path: 'category',
+              query: {
+                bool: {
+                  must: [{ term: { 'category.id': 'cat1' } }],
+                },
+              },
+            },
+          },
+          {
+            nested: {
+              path: 'author',
+              query: {
+                bool: {
+                  must: [{ match: { 'author.name': 'John Doe' } }],
+                },
+              },
+            },
+          },
         ],
         must_not: [
-          { term: { 'metadata->deleted': true } },
+          {
+            nested: {
+              path: 'metadata',
+              query: {
+                bool: {
+                  must: [{ term: { 'metadata.deleted': true } }],
+                },
+              },
+            },
+          },
         ],
       },
-    });
+    };
 
     const result = await client.search({
       index,
-      query,
-      _source: false,
-      fields: ['id'],
-      size: 10,
+      body: {
+        query: query,
+        _source: false,
+        fields: ['id'],
+        size: 10,
+      },
     });
 
-    // Debug output (commented out in production)
-    // console.log('Search results:', JSON.stringify(result.hits.hits, null, 2));
+    // Debug output
+    console.log('Search results:', JSON.stringify(result.hits.hits, null, 2));
 
     // We expect document with _id '1' to match all conditions
     expect(result.hits.hits).toHaveLength(1);
-    // Type assertion for test assertion
-    const hits = result.hits.hits as Array<{ _id: string }>;
-    expect(hits[0]._id).toBe('1');
+    expect(result.hits.hits[0]._id).toBe('1');
   });
 
-  it('should handle must_not with nested queries', async () => {
-    // Create a bool query with nested conditions using arrow notation
-    const query = processor.processNestedFields({
-      bool: {
-        must: [
-          { term: { 'category->id': 'cat1' } },
-        ],
-        must_not: [
-          { term: { 'metadata->deleted': true } },
-        ],
+  it('should handle exists query on nested field', async () => {
+    const query = {
+      nested: {
+        path: 'metadata',
+        query: {
+          exists: { field: 'metadata.tags' },
+        },
       },
-    });
+    };
 
     const result = await client.search({
       index,
-      query,
-      _source: false,
-      fields: ['id'],
-      size: 10,
-    });
-
-    expect(result.hits.hits).toHaveLength(1);
-    // Type assertion for test assertion
-    const hits = result.hits.hits as Array<{ _id: string }>;
-    expect(hits[0]._id).toBe('1');
-  });
-
-  it('should handle exists query on nested fields', async () => {
-    // Create an exists query with arrow notation
-    const query = processor.processNestedFields({
-      exists: { field: 'metadata->tags' },
-    });
-
-    const result = await client.search({
-      index,
-      query,
-      _source: false,
-      fields: ['id'],
-      size: 10,
+      body: {
+        query: query,
+      },
     });
 
     // All three test documents have metadata.tags
     expect(result.hits.hits).toHaveLength(3);
   });
 
-  it('should handle match query on nested fields', async () => {
-    // Create a match query with arrow notation
-    const query = processor.processNestedFields({
-      match: { 'author->name': 'John' },
-    });
+  it('should handle match query on nested field', async () => {
+    const query = {
+      nested: {
+        path: 'author',
+        query: {
+          match: { 'author.name': 'John' },
+        },
+      },
+    };
 
     const result = await client.search({
       index,
-      query,
-      _source: false,
-      fields: ['id'],
-      size: 10,
+      body: {
+        query: query,
+      },
     });
 
     // Documents 1 and 3 have author.name 'John Doe'

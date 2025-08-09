@@ -1,8 +1,7 @@
 import { estypes } from '@elastic/elasticsearch';
-import IndexManager from '../IndexManager/IndexManager';
 import isEmptyObject from '../isEmptyObject/isEmptyObject';
+import NestedFieldsProcessor from '../NestedFieldsProcessor/NestedFieldsProcessor';
 import TextProcessor from '../TextProcessor/TextProcessor';
-import { processNestedFields } from '../processNestedFields/processNestedFields';
 import {
   AnyAllType,
   BoostType,
@@ -17,6 +16,7 @@ import {
  */
 export default class QueryBuilder {
   public textProcessor: TextProcessor;
+  public nestedFieldsProcessor: NestedFieldsProcessor;
   /**
    * The fields to fetch
    */
@@ -72,8 +72,15 @@ export default class QueryBuilder {
    */
   private _shouldSortByRandom: boolean = false;
 
-  constructor(textProcessor: TextProcessor = new TextProcessor()) {
+  constructor({
+    textProcessor = new TextProcessor(),
+    nestedFieldProcessor = new NestedFieldsProcessor('->'),
+  }: {
+    textProcessor?: TextProcessor;
+    nestedFieldProcessor?: NestedFieldsProcessor;
+  } = {}) {
     this.textProcessor = textProcessor;
+    this.nestedFieldsProcessor = nestedFieldProcessor;
   }
   /**
    * Set the fields to fetch
@@ -405,7 +412,7 @@ export default class QueryBuilder {
     const expand = 'expand' in boostOptions ? boostOptions.expand : true;
     const boosts = boostOptions.boosts || [1, 3, 5];
     // build subquery
-    const subquery = new QueryBuilder(this.textProcessor);
+    const subquery = new QueryBuilder({ textProcessor: this.textProcessor });
     if (expand) {
       subquery.multiMatchWithPhrase(fields, terms, {
         operator: 'or',
@@ -1086,13 +1093,13 @@ export default class QueryBuilder {
    * Process query object to handle nested fields by converting dot notation to nested queries
    */
 
-
   /**
    * Return the builder body
    */
   getBody() {
-    const body: Pick<estypes.SearchRequest, 'query' | 'highlight' | 'aggs'> = {};
-    
+    const body: Pick<estypes.SearchRequest, 'query' | 'highlight' | 'aggs'> =
+      {};
+
     // Build the base query
     if (this._must.length > 0 || this._mustNot.length > 0) {
       const query: estypes.QueryDslQueryContainer = {
@@ -1101,21 +1108,21 @@ export default class QueryBuilder {
           ...(this._mustNot.length > 0 ? { must_not: this._mustNot } : {}),
         },
       };
-      
+
       // Process nested fields in the query
-      body.query = this.processNestedFields(query);
+      body.query = this.nestedFieldsProcessor.processNestedFields(query);
     }
-    
+
     // Add highlighting if specified
     if (this._highlighter) {
       body.highlight = this._highlighter;
     }
-    
+
     // Add aggregations if specified
     if (!isEmptyObject(this._aggs)) {
       body.aggs = this._aggs;
     }
-    
+
     // Handle random scoring if needed
     if (this._shouldSortByRandom) {
       body.query = {
@@ -1130,12 +1137,12 @@ export default class QueryBuilder {
         },
       };
     }
-    
+
     // Process nested fields in the final query
     if (body.query) {
-      body.query = this.processNestedFields(body.query);
+      body.query = this.nestedFieldsProcessor.processNestedFields(body.query);
     }
-    
+
     return body;
   }
 
