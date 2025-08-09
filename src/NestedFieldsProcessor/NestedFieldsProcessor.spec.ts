@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import NestedFieldsProcessor from './NestedFieldsProcessor';
+import { estypes } from '@elastic/elasticsearch';
 
 describe('NestedFieldsProcessor', () => {
   describe('with default separator', () => {
@@ -7,7 +8,7 @@ describe('NestedFieldsProcessor', () => {
 
     it('should create a simple nested query', () => {
       const query = { term: { 'category->id': '123' } };
-      const result = processor.createNestedQuery('category->id', query);
+      const result = processor.createNestedQuery(query);
 
       expect(result).toEqual({
         nested: {
@@ -23,7 +24,7 @@ describe('NestedFieldsProcessor', () => {
 
     it('should create a nested query with exists', () => {
       const query = { exists: { field: 'category->id' } };
-      const result = processor.createNestedQuery('category->id', query);
+      const result = processor.createNestedQuery(query);
 
       expect(result).toEqual({
         nested: {
@@ -39,7 +40,7 @@ describe('NestedFieldsProcessor', () => {
 
     it('should handle must_not with ignore_unmapped', () => {
       const query = { exists: { field: 'metadata->tags' } };
-      const result = processor.createNestedQuery('metadata->tags', query, true);
+      const result = processor.createNestedQuery(query, true);
 
       expect(result).toEqual({
         nested: {
@@ -114,7 +115,7 @@ describe('NestedFieldsProcessor', () => {
 
     it('should use the custom separator for field paths', () => {
       const query = { term: { 'category.id': '123' } };
-      const result = processor.createNestedQuery('category.id', query);
+      const result = processor.createNestedQuery(query);
 
       expect(result).toEqual({
         nested: {
@@ -143,6 +144,128 @@ describe('NestedFieldsProcessor', () => {
             },
           },
         },
+      });
+    });
+  });
+
+  describe('range queries', () => {
+    const processor = new NestedFieldsProcessor();
+
+    it('should handle range queries with gt', () => {
+      const query = { range: { 'price->amount': { gt: 100 } } };
+      const result = processor.processNestedFields(query);
+
+      expect(result).toEqual({
+        nested: {
+          path: 'price',
+          query: {
+            range: {
+              'price.amount': {
+                gt: 100,
+              },
+            },
+          },
+        },
+      });
+    });
+
+    it('should handle range queries with multiple conditions', () => {
+      const query = {
+        range: {
+          'date->timestamp': {
+            gte: '2023-01-01',
+            lte: '2023-12-31',
+          },
+        },
+      };
+      const result = processor.processNestedFields(query);
+
+      expect(result).toEqual({
+        nested: {
+          path: 'date',
+          query: {
+            range: {
+              'date.timestamp': {
+                gte: '2023-01-01',
+                lte: '2023-12-31',
+              },
+            },
+          },
+        },
+      });
+    });
+  });
+
+  describe('multi_match queries', () => {
+    const processor = new NestedFieldsProcessor();
+
+    it('should handle multi_match queries with nested fields', () => {
+      const query = {
+        multi_match: {
+          query: 'search term',
+          fields: ['title', 'content', 'metadata->keywords']
+        }
+      };
+      
+      const result = processor.processNestedFields(query);
+      
+      expect(result).toEqual({
+        bool: {
+          should: [
+            { 
+              multi_match: { 
+                query: 'search term', 
+                fields: ['title', 'content']
+              } 
+            },
+            {
+              nested: {
+                path: 'metadata',
+                query: {
+                  multi_match: {
+                    query: 'search term',
+                    fields: ['metadata.keywords']
+                  }
+                }
+              }
+            }
+          ]
+        }
+      });
+    });
+
+    it('should handle multi_match with wildcard fields', () => {
+      const query = {
+        multi_match: {
+          query: 'search term',
+          fields: ['title', 'content', 'metadata->*']
+        }
+      };
+      
+      const result = processor.processNestedFields(query);
+      
+      expect(result).toEqual({
+        bool: {
+          should: [
+            { 
+              multi_match: { 
+                query: 'search term', 
+                fields: ['title', 'content']
+              } 
+            },
+            {
+              nested: {
+                path: 'metadata',
+                query: {
+                  multi_match: {
+                    query: 'search term',
+                    fields: ['metadata.*']
+                  }
+                }
+              }
+            }
+          ]
+        }
       });
     });
   });

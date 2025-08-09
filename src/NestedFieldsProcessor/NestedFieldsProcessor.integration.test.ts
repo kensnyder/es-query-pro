@@ -48,8 +48,19 @@ describe('NestedFieldsProcessor - Integration Tests', () => {
             properties: {
               tags: { type: 'keyword' },
               deleted: { type: 'boolean' },
+              created_at: { type: 'date' },
+              keywords: { type: 'keyword' },
+              description: { type: 'text' }
             },
           },
+          price: {
+            type: 'nested',
+            properties: {
+              amount: { type: 'float' },
+              currency: { type: 'keyword' }
+            }
+          },
+          content: { type: 'text' },
         },
       },
     } as const);
@@ -329,5 +340,123 @@ describe('NestedFieldsProcessor - Integration Tests', () => {
       '1',
       '3',
     ]);
+  });
+
+  it('should handle range query on nested fields', async () => {
+    // First, add a document with a nested numeric field for testing range queries
+    await client.index({
+      index,
+      id: 'doc-range',
+      document: {
+        title: 'Document with Price',
+        price: {
+          amount: 199.99,
+          currency: 'USD'
+        },
+        metadata: {
+          created_at: '2023-01-15T00:00:00Z'
+        }
+      },
+      refresh: true
+    });
+
+    // Test range query on nested numeric field
+    const priceQuery = processor.processNestedFields({
+      range: { 'price->amount': { gte: 150, lte: 200 } }
+    });
+
+    // Ensure we have a single query container, not an array
+    const query = Array.isArray(priceQuery) ? { bool: { must: priceQuery } } : priceQuery;
+
+    const priceResult = await client.search({
+      index,
+      query,
+      _source: ['title', 'price.amount']
+    });
+
+    expect(priceResult.hits.hits.length).toBe(1);
+    expect(priceResult.hits.hits[0]._source).toMatchObject({
+      title: 'Document with Price',
+      price: { amount: 199.99 }
+    });
+
+    // Test range query on nested date field
+    const dateQuery = processor.processNestedFields({
+      range: { 'metadata->created_at': { gte: '2023-01-01T00:00:00Z', lte: '2023-12-31T23:59:59Z' } }
+    });
+
+    const dateResult = await client.search({
+      index,
+      query: dateQuery,
+      _source: ['title']
+    });
+
+    expect(dateResult.hits.hits.length).toBe(1);
+    expect(dateResult.hits.hits[0]._source).toMatchObject({
+      title: 'Document with Price'
+    });
+  });
+
+  it('should handle multi_match query with nested fields', async () => {
+    // Add a document with text fields for testing multi_match
+    await client.index({
+      index,
+      id: 'doc-multimatch',
+      document: {
+        title: 'Multi-match Test Document',
+        content: 'This is a test document for multi-match queries',
+        metadata: {
+          keywords: ['test', 'document', 'multi-match'],
+          description: 'A document to test multi-match functionality'
+        }
+      },
+      refresh: true
+    });
+
+    // Test multi_match with nested and non-nested fields
+    const query = processor.processNestedFields({
+      multi_match: {
+        query: 'test document',
+        fields: ['title', 'content', 'metadata->keywords', 'metadata->description']
+      }
+    });
+
+    const result = await client.search({
+      index,
+      query,
+      _source: ['title']
+    });
+
+    const doc = result.hits.hits.find((hit: any) => hit._id === 'doc-multimatch');
+    expect(doc).toBeDefined();
+    expect(doc?._source).toMatchObject({
+      title: 'Multi-match Test Document'
+    });
+  });
+
+  it('should handle multi_match with wildcard fields', async () => {
+    // Test multi_match with wildcard for nested fields
+    const query = processor.processNestedFields({
+      multi_match: {
+        query: 'test',
+        fields: ['title', 'metadata->keywords']
+      }
+    });
+
+    const result = await client.search({
+      index,
+      query,
+      _source: ['title']
+    });
+
+    // Should find our test document
+    const doc = result.hits.hits.find((hit: any) => hit._id === 'doc-multimatch');
+    expect(doc).toBeDefined();
+    
+    if (doc) {
+      expect(doc._source).toMatchObject({
+        title: 'Multi-match Test Document'
+      });
+    }
   });
 });
