@@ -179,8 +179,22 @@ export default class NestedFieldsProcessor {
           ...copy,
           ...templates[key].transform(value),
         };
+      } else if (
+        Array.isArray(value) &&
+        value.every(v => typeof v === 'object')
+      ) {
+        copy[key] = value.map(v => this.process(v));
       } else {
-        copy[key] = value;
+        // if (typeof value === 'object') {
+        //   const clauses = ['should', 'must', 'must_not'];
+        //   for (const clause of clauses) {
+        //     if (Array.isArray(value[clause])) {
+        //       copy[clause] = value[clause].map(this.process);
+        //     }
+        //   }
+        // } else {
+        copy[key] = typeof value === 'object' ? this.process(value) : value;
+        // }
       }
     }
     return copy;

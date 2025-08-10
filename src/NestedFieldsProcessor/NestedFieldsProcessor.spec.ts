@@ -4,6 +4,45 @@ import NestedFieldsProcessor from './NestedFieldsProcessor';
 describe('NestedFieldsProcessor', () => {
   const processor = new NestedFieldsProcessor('.');
 
+  it('should create a simple non-nested query', () => {
+    const query = { term: { category: '123' } };
+    const result = processor.process(query);
+
+    expect(result).toEqual(query);
+  });
+
+  it('should create a simple non-nested query with bool', () => {
+    const query = { bool: { should: [{ term: { category: '123' } }] } };
+    const result = processor.process(query);
+
+    expect(result).toEqual(query);
+  });
+
+  it('should recurse with extra bools', () => {
+    const query = {
+      bool: { should: { bool: { should: [{ term: { category: '123' } }] } } },
+    };
+    const result = processor.process(query);
+
+    expect(result).toEqual(query);
+  });
+
+  it('should create a simple nested query', () => {
+    const query = { term: { 'category.id': '123' } };
+    const result = processor.process(query);
+
+    expect(result).toEqual({
+      nested: {
+        path: 'category',
+        query: {
+          term: {
+            'category.id': '123',
+          },
+        },
+      },
+    });
+  });
+
   it('should create a simple nested query', () => {
     const query = { term: { 'category.id': '123' } };
     const result = processor.process(query);
@@ -35,43 +74,6 @@ describe('NestedFieldsProcessor', () => {
       },
     });
   });
-  //
-  //   it('should process a bool query with multiple nested conditions', () => {
-  //     const query = {
-  //       bool: {
-  //         must: [
-  //           { term: { 'category->id': 'cat1' } },
-  //           { match: { 'author->name': 'John' } },
-  //         ],
-  //       },
-  //     };
-  //
-  //     const result = processor.processNestedFields(query);
-  //
-  //     expect(result).toEqual({
-  //       bool: {
-  //         must: [
-  //           {
-  //             nested: {
-  //               path: 'category',
-  //               query: {
-  //                 term: { 'category.id': 'cat1' },
-  //               },
-  //             },
-  //           },
-  //           {
-  //             nested: {
-  //               path: 'author',
-  //               query: {
-  //                 match: { 'author.name': 'John' },
-  //               },
-  //             },
-  //           },
-  //         ],
-  //       },
-  //     });
-  //   });
-  //
 
   it('should handle range queries with gt', () => {
     const query = { range: { 'price.amount': { gt: 100 } } };
