@@ -6,7 +6,8 @@ import { ElasticsearchType } from '../types';
  */
 export default function schemaToMappings<Schema>(
   schema: Schema,
-  analyzerName: string = 'englishplus'
+  analyzerName: string = 'englishplus',
+  isRoot: boolean = true
 ) {
   const properties: estypes.MappingProperty = {};
 
@@ -21,12 +22,13 @@ export default function schemaToMappings<Schema>(
       // Nested object
       properties[field] = {
         type: 'nested',
-        properties: schemaToMappings(typeOrObject, analyzerName),
+        properties: schemaToMappings(typeOrObject, analyzerName, false),
       };
     }
   }
 
-  return properties;
+  // Only wrap in properties object for the root level to match test expectations
+  return isRoot ? { properties } : properties;
 }
 
 /**
@@ -36,21 +38,34 @@ function getPropertyType(
   type: ElasticsearchType,
   analyzerName: string
 ): estypes.MappingProperty {
+  // Handle date format like 'date.epoch_second'
+  if (typeof type === 'string' && type.startsWith('date.')) {
+    const [, format] = type.split('.');
+    return { type: 'date', format };
+  }
+
   switch (type) {
     case 'keyword':
-      return {
-        type: 'text',
-        fields: {
-          keyword: {
-            type: 'keyword',
-            ignore_above: 256,
-          },
-        },
-      };
+      return { type: 'keyword' };
     case 'text':
       return {
         type: 'text',
         analyzer: analyzerName,
+      };
+    case 'fulltext':
+      return {
+        type: 'text',
+        term_vector: 'with_positions_offsets',
+        fields: {
+          exact: {
+            type: 'text',
+            analyzer: 'standard',
+          },
+          fulltext: {
+            type: 'text',
+            analyzer: analyzerName,
+          },
+        },
       };
   }
   return { type };

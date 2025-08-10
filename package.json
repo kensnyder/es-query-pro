@@ -55,6 +55,7 @@
   },
   "dependencies": {
     "@elastic/elasticsearch": "9.1.0",
-    "any-date-parser": "2.2.3"
+    "any-date-parser": "2.2.3",
+    "es-toolkit": "1.39.9"
   }
 }

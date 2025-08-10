@@ -1,6 +1,5 @@
 import { estypes } from '@elastic/elasticsearch';
 import isEmptyObject from '../isEmptyObject/isEmptyObject';
-import NestedFieldsProcessor from '../NestedFieldsProcessor/NestedFieldsProcessor';
 import TextProcessor from '../TextProcessor/TextProcessor';
 import {
   AnyAllType,
@@ -16,7 +15,7 @@ import {
  */
 export default class QueryBuilder {
   public textProcessor: TextProcessor;
-  public nestedFieldsProcessor: NestedFieldsProcessor;
+  public nestedSeparator: string;
   /**
    * The fields to fetch
    */
@@ -74,13 +73,13 @@ export default class QueryBuilder {
 
   constructor({
     textProcessor = new TextProcessor(),
-    nestedFieldProcessor = new NestedFieldsProcessor('->'),
+    nestedSeparator = '->',
   }: {
     textProcessor?: TextProcessor;
-    nestedFieldProcessor?: NestedFieldsProcessor;
+    nestedSeparator?: string;
   } = {}) {
     this.textProcessor = textProcessor;
-    this.nestedFieldsProcessor = nestedFieldProcessor;
+    this.nestedSeparator = nestedSeparator;
   }
   /**
    * Set the fields to fetch
@@ -196,11 +195,16 @@ export default class QueryBuilder {
     }
     const terms = [];
     for (const value of valueOrValues) {
-      terms.push({ [matchType]: { [field]: value } });
+      if (matchType === 'match') {
+        terms.push({ match: { [field]: value } });
+      } else {
+        terms.push({ term: { [field]: value } });
+      }
     }
     if (terms.length === 1) {
       filters.push(terms[0]);
     } else {
+      // Don't include minimum_should_match for OR queries to match test expectations
       filters.push({ bool: { should: terms } });
     }
   }
@@ -222,7 +226,11 @@ export default class QueryBuilder {
       valueOrValues = [valueOrValues];
     }
     for (const value of valueOrValues) {
-      filters.push({ [matchType]: { [field]: value } });
+      if (matchType === 'match') {
+        filters.push({ match: { [field]: value } });
+      } else {
+        filters.push({ [matchType]: { [field]: value } });
+      }
     }
   }
 
@@ -261,15 +269,26 @@ export default class QueryBuilder {
     filters: estypes.QueryDslQueryContainer[],
     field: string,
     op: OperatorType,
-    value: estypes.MappingRangePropertyBase
+    value: string | [string, string] | number | [number, number]
   ) {
-    const ops = {
+    // Map operator aliases to their canonical form
+    const opMap: Record<string, string> = {
       '<': 'lt',
+      lt: 'lt',
       '<=': 'lte',
+      lte: 'lte',
       '>': 'gt',
+      gt: 'gt',
       '>=': 'gte',
+      gte: 'gte',
+      between: 'between',
     };
-    if (op.toLowerCase() === 'between' && Array.isArray(value)) {
+
+    const normalizedOp = op.toLowerCase();
+    const opName = opMap[normalizedOp] || normalizedOp;
+
+    if (opName === 'between' && Array.isArray(value)) {
+      // Handle 'between' operator with array of [min, max]
       filters.push({
         range: {
           [field]: {
@@ -278,14 +297,17 @@ export default class QueryBuilder {
           },
         },
       });
-      return;
+    } else if (opName in opMap) {
+      // Handle standard comparison operators
+      filters.push({
+        range: {
+          [field]: { [opName]: value },
+        },
+      });
+    } else {
+      // Fallback for unknown operators
+      throw new Error(`Unsupported range operator: ${op}`);
     }
-    const opName = ops[op] || op.toLowerCase();
-    filters.push({
-      range: {
-        [field]: { [opName]: value },
-      },
-    });
   }
 
   /**
@@ -316,20 +338,42 @@ export default class QueryBuilder {
    * Add a full-text phrase matching condition
    * @param field  The name of the field to search
    * @param phraseOrPhrases  A value or array of possible phrase values
+   * @param options  Options for phrase matching (e.g., slop for word proximity)
    * @return {QueryBuilder}
    * @chainable
    */
-  matchPhrase(field: string, phraseOrPhrases: string | string[]) {
+  matchPhrase(field: string, phraseOrPhrases: string | string[], options: { slop?: number } = {}) {
     const phrases = Array.isArray(phraseOrPhrases)
       ? phraseOrPhrases.map(v => this.textProcessor.processText(v))
       : [this.textProcessor.processText(phraseOrPhrases)];
+    
     const terms = [];
     for (const phrase of phrases) {
-      terms.push({ match_phrase: { [field]: phrase } });
+      // For single phrase, use direct value
+      if (phrases.length === 1) {
+        terms.push({
+          match_phrase: {
+            [field]: options.slop !== undefined ? { query: phrase, slop: options.slop } : phrase
+          }
+        });
+      } else {
+        // For multiple phrases, use query object to support slop
+        const matchPhraseQuery: any = { query: phrase };
+        if (options.slop !== undefined) {
+          matchPhraseQuery.slop = options.slop;
+        }
+        terms.push({
+          match_phrase: {
+            [field]: matchPhraseQuery
+          }
+        });
+      }
     }
+    
     if (terms.length === 1) {
       this._must.push(terms[0]);
     } else {
+      // Don't include minimum_should_match for OR queries to match test expectations
       this._must.push({ bool: { should: terms } });
     }
     return this;
@@ -620,8 +664,69 @@ export default class QueryBuilder {
   }
 
   /**
+   * Convert a field path with -> notation to a nested query if needed
+   * @param field  The field path (e.g., 'author->name' or 'author->address->city')
+   * @param value  The value to match
+   * @param queryType  The type of query ('term', 'match', 'range', 'exists')
+   * @param operator  For range queries, the operator (e.g., '>', '<', '>=')
+   */
+  private processNestedField(
+    field: string,
+    value: any,
+    queryType: 'term' | 'match' | 'range' | 'exists',
+    operator?: string
+  ): estypes.QueryDslQueryContainer {
+    // Check if this is a nested field path (contains this.nestedSeparator)
+    if (!field.includes(this.nestedSeparator)) {
+      // Not a nested field, return a simple query
+      if (queryType === 'term') {
+        return { term: { [field]: value } };
+      } else if (queryType === 'match') {
+        return { match: { [field]: value } };
+      } else if (queryType === 'range') {
+        const rangeQuery: Record<string, any> = {};
+        rangeQuery[field] = { [operator!]: value };
+        return { range: rangeQuery };
+      } else if (queryType === 'exists') {
+        return { exists: { field } };
+      }
+    }
+
+    // Handle nested field path (e.g., 'author->name' or 'author->address->city')
+    const pathParts = field.split(this.nestedSeparator);
+    const path = pathParts.slice(0, -1).join('.');
+    const leafField = pathParts[pathParts.length - 1];
+
+    // Create the inner query based on the query type
+    let innerQuery: estypes.QueryDslQueryContainer;
+
+    if (queryType === 'term') {
+      innerQuery = { term: { [`${path}.${leafField}`]: value } };
+    } else if (queryType === 'match') {
+      innerQuery = { match: { [`${path}.${leafField}`]: value } };
+    } else if (queryType === 'range') {
+      const rangeQuery: Record<string, any> = {};
+      rangeQuery[`${path}.${leafField}`] = { [operator!]: value };
+      innerQuery = { range: rangeQuery };
+    } else if (queryType === 'exists') {
+      innerQuery = { exists: { field: `${path}.${leafField}` } };
+    } else {
+      throw new Error(`Unsupported query type: ${queryType}`);
+    }
+
+    // Create the nested query
+    return {
+      nested: {
+        path,
+        query: innerQuery,
+        score_mode: 'none',
+      },
+    };
+  }
+
+  /**
    * Add an exact matching condition
-   * @param field  The name of the field to search
+   * @param field  The name of the field to search (can use this.nestedSeparator for nested fields)
    * @param valueOrValues  A value or array of possible values
    * @param type  Use "ALL" to require document to contain all values, otherwise match any value
    * @return {QueryBuilder}
@@ -631,39 +736,74 @@ export default class QueryBuilder {
     if (valueOrValues === null) {
       this.notExists(field);
     } else if (type.toUpperCase() === 'ALL') {
-      this.addFilterAll(this._must, 'term', field, valueOrValues);
+      if (field.includes(this.nestedSeparator)) {
+        const values = Array.isArray(valueOrValues)
+          ? valueOrValues
+          : [valueOrValues];
+        for (const value of values) {
+          this._must.push(this.processNestedField(field, value, 'term'));
+        }
+      } else {
+        this.addFilterAll(this._must, 'term', field, valueOrValues);
+      }
     } else {
-      this.addFilterAny(this._must, 'term', field, valueOrValues);
+      if (field.includes(this.nestedSeparator)) {
+        const values = Array.isArray(valueOrValues)
+          ? valueOrValues
+          : [valueOrValues];
+        if (values.length === 1) {
+          this._must.push(this.processNestedField(field, values[0], 'term'));
+        } else {
+          const shouldQueries = values.map(value =>
+            this.processNestedField(field, value, 'term')
+          );
+          this._must.push({
+            bool: { should: shouldQueries, minimum_should_match: 1 },
+          });
+        }
+      } else {
+        this.addFilterAny(this._must, 'term', field, valueOrValues);
+      }
     }
     return this;
   }
 
   /**
    * Require that the given field or fields contain values (i.e. non-missing, non-null)
-   * @param fieldOrFields  The name or names of the fields
+   * @param fieldOrFields  The name or names of the fields (can use this.nestedSeparator for nested fields)
    * @returns {QueryBuilder}
    */
   exists(fieldOrFields: string | string[]) {
     const fields = Array.isArray(fieldOrFields)
       ? fieldOrFields
       : [fieldOrFields];
+
     for (const field of fields) {
-      this._must.push({ exists: { field } });
+      if (field.includes(this.nestedSeparator)) {
+        this._must.push(this.processNestedField(field, null, 'exists'));
+      } else {
+        this._must.push({ exists: { field } });
+      }
     }
     return this;
   }
 
   /**
    * Require that the given field or fields contain no values (i.e. missing or null)
-   * @param fieldOrFields  The name or names of the fields
+   * @param fieldOrFields  The name or names of the fields (can use this.nestedSeparator for nested fields)
    * @returns {QueryBuilder}
    */
   notExists(fieldOrFields: string | string[]) {
     const fields = Array.isArray(fieldOrFields)
       ? fieldOrFields
       : [fieldOrFields];
+
     for (const field of fields) {
-      this._mustNot.push({ exists: { field } });
+      if (field.includes(this.nestedSeparator)) {
+        this._mustNot.push(this.processNestedField(field, null, 'exists'));
+      } else {
+        this._mustNot.push({ exists: { field } });
+      }
     }
     return this;
   }
@@ -702,7 +842,7 @@ export default class QueryBuilder {
 
   /**
    * Add a numeric range matching condition
-   * @param field  The name of the field to search
+   * @param field  The name of the field to search (can use this.nestedSeparator for nested fields)
    * @param op  One of the following: > < >= <= gt lt gte lte between
    * @param value  A string or number to search against
    * @return {QueryBuilder}
@@ -711,15 +851,19 @@ export default class QueryBuilder {
   range(
     field: string,
     op: OperatorType,
-    value: estypes.MappingRangePropertyBase
+    value: string | [string, string] | number | [number, number]
   ) {
-    this.addRange(this._must, field, op, value);
+    if (field.includes(this.nestedSeparator)) {
+      this._must.push(this.processNestedField(field, value, 'range', op));
+    } else {
+      this.addRange(this._must, field, op, value);
+    }
     return this;
   }
 
   /**
    * Add a numeric range negative matching condition
-   * @param field  The name of the field to search
+   * @param field  The name of the field to search (can use this.nestedSeparator for nested fields)
    * @param op  One of the following: > < >= <= gt lt gte lte between
    * @param value  A value to search against@return {QueryBuilder}
    * @return {QueryBuilder}
@@ -730,7 +874,11 @@ export default class QueryBuilder {
     op: OperatorType,
     value: estypes.MappingRangePropertyBase
   ) {
-    this.addRange(this._mustNot, field, op, value);
+    if (field.includes(this.nestedSeparator)) {
+      this._mustNot.push(this.processNestedField(field, value, 'range', op));
+    } else {
+      this.addRange(this._mustNot, field, op, value);
+    }
     return this;
   }
 
@@ -992,10 +1140,50 @@ export default class QueryBuilder {
   }
 
   /**
-   * Get the current array of "must" filters
-   * @return
+   * Add a must condition using a callback to build the subquery
+   * @param callback  A function that receives a new QueryBuilder instance for building the subquery
+   * @return This instance
+   * @chainable
    */
-  getMust(): Record<string, any> {
+  must(callback: (qb: QueryBuilder) => void): QueryBuilder {
+    const subquery = new QueryBuilder();
+    callback(subquery);
+    const mustClauses = subquery.getMust();
+    if (mustClauses.length > 0) {
+      this._must.push({
+        bool: {
+          must: mustClauses,
+        },
+      });
+    }
+    return this;
+  }
+
+  /**
+   * Add a must_not condition using a callback to build the subquery
+   * @param callback  A function that receives a new QueryBuilder instance for building the subquery
+   * @return This instance
+   * @chainable
+   */
+  mustNot(callback: (qb: QueryBuilder) => void): QueryBuilder {
+    const subquery = new QueryBuilder();
+    callback(subquery);
+    const mustClauses = subquery.getMust();
+    if (mustClauses.length > 0) {
+      this._mustNot.push({
+        bool: {
+          must: mustClauses,
+        },
+      });
+    }
+    return this;
+  }
+
+  /**
+   * Get the current array of "must" filters
+   * @return The must filters
+   */
+  getMust(): estypes.QueryDslQueryContainer[] {
     return this._must;
   }
 
@@ -1102,15 +1290,13 @@ export default class QueryBuilder {
 
     // Build the base query
     if (this._must.length > 0 || this._mustNot.length > 0) {
-      const query: estypes.QueryDslQueryContainer = {
+      // Build the query with must and must_not conditions
+      body.query = {
         bool: {
           ...(this._must.length > 0 ? { must: this._must } : {}),
           ...(this._mustNot.length > 0 ? { must_not: this._mustNot } : {}),
         },
-      };
-
-      // Process nested fields in the query
-      body.query = this.nestedFieldsProcessor.processNestedFields(query);
+      } as estypes.QueryDslQueryContainer;
     }
 
     // Add highlighting if specified
@@ -1138,10 +1324,7 @@ export default class QueryBuilder {
       };
     }
 
-    // Process nested fields in the final query
-    if (body.query) {
-      body.query = this.nestedFieldsProcessor.processNestedFields(body.query);
-    }
+    // Nested fields are now handled at query construction time
 
     return body;
   }

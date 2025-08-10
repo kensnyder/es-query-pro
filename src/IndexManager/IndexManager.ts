@@ -1,10 +1,8 @@
 import indexName from '../indexName/indexName';
-import schemaToMappings from '../schemaToMappings/schemaToMappings';
 import findBy from '../findBy/findBy';
 import QueryBuilder from '../QueryBuilder/QueryBuilder';
 import getEsClient from '../getEsClient/getEsClient';
 import { Client, estypes, errors } from '@elastic/elasticsearch';
-import fulltext from '../fulltext/fulltext';
 import {
   BoostType,
   ElasticsearchRecord,
@@ -211,12 +209,12 @@ export default class IndexManager<
    * Create a new index with these specifications
    */
   async create() {
-    const mappings = schemaToMappings(this.schema, this.language);
+    const sm = new SchemaManager(this.schema);
     const settings = this.settings;
     try {
       const response = await this.client.indices.create({
         index: this.getIndexName(),
-        mappings,
+        mappings: sm.toMappings(),
         settings,
       });
       return { index: response.index, ...this.formatNonError(response) };
@@ -425,7 +423,7 @@ export default class IndexManager<
    * @param body  The record to save
    */
   async put(id: string, body: ElasticsearchRecord<ThisSchema>) {
-    fulltext.processRecord(body);
+    this.textProcessor.prepareInsertion(body);
     try {
       const result = await this.client.index({
         index: this.getAliasName(),
@@ -443,7 +441,7 @@ export default class IndexManager<
    * @param records  The records to save
    */
   async putBulk(records: ElasticsearchRecord<ThisSchema>[]) {
-    records.forEach(r => fulltext.processRecord(r));
+    records.forEach(r => this.textProcessor.prepareInsertion(r));
     try {
       const result = await this.client.bulk({
         index: this.getAliasName(),
@@ -461,7 +459,7 @@ export default class IndexManager<
    * @param body  The record to save
    */
   async patch(id: string, body: ElasticsearchRecord<ThisSchema>) {
-    fulltext.processRecord(body);
+    this.textProcessor.prepareInsertion(body);
     try {
       const response = await this.client.update({
         index: this.getAliasName(),

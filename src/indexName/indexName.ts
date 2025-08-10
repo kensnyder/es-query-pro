@@ -17,7 +17,7 @@ function build({
   index: string;
   version: number | string;
 }) {
-  return `${prefix}${language}-${index}-v${version}`;
+  return `${prefix}-${language}-${index}-v${version}`;
 }
 
 /**
@@ -36,7 +36,7 @@ function alias({
   language: string;
   index: string;
 }) {
-  return `${prefix}${language}-${index}`;
+  return `${prefix}-${language}-${index}`;
 }
 
 /**

@@ -9,11 +9,15 @@ export default class SchemaManager<Schema = SchemaShape> {
   }
 
   toMappings() {
-    return this.schemaToMappings(this.schema);
+    // Wrap the result in a properties object to match the expected structure
+    return { properties: this.schemaToMappings(this.schema) };
   }
 
-  private schemaToMappings<T>(schema: T, analyzerName: string = 'englishplus') {
-    const properties: estypes.MappingProperty = {};
+  private schemaToMappings<T>(
+    schema: T,
+    analyzerName: string = 'englishplus'
+  ): Record<string, estypes.MappingProperty> {
+    const properties: Record<string, estypes.MappingProperty> = {};
 
     for (const [field, typeOrObject] of Object.entries(schema)) {
       if (typeof typeOrObject === 'string') {
@@ -23,14 +27,40 @@ export default class SchemaManager<Schema = SchemaShape> {
           analyzerName
         );
       } else if (typeof typeOrObject === 'object' && typeOrObject !== null) {
-        // Nested object
+        // Nested object - don't wrap in properties for nested objects
+        const nestedMappings = this.schemaToNestedMappings(typeOrObject, analyzerName);
         properties[field] = {
           type: 'nested',
-          properties: this.schemaToMappings(typeOrObject, analyzerName),
+          ...nestedMappings,
         };
       }
     }
     return properties;
+  }
+
+  private schemaToNestedMappings<T>(
+    schema: T,
+    analyzerName: string = 'englishplus'
+  ): { properties: Record<string, estypes.MappingProperty> } {
+    const properties: Record<string, estypes.MappingProperty> = {};
+
+    for (const [field, typeOrObject] of Object.entries(schema)) {
+      if (typeof typeOrObject === 'string') {
+        // Simple field with type
+        properties[field] = this.getPropertyType(
+          typeOrObject as ElasticsearchType,
+          analyzerName
+        );
+      } else if (typeof typeOrObject === 'object' && typeOrObject !== null) {
+        // Recursively handle nested objects
+        properties[field] = {
+          type: 'nested',
+          ...this.schemaToNestedMappings(typeOrObject, analyzerName),
+        };
+      }
+    }
+    
+    return { properties };
   }
 
   getAllFields(data = this.schema) {
@@ -58,30 +88,40 @@ export default class SchemaManager<Schema = SchemaShape> {
   }
 
   getPropertyType(
-    type: ElasticsearchType,
+    type: string,
     analyzerName: string
   ): estypes.MappingProperty {
+    // Handle date format like 'date.epoch_second'
+    if (typeof type === 'string' && type.startsWith('date.')) {
+      const [, format] = type.split('.');
+      return { type: 'date', format };
+    }
+
     switch (type) {
       case 'keyword':
-        // return {
-        //   type: 'text',
-        //   fields: {
-        //     keyword: {
-        //       type: 'keyword',
-        //       ignore_above: 256,
-        //     },
-        //   },
-        // };
-        return {
-          type: 'keyword',
-          ignore_above: 256,
-        };
+        return { type: 'keyword' };
       case 'text':
         return {
           type: 'text',
           analyzer: analyzerName,
         };
+      case 'fulltext':
+        return {
+          type: 'text',
+          term_vector: 'with_positions_offsets',
+          fields: {
+            exact: {
+              type: 'text',
+              analyzer: 'standard',
+            },
+            fulltext: {
+              type: 'text',
+              analyzer: analyzerName,
+            },
+          },
+        };
+      default:
+        return { type: type as any };
     }
-    return { type };
   }
 }

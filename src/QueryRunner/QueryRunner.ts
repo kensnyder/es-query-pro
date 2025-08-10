@@ -50,7 +50,7 @@ export default class QueryRunner<ThisSchema extends SchemaShape> {
   /**
    * Run this builder and return results
    */
-  async search(more: Omit<estypes.SearchRequest, 'index' | 'query'> = {}) {
+  async findMany(more: Omit<estypes.SearchRequest, 'index' | 'query'> = {}) {
     try {
       const result: estypes.SearchResponse<ElasticsearchRecord<ThisSchema>> =
         await this.index.client.search({
@@ -72,17 +72,27 @@ export default class QueryRunner<ThisSchema extends SchemaShape> {
   }
 
   /**
-   * Run this builder and return result.hits.hits
+   * Run this builder and return result.hits.hits[0]
    */
-  async findMany(more: Omit<estypes.SearchRequest, 'index' | 'query'> = {}) {
-    return this.search(more);
+  async findFirst(more: Omit<estypes.SearchRequest, 'index' | 'query'> = {}) {
+    const { records, ...result } = await this.findMany(more);
+    return { record: records[0], ...result };
   }
 
   /**
    * Run this builder and return result.hits.hits[0]
    */
-  async findFirst(more: Omit<estypes.SearchRequest, 'index' | 'query'> = {}) {
-    const { records, ...result } = await this.search(more);
+  async findFirstOrThrow(
+    more: Omit<estypes.SearchRequest, 'index' | 'query'> = {}
+  ) {
+    const { records, ...result } = await this.findMany(more);
+    if (records.length === 0) {
+      const error = new Error('No record found');
+      error.name = 'NotFoundError';
+      error.status = 404;
+      error.result = result;
+      throw error;
+    }
     return { record: records[0], ...result };
   }
 
