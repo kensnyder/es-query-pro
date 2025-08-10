@@ -2,17 +2,19 @@ import { describe, expect, it } from 'bun:test';
 import NestedFieldsProcessor from './NestedFieldsProcessor';
 
 describe('NestedFieldsProcessor', () => {
-  const processor = new NestedFieldsProcessor('.');
+  const processor = new NestedFieldsProcessor('/');
 
   it('should create a simple non-nested query', () => {
-    const query = { term: { category: '123' } };
+    const query = { term: { country: 'United Kingdom' } };
     const result = processor.process(query);
 
     expect(result).toEqual(query);
   });
 
   it('should create a simple non-nested query with bool', () => {
-    const query = { bool: { should: [{ term: { category: '123' } }] } };
+    const query = {
+      bool: { should: [{ term: { country: 'United Kingdom' } }] },
+    };
     const result = processor.process(query);
 
     expect(result).toEqual(query);
@@ -20,7 +22,18 @@ describe('NestedFieldsProcessor', () => {
 
   it('should recurse with extra bools', () => {
     const query = {
-      bool: { should: { bool: { should: [{ term: { category: '123' } }] } } },
+      bool: {
+        should: { bool: { should: [{ term: { country: 'United Kingdom' } }] } },
+      },
+    };
+    const result = processor.process(query);
+
+    expect(result).toEqual(query);
+  });
+
+  it('should recurse with array fields', () => {
+    const query = {
+      bool: { should: [{ terms: { heroes: ['Harry Potter'] } }] },
     };
     const result = processor.process(query);
 
@@ -28,23 +41,7 @@ describe('NestedFieldsProcessor', () => {
   });
 
   it('should create a simple nested query', () => {
-    const query = { term: { 'category.id': '123' } };
-    const result = processor.process(query);
-
-    expect(result).toEqual({
-      nested: {
-        path: 'category',
-        query: {
-          term: {
-            'category.id': '123',
-          },
-        },
-      },
-    });
-  });
-
-  it('should create a simple nested query', () => {
-    const query = { term: { 'category.id': '123' } };
+    const query = { term: { 'category/id': '123' } };
     const result = processor.process(query);
 
     expect(result).toEqual({
@@ -60,15 +57,15 @@ describe('NestedFieldsProcessor', () => {
   });
 
   it('should create a nested query with exists', () => {
-    const query = { exists: { field: 'category.id' } };
+    const query = { exists: { field: 'publishing/organization' } };
     const result = processor.process(query);
 
     expect(result).toEqual({
       nested: {
-        path: 'category',
+        path: 'publishing',
         query: {
           exists: {
-            field: 'category.id',
+            field: 'publishing.organization',
           },
         },
       },
@@ -76,16 +73,16 @@ describe('NestedFieldsProcessor', () => {
   });
 
   it('should handle range queries with gt', () => {
-    const query = { range: { 'price.amount': { gt: 100 } } };
+    const query = { range: { 'publishing/year': { gt: 2000 } } };
     const result = processor.process(query);
 
     expect(result).toEqual({
       nested: {
-        path: 'price',
+        path: 'publishing',
         query: {
           range: {
-            'price.amount': {
-              gt: 100,
+            'publishing.year': {
+              gt: 2000,
             },
           },
         },
@@ -93,37 +90,27 @@ describe('NestedFieldsProcessor', () => {
     });
   });
 
-  it('should handle range queries with multiple conditions', () => {
-    const query = {
-      range: {
-        'date.timestamp': {
-          gte: '2023-01-01',
-          lte: '2023-12-31',
-        },
-      },
-    };
+  it('should process range queries with multiple conditions', () => {
+    const query = { range: { 'publishing/year': { gte: 1999, lt: 2000 } } };
     const result = processor.process(query);
 
     expect(result).toEqual({
       nested: {
-        path: 'date',
+        path: 'publishing',
         query: {
           range: {
-            'date.timestamp': {
-              gte: '2023-01-01',
-              lte: '2023-12-31',
-            },
+            'publishing.year': { gte: 1999, lt: 2000 },
           },
         },
       },
     });
   });
 
-  it('should handle multi_match queries with one nested field', () => {
+  it('should process multi_match queries with one nested field', () => {
     const query = {
       multi_match: {
-        query: 'search term',
-        fields: ['metadata.keywords'],
+        query: 'Coming',
+        fields: ['categories/name'],
       },
     };
 
@@ -131,11 +118,11 @@ describe('NestedFieldsProcessor', () => {
 
     expect(result).toEqual({
       nested: {
-        path: 'metadata',
+        path: 'categories',
         query: {
           multi_match: {
-            query: 'search term',
-            fields: ['metadata.keywords'],
+            query: 'Coming',
+            fields: ['categories.name'],
           },
         },
       },
@@ -145,8 +132,9 @@ describe('NestedFieldsProcessor', () => {
   it('should handle multi_match queries with a mix of fields', () => {
     const query = {
       multi_match: {
-        query: 'search term',
-        fields: ['title', 'metadata.keywords'],
+        query: 'uncover',
+        type: 'phrase',
+        fields: ['premise', 'categories/name'],
       },
     };
 
@@ -157,17 +145,19 @@ describe('NestedFieldsProcessor', () => {
         should: [
           {
             multi_match: {
-              query: 'search term',
-              fields: ['title'],
+              query: 'uncover',
+              type: 'phrase',
+              fields: ['premise'],
             },
           },
           {
             nested: {
-              path: 'metadata',
+              path: 'categories',
               query: {
                 multi_match: {
-                  query: 'search term',
-                  fields: ['metadata.keywords'],
+                  query: 'uncover',
+                  type: 'phrase',
+                  fields: ['categories.name'],
                 },
               },
             },
@@ -181,7 +171,7 @@ describe('NestedFieldsProcessor', () => {
     const query = {
       range: { price: { gt: 100 } },
       multi_match: {
-        fields: ['metadata.keywords'],
+        fields: ['metadata/keywords'],
         query: 'search term',
       },
     };
@@ -209,9 +199,9 @@ describe('NestedFieldsProcessor', () => {
         fields: [
           'title',
           'content',
-          'tags.name',
-          'tags.description',
-          'metadata.*',
+          'tags/name',
+          'tags/description',
+          'metadata/*',
         ],
       },
     };

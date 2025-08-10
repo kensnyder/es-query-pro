@@ -342,19 +342,26 @@ export default class QueryBuilder {
    * @return {QueryBuilder}
    * @chainable
    */
-  matchPhrase(field: string, phraseOrPhrases: string | string[], options: { slop?: number } = {}) {
+  matchPhrase(
+    field: string,
+    phraseOrPhrases: string | string[],
+    options: { slop?: number } = {}
+  ) {
     const phrases = Array.isArray(phraseOrPhrases)
       ? phraseOrPhrases.map(v => this.textProcessor.processText(v))
       : [this.textProcessor.processText(phraseOrPhrases)];
-    
+
     const terms = [];
     for (const phrase of phrases) {
       // For single phrase, use direct value
       if (phrases.length === 1) {
         terms.push({
           match_phrase: {
-            [field]: options.slop !== undefined ? { query: phrase, slop: options.slop } : phrase
-          }
+            [field]:
+              options.slop !== undefined
+                ? { query: phrase, slop: options.slop }
+                : phrase,
+          },
         });
       } else {
         // For multiple phrases, use query object to support slop
@@ -364,12 +371,12 @@ export default class QueryBuilder {
         }
         terms.push({
           match_phrase: {
-            [field]: matchPhraseQuery
-          }
+            [field]: matchPhraseQuery,
+          },
         });
       }
     }
-    
+
     if (terms.length === 1) {
       this._must.push(terms[0]);
     } else {
@@ -480,7 +487,7 @@ export default class QueryBuilder {
           multi_match: {
             fields: ['fulltext_*'],
             operator: 'or',
-            builder: 'Sports medicine doctor',
+            query: 'Sports medicine doctor',
             boost: 1,
           },
         },
@@ -490,7 +497,7 @@ export default class QueryBuilder {
           multi_match: {
             fields: ['fulltext_*'],
             operator: 'and',
-            builder: 'Sports medicine doctor',
+            query: 'Sports medicine doctor',
             boost: 3,
           },
         },
@@ -500,7 +507,7 @@ export default class QueryBuilder {
           multi_match: {
             fields: ['fulltext_*'],
             type: 'phrase',
-            builder: 'Sports medicine doctor',
+            query: 'Sports medicine doctor',
             boost: 5,
           },
         },
@@ -509,7 +516,7 @@ export default class QueryBuilder {
         {
           nested: {
             path: 'categories',
-            builder: {
+            query: {
               match: {
                 'categories.value': {
                   builder: 'Sports medicine doctor',
@@ -525,7 +532,7 @@ export default class QueryBuilder {
         {
           nested: {
             path: 'categories',
-            builder: {
+            query: {
               match: {
                 'categories.value': {
                   builder: 'Sports medicine doctor',
@@ -541,7 +548,7 @@ export default class QueryBuilder {
         {
           nested: {
             path: 'categories',
-            builder: {
+            query: {
               match_phrase: {
                 'categories.value': {
                   builder: 'Sports medicine doctor',

@@ -39,73 +39,81 @@ import { isMatchWith } from 'es-toolkit/compat';
 // }
 
 type Transformer = {
-  test: (value: any) => boolean;
-  transform: (value: any) => any;
+  test: (value: any, separator: string) => boolean;
+  transform: (value: any, separator: string) => any;
 };
 
 const templates: Record<string, Transformer> = {
   term: {
-    test: value => {
+    test: (value: any, separator: string) => {
       const keys = Object.keys(value);
-      return keys.length === 1 && keys[0].includes('.');
+      return keys.length === 1 && keys[0].includes(separator);
     },
-    transform: value => {
+    transform: (value: any, separator: string) => {
+      const keys = Object.keys(value);
       return {
         nested: {
-          path: Object.keys(value)[0].split('.')[0],
+          path: keys[0].split(separator)[0],
           query: {
-            term: value,
+            term: { [keys[0].split(separator).join('.')]: value[keys[0]] },
           },
         },
       };
     },
   },
   exists: {
-    test: value => {
-      return typeof value.field === 'string' && value.field.includes('.');
+    test: (value: any, separator: string) => {
+      return typeof value.field === 'string' && value.field.includes(separator);
     },
-    transform: value => {
+    transform: (value: any, separator: string) => {
       return {
         nested: {
-          path: value.field.split('.')[0],
+          path: value.field.split(separator)[0],
           query: {
-            exists: value,
+            exists: {
+              field: value.field.split(separator).join('.'),
+            },
           },
         },
       };
     },
   },
   range: {
-    test: value => {
+    test: (value: any, separator: string) => {
       const keys = Object.keys(value);
-      return [1, 2].includes(keys.length) && keys[0].includes('.');
+      return (
+        [1, 2].includes(keys.length) && keys.every(k => k.includes(separator))
+      );
     },
-    transform: value => {
+    transform: (value: any, separator: string) => {
+      const keys = Object.keys(value);
       return {
         nested: {
-          path: Object.keys(value)[0].split('.')[0],
+          path: keys[0].split(separator)[0],
           query: {
-            range: value,
+            range: Object.fromEntries(
+              keys.map((f, i) => [f.split(separator).join('.'), value[keys[i]]])
+            ),
           },
         },
       };
     },
   },
   multi_match: {
-    test: value => {
+    test: (value: any, separator: string) => {
       return (
         typeof value.query === 'string' &&
         Array.isArray(value.fields) &&
         value.fields.every(f => typeof f === 'string') &&
-        value.fields.some(f => f.includes('.'))
+        value.fields.some(f => f.includes(separator))
       );
     },
-    transform: value => {
+    transform: (value: any, separator: string) => {
       function groupByPath(fields: string[], _level = 0) {
         const root: string[] = [];
         const groupsByPath: Record<string, string[]> = {};
         for (const field of fields) {
-          const parts = field.split('.');
+          const parts = field.split(separator);
           if (parts.length > _level + 1) {
             const path = parts.slice(0, _level + 1).join('.');
             if (!groupsByPath[path]) {
@@ -127,6 +135,7 @@ const templates: Record<string, Transformer> = {
       if (root.length > 0) {
         should.push({
           multi_match: {
+            ...value,
             fields: root,
             query: value.query,
           },
@@ -138,7 +147,8 @@ const templates: Record<string, Transformer> = {
             path: group.path,
             query: {
               multi_match: {
-                fields: group.fields,
+                ...value,
+                fields: group.fields.map(f => f.split(separator).join('.')),
                 query: value.query,
               },
             },
@@ -155,6 +165,7 @@ const templates: Record<string, Transformer> = {
     },
   },
 };
+templates.terms = templates.term;
 templates.match = templates.term;
 
 /**
@@ -167,34 +178,35 @@ export default class NestedFieldsProcessor {
    * Creates a new NestedFieldsProcessor
    * @param fieldSeparator The separator used to denote nested fields (default: '->')
    */
-  constructor(fieldSeparator: string = '->') {
+  constructor(fieldSeparator: string = '/') {
     this.fieldSeparator = fieldSeparator;
   }
 
   process(query: any): any {
-    let copy = {};
+    const copy = {};
     for (const [key, value] of Object.entries(query)) {
-      if (key in templates && templates[key].test(value)) {
-        copy = {
-          ...copy,
-          ...templates[key].transform(value),
-        };
+      // apply template
+      if (key in templates && templates[key].test(value, this.fieldSeparator)) {
+        Object.assign(
+          copy,
+          templates[key].transform(value, this.fieldSeparator)
+        );
       } else if (
+        // recurse into array
         Array.isArray(value) &&
         value.every(v => typeof v === 'object')
       ) {
         copy[key] = value.map(v => this.process(v));
+      } else if (
+        // recurse into object
+        typeof value === 'object' &&
+        value !== null &&
+        !Array.isArray(value)
+      ) {
+        copy[key] = this.process(value);
       } else {
-        // if (typeof value === 'object') {
-        //   const clauses = ['should', 'must', 'must_not'];
-        //   for (const clause of clauses) {
-        //     if (Array.isArray(value[clause])) {
-        //       copy[clause] = value[clause].map(this.process);
-        //     }
-        //   }
-        // } else {
-        copy[key] = typeof value === 'object' ? this.process(value) : value;
-        // }
+        // keep value as is
+        copy[key] = value;
       }
     }
     return copy;
