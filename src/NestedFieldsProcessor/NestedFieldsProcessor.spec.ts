@@ -192,16 +192,15 @@ describe('NestedFieldsProcessor', () => {
     });
   });
 
-  it('should handle multi_match with multiple paths', () => {
+  it('should handle multi_match with multiple path types', () => {
     const query = {
       multi_match: {
-        query: 'search term',
+        query: 'Bloomsbury',
         fields: [
           'title',
-          'content',
-          'tags/name',
-          'tags/description',
-          'metadata/*',
+          'premise',
+          'categories/name',
+          'publishing/organization',
         ],
       },
     };
@@ -213,28 +212,28 @@ describe('NestedFieldsProcessor', () => {
         should: [
           {
             multi_match: {
-              query: 'search term',
-              fields: ['title', 'content'],
+              query: 'Bloomsbury',
+              fields: ['title', 'premise'],
             },
           },
           {
             nested: {
-              path: 'tags',
+              path: 'categories',
               query: {
                 multi_match: {
-                  query: 'search term',
-                  fields: ['tags.name', 'tags.description'],
+                  query: 'Bloomsbury',
+                  fields: ['categories.name'],
                 },
               },
             },
           },
           {
             nested: {
-              path: 'metadata',
+              path: 'publishing',
               query: {
                 multi_match: {
-                  query: 'search term',
-                  fields: ['metadata.*'],
+                  query: 'Bloomsbury',
+                  fields: ['publishing.organization'],
                 },
               },
             },

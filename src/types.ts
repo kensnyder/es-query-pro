@@ -1,45 +1,9 @@
 import { estypes } from '@elastic/elasticsearch';
+import { ColumnName } from './IndexNameManager/IndexNameManager';
 
-type LowercaseLetter =
-  | 'a'
-  | 'b'
-  | 'c'
-  | 'd'
-  | 'e'
-  | 'f'
-  | 'g'
-  | 'h'
-  | 'i'
-  | 'j'
-  | 'k'
-  | 'l'
-  | 'm'
-  | 'n'
-  | 'o'
-  | 'p'
-  | 'q'
-  | 'r'
-  | 's'
-  | 't'
-  | 'u'
-  | 'v'
-  | 'w'
-  | 'x'
-  | 'y'
-  | 'z';
-
-type UppercaseLetter = Uppercase<LowercaseLetter>;
-
-// Matches only: a–z, A–Z, 0–9, underscore (_), dash (-)
-type AllowedColumnChars = LowercaseLetter | UppercaseLetter | Digit | '_' | '-';
-
-// Matches only: a–z, A–Z, 0–9, underscore (_), dash (-)
-type AllowedIndexChars = LowercaseLetter | UppercaseLetter | Digit | '_';
-
-type Digit = '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9';
-
-export type ColumnName = `${AllowedColumnChars}${string}`;
-export type IndexName = `${AllowedIndexChars}${string}`;
+export type Prettify<T> = {
+  [K in keyof T]: T[K];
+} & {};
 
 export type ColumnType =
   | ElasticsearchType
@@ -153,40 +117,25 @@ export type FieldType =
   | 'functionScores';
 
 export type FieldTypeOrTypes = FieldType | FieldType[] | null;
+export type RangeShape = string | [string, string] | number | [number, number];
+export type QueryShape = Prettify<estypes.QueryDslQueryContainer>;
+export type MultiMatchQueryShape = Prettify<estypes.QueryDslMultiMatchQuery>;
+export type SortShape = Prettify<estypes.SortCombinations>;
+export type FunctionScoreShape = Prettify<estypes.QueryDslDecayFunctionBase>;
+export type BoolQueryShape = Prettify<estypes.QueryDslBoolQuery>;
+export type SearchRequestShape = Prettify<estypes.SearchRequest>;
+export type IndexSettings = Prettify<estypes.IndicesCreateRequest['settings']>;
+export type IndexMetadataParams = Prettify<estypes.IndicesGetRequest>;
+export type AliasMetadataParams = Prettify<estypes.IndicesGetAliasRequest>;
+export type IndexExistParams = Prettify<estypes.IndicesExistsAliasRequest>;
+export type AliasExistParams = Prettify<estypes.IndicesExistsAliasRequest>;
+export type IndexCreateParams = Prettify<estypes.IndicesCreateRequest>;
+export type AliasCreateParams = Prettify<estypes.IndicesPutAliasRequest>;
+export type DeleteRequestShape = Prettify<estypes.IndicesDeleteRequest>;
+export type AliasDeleteParams = Prettify<estypes.IndicesDeleteAliasRequest>;
 
-// export type FunctionScoreItemType = {
-//   field: string;
-//   decayFunction?: 'gauss' | 'exp' | 'linear';
-//   decayOffset?: number;
-//   decayScale?: string;
-//   decayNumber?: number;
-//   decayOrigin?: string;
-//   multiValueMode?: 'min' | 'max' | 'avg' | 'sum';
-// };
 //
-// export type EsClientType = {
-//   search: (params: {
-//     index: string;
-//     body?: Record<string, any>;
-//     [key: string]: any;
-//   }) => Promise<{
-//     body: any;
-//     statusCode?: number;
-//     headers: Record<string, string>;
-//     meta: any;
-//   }>;
-//   close: () => Promise<void>;
-// };
-
-// export type SourceType = estypes.SearchSourceConfig;
-//
-// export type FilterType = Record<string, any>;
-//
-// export type AggregatesType = Record<string, any>;
-//
-// export type RangeableType = string | number | string[] | number[];
-//
-// export type SortType =
+// export type SortShape =
 //   | '_score'
 //   | {
 //       [field: string]: 'asc' | 'desc';
@@ -198,77 +147,3 @@ export type FieldTypeOrTypes = FieldType | FieldType[] | null;
 //       };
 //     };
 //
-// export type SizeFromSort = {
-//   size?: number;
-//   from?: number;
-//   sort?: SortType[];
-// };
-//
-// export type BodyType = {
-//   query?: Record<string, any>;
-//   highlight?: HighlightType;
-//   aggs?: Record<string, any>;
-//   functions?: Record<string, any>[];
-// };
-//
-// export type RunResultType = {
-//   result: {
-//     took: number;
-//     _shards: {
-//       total: number;
-//       successful: number;
-//       failed: number;
-//       failures?: Array<{
-//         shard: number;
-//         index: string;
-//         node: string;
-//         reason: {
-//           type: string;
-//           reason: string;
-//         };
-//       }>;
-//       skipped: number;
-//       shared: number;
-//     };
-//     hits: {
-//       total:
-//         | number
-//         | {
-//             value: number;
-//             relation: 'gt' | 'lt' | 'gte' | 'lte';
-//           };
-//       hits: Array<{
-//         _index: string;
-//         _id: string;
-//         _score: number;
-//         _source?: Record<string, any>;
-//         _type?: string;
-//         fields?: Record<string, any>;
-//       }>;
-//     };
-//   };
-//   error?: string;
-// };
-//
-// export type HighlightType = {
-//   boundary_chars?: string;
-//   boundary_max_scan?: number;
-//   boundary_scanner?: 'chars' | 'sentence' | 'word';
-//   boundary_scanner_locale?: string;
-//   encoder?: 'default' | 'html';
-//   fields?: Record<string, any>;
-//   force_source?: boolean;
-//   fragmenter?: 'simple' | 'span';
-//   fragment_size?: number;
-//   highlight_query?: boolean;
-//   matched_fields?: boolean;
-//   no_match_size?: number;
-//   number_of_fragments?: number;
-//   phrase_limit?: number;
-//   pre_tags?: string[];
-//   post_tags?: string[];
-//   require_field_match?: boolean;
-//   max_analyzed_offset?: number;
-//   tags_schema?: 'styled' | boolean;
-//   type?: 'unified' | 'plain' | 'fvh';
-// };

@@ -7,4 +7,4 @@ export { default as QueryRunner } from './QueryRunner/QueryRunner';
 export { default as SchemaManager } from './SchemaManager/SchemaManager';
 export { default as SchemaRegistry } from './SchemaRegistry/SchemaRegistry';
 export { default as TextProcessor } from './TextProcessor/TextProcessor';
-import { default as indexName } from './indexName/indexName';
+import { default as IndexNameManager } from './IndexNameManager/IndexNameManager';

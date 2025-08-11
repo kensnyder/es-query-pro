@@ -172,7 +172,7 @@ templates.match = templates.term;
  * Processes nested fields in Elasticsearch queries by converting '->' notation to nested queries
  */
 export default class NestedFieldsProcessor {
-  private fieldSeparator: string;
+  public fieldSeparator: string;
 
   /**
    * Creates a new NestedFieldsProcessor

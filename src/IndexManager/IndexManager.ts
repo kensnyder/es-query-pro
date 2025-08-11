@@ -1,12 +1,22 @@
-import indexName from '../indexName/indexName';
+import IndexNameManager, {
+  IndexNameAttributes,
+} from '../IndexNameManager/IndexNameManager';
 import findBy from '../findBy/findBy';
 import QueryBuilder from '../QueryBuilder/QueryBuilder';
 import getEsClient from '../getEsClient/getEsClient';
 import { Client, estypes, errors } from '@elastic/elasticsearch';
 import {
+  AliasCreateParams,
+  AliasDeleteParams,
+  AliasExistParams,
+  AliasMetadataParams,
   BoostType,
+  DeleteRequestShape,
   ElasticsearchRecord,
-  IndexName,
+  IndexCreateParams,
+  IndexExistParams,
+  IndexMetadataParams,
+  IndexSettings,
   SchemaShape,
 } from '../types';
 import TextProcessor from '../TextProcessor/TextProcessor';
@@ -20,92 +30,68 @@ import SchemaManager from '../SchemaManager/SchemaManager';
 export default class IndexManager<
   ThisSchema extends SchemaShape = SchemaShape,
 > {
-  public index: IndexName;
+  /**
+   * Builds the index name and alias
+   */
+  public index: IndexNameManager;
+
+  /**
+   * The ElasticSearch client
+   */
   public client: Client;
-  public language: string;
+
+  /**
+   *
+   */
+  public analyzer: string;
   public schema: SchemaManager<ThisSchema>;
   public settings: any;
-  public version: number | string;
-  public prefix: string;
   public textProcessor: TextProcessor;
   public fulltextFields: string[];
   public allFields: string[];
   /**
    * Define the index with the given configuration
-   * @param client  The client to use
-   * @param name  The base index name such as "blogPosts" or "blog_posts"
-   * @param version  Digit indicating the revision for this configuration
+   * @param client  The client to use (defaults to getEsClient())
+   * @param index  The index information (see IndexNameManager.ts)
+   * @property name
+   * @property version
+   * @property prefix
+   * @property language
+   * @property separator
    * @param schema  The schema definition (see schemaToMappings.spec.js)
    * @param settings  The ElasticSearch settings; e.g. for sort hints
-   * @param prefix  A prefix to isolate these tables from another application or environment
-   * @param language  A language code or analyzer
    * @param textProcessor  A TextProcessor to use
    */
   constructor({
-    client = getEsClient(),
-    name,
-    version = 1,
+    index,
     schema,
     settings = {},
-    prefix = '',
-    language = 'englishplus',
+    textProcessor = new TextProcessor(),
+    client = getEsClient(),
   }: {
     client?: Client;
-    name: IndexName;
-    version?: number | string;
+    index: IndexNameAttributes;
     schema: ThisSchema;
-    settings?: estypes.IndicesCreateRequest['settings'];
-    prefix?: string;
-    language?: string;
+    settings?: IndexSettings;
+    textProcessor?: TextProcessor;
   }) {
     this.client = client;
-    this.index = name;
-    if (!/^\w+$/.test(name)) {
-      throw new Error(
-        'IndexManager: Index name must be only alphanumeric and underscores'
-      );
-    }
-    this.textProcessor = new TextProcessor();
+    this.index = new IndexNameManager(index);
+    this.textProcessor = textProcessor;
     this.textProcessor.registerSchema(schema);
-    this.version = version;
     this.schema = new SchemaManager(schema);
     this.settings = settings;
-    this.language = language;
-    this.prefix = prefix;
     this.fulltextFields = this.schema.getFulltextFields();
     this.allFields = this.schema.getAllFields();
   }
 
   /**
-   * Return the full name including prefix, language and version
-   */
-  getIndexName() {
-    return indexName.build({
-      prefix: this.prefix,
-      language: this.language,
-      index: this.index,
-      version: this.version,
-    });
-  }
-
-  /**
-   * Return the full name including prefix, language and version
-   */
-  getAliasName() {
-    return indexName.alias({
-      prefix: this.prefix,
-      language: this.language,
-      index: this.index,
-    });
-  }
-
-  /**
-   * Update the language which will be reflected in getIndexName()
-   * @param language  An analyzer name such as cjk, spanish, englishplus
+   * Update the analyzer which will be reflected in getIndexName()
+   * @param analyzerName  An analyzer name such as cjk, spanish, englishplus
    * @see https://www.elastic.co/guide/en/elasticsearch/reference/7.17/analysis-lang-analyzer.html
    */
-  setLanguage(language: string) {
-    this.language = language;
+  setAnalyzer(analyzerName: string) {
+    this.analyzer = analyzerName;
     return this;
   }
 
@@ -156,12 +142,13 @@ export default class IndexManager<
   }
 
   /**
-   * Return { result: true } if the index already exists in the database
+   * Check if the index already exists in the database
    */
-  async exists() {
+  async exists(more?: Omit<IndexExistParams, 'index'>) {
     try {
       const response = await this.client.indices.exists({
-        index: this.getIndexName(),
+        index: this.index.getFullName(),
+        ...(more || {}),
       });
       return { exists: response, ...this.formatNonError(null) };
     } catch (e) {
@@ -170,27 +157,13 @@ export default class IndexManager<
   }
 
   /**
-   * Return { result: "index_name" } if the alias exists and points to an index
+   * Check if the alias already exists in the database
    */
-  async getIndexNameByAlias() {
-    try {
-      const response = await this.client.indices.getAlias({
-        name: this.getAliasName(),
-      });
-      const indexName = Object.keys(response.body)[0];
-      return { name: indexName, ...this.formatNonError(response) };
-    } catch (e) {
-      return { name: null, ...this.formatError(e) };
-    }
-  }
-
-  /**
-   * Return { result: true } if the alias already exists in the database
-   */
-  async aliasExists() {
+  async aliasExists(more?: Omit<AliasExistParams, 'name'>) {
     try {
       const response = this.client.indices.existsAlias({
-        name: this.getAliasName(),
+        name: this.index.getAliasName(),
+        ...(more || {}),
       });
       return {
         exists: Object.keys(response)[0],
@@ -206,16 +179,51 @@ export default class IndexManager<
   }
 
   /**
+   * Get metadata for the index
+   */
+  async getIndexMetadata(more?: Omit<IndexMetadataParams, 'index'>) {
+    try {
+      const response = await this.client.indices.get({
+        index: this.index.getFullName(),
+        ...(more || {}),
+      });
+      const indexName = Object.keys(response.body)[0];
+      return { name: indexName, ...this.formatNonError(response) };
+    } catch (e) {
+      return { name: null, ...this.formatError(e) };
+    }
+  }
+
+  /**
+   * Get metadata for the alias
+   */
+  async getAliasMetadata(more?: Omit<AliasMetadataParams, 'name'>) {
+    try {
+      const response = await this.client.indices.getAlias({
+        name: this.index.getAliasName(),
+        ...(more || {}),
+      });
+      const indexName = Object.keys(response.body)[0];
+      return { name: indexName, ...this.formatNonError(response) };
+    } catch (e) {
+      return { name: null, ...this.formatError(e) };
+    }
+  }
+
+  /**
    * Create a new index with these specifications
    */
-  async create() {
+  async create(
+    more?: Omit<IndexCreateParams, 'index' | 'mappings' | 'settings'>
+  ) {
     const sm = new SchemaManager(this.schema);
     const settings = this.settings;
     try {
       const response = await this.client.indices.create({
-        index: this.getIndexName(),
+        index: this.index.getFullName(),
         mappings: sm.toMappings(),
         settings,
+        ...(more || {}),
       });
       return { index: response.index, ...this.formatNonError(response) };
     } catch (e) {
@@ -224,20 +232,66 @@ export default class IndexManager<
   }
 
   /**
-   * Create an alias for this index
+   * Drop index and all data; delete alias if exists
    */
-  async createAlias() {
+  async drop(more?: Omit<DeleteRequestShape, 'index'>) {
+    const { exists } = await this.aliasExists();
     try {
-      const response = await this.client.indices.putAlias({
-        name: this.getAliasName(),
-        index: this.getIndexName(),
+      const response = await this.client.indices.delete({
+        index: this.index.getFullName(),
+        ...(more || {}),
       });
+      if (response.acknowledged && exists) {
+        await this.client.indices.deleteAlias({
+          index: this.index.getFullName(),
+          name: this.index.getAliasName(),
+        });
+      }
       return {
-        success: response.acknowledged,
+        acknowledged: response.acknowledged,
+        shards: response._shards,
         ...this.formatNonError(response),
       };
     } catch (e) {
-      return { success: false, ...this.formatError(e) };
+      return { acknowledged: false, shards: null, ...this.formatError(e) };
+    }
+  }
+
+  /**
+   * Create an alias for this index
+   */
+  async createAlias(more?: Omit<AliasCreateParams, 'name' | 'index'>) {
+    try {
+      const response = await this.client.indices.putAlias({
+        name: this.index.getAliasName(),
+        index: this.index.getFullName(),
+        ...(more || {}),
+      });
+      return {
+        acknowledged: response.acknowledged,
+        ...this.formatNonError(response),
+      };
+    } catch (e) {
+      return { acknowledged: false, ...this.formatError(e) };
+    }
+  }
+
+  /**
+   * Drop alias
+   */
+  async dropAlias(more?: Omit<AliasDeleteParams, 'index' | 'name'>) {
+    try {
+      const response = await this.client.indices.deleteAlias({
+        index: this.index.getFullName(),
+        name: this.index.getAliasName(),
+        ...(more || {}),
+      });
+      return {
+        acknowledged: response.acknowledged,
+        ...this.formatNonError(response),
+      };
+    } catch (e) {
+      return { acknowledged: false, ...this.formatError(e) };
     }
   }
 
@@ -297,7 +351,7 @@ export default class IndexManager<
       };
     } else {
       const res = await this.createAlias();
-      if (res.success === false) {
+      if (res.acknowledged === false) {
         return {
           success: false,
           code: 'ERROR',
@@ -315,7 +369,11 @@ export default class IndexManager<
    * @param id  The record id
    */
   async findById(id: string) {
-    return findBy.id({ client: this.client, index: this.getAliasName(), id });
+    return findBy.id({
+      client: this.client,
+      index: this.index.getAliasName(),
+      id,
+    });
   }
 
   /**
@@ -329,7 +387,7 @@ export default class IndexManager<
   ) {
     return findBy.criteria({
       client: this.client,
-      index: this.getAliasName(),
+      index: this.index.getAliasName(),
       where,
       more,
     });
@@ -426,7 +484,7 @@ export default class IndexManager<
     this.textProcessor.prepareInsertion(body);
     try {
       const result = await this.client.index({
-        index: this.getAliasName(),
+        index: this.index.getAliasName(),
         id: id,
         body,
       });
@@ -444,7 +502,7 @@ export default class IndexManager<
     records.forEach(r => this.textProcessor.prepareInsertion(r));
     try {
       const result = await this.client.bulk({
-        index: this.getAliasName(),
+        index: this.index.getAliasName(),
         body: records,
       });
       return { result, error: null };
@@ -462,7 +520,7 @@ export default class IndexManager<
     this.textProcessor.prepareInsertion(body);
     try {
       const response = await this.client.update({
-        index: this.getAliasName(),
+        index: this.index.getAliasName(),
         id,
         body,
       });
@@ -480,10 +538,10 @@ export default class IndexManager<
    * Remove record from database
    * @param {String} id  The id of the record
    */
-  async delete(id: string) {
+  async deleteById(id: string) {
     try {
       const response = await this.client.delete({
-        index: this.getAliasName(),
+        index: this.index.getAliasName(),
         id,
       });
       return { success: true, ...this.formatNonError(response) };
@@ -494,7 +552,7 @@ export default class IndexManager<
 
   /**
    * Migrate the index if needed
-   * - Index may need to be crea
+   * - Index may exist
    *   - If not, create it and create an alias
    *   - If it does, create alias if needed
    * - Otherwise check the alias name in ElasticSearch matches this alias name
@@ -504,7 +562,7 @@ export default class IndexManager<
    */
   async migrateIfNeeded() {
     const start = Date.now();
-    const currentIndexName = this.getIndexName();
+    const currentIndexName = this.index.getFullName();
     try {
       // Check if the index exists
       const indexExists = await this.exists();
@@ -514,7 +572,7 @@ export default class IndexManager<
         await this.create();
 
         // Get the index that the alias points to
-        const indexInfo = await this.getIndexNameByAlias();
+        const indexInfo = await this.getIndexMetadata();
         const oldIndexName = indexInfo.name;
 
         if (oldIndexName === currentIndexName) {
@@ -556,8 +614,18 @@ export default class IndexManager<
           // Update alias to point to the new index atomically
           await this.client.indices.updateAliases({
             actions: [
-              { remove: { index: oldIndexName, alias: this.getAliasName() } },
-              { add: { index: currentIndexName, alias: this.getAliasName() } },
+              {
+                remove: {
+                  index: oldIndexName,
+                  alias: this.index.getAliasName(),
+                },
+              },
+              {
+                add: {
+                  index: currentIndexName,
+                  alias: this.index.getAliasName(),
+                },
+              },
             ],
           });
 
@@ -627,7 +695,7 @@ export default class IndexManager<
             ...this.formatError(e),
           };
         } finally {
-          // Ensure we reinstate writes to old index
+          // Ensure we reinstate writes to old index upon error
           await this.client.indices.putSettings({
             index: oldIndexName,
             body: { 'index.blocks.write': null },
@@ -661,8 +729,12 @@ export default class IndexManager<
 Example:
 
 export const postIndex = new IndexManager({
-  name: 'post',
-  version: '1',
+  index: {
+    name: 'post',
+    version: '1',
+    analyzer: 'englishplus',
+    prefix: 'prod',
+  }
   schema: {
     id: 'integer',
     uuid: 'keyword',
