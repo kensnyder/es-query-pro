@@ -59,30 +59,6 @@ export type AnyAllType = 'ANY' | 'ALL' | 'any' | 'all';
 
 export type MatchType = 'match' | 'term';
 
-export type MatchOperator = 'and' | 'or' | 'AND' | 'OR';
-
-// export type MultiMatchType = {
-//   type?:
-//     | 'best_fields'
-//     | 'most_fields'
-//     | 'cross_fields'
-//     | 'phrase'
-//     | 'phrase_prefix'
-//     | 'bool_prefix';
-//   analyzer?: string;
-//   boost?: number;
-//   operator?: 'and' | 'or' | 'AND' | 'OR';
-//   minimum_should_match?: number;
-//   fuzziness?: number;
-//   lenient?: boolean;
-//   prefix_length?: number;
-//   max_expansions?: number;
-//   fuzzy_rewrite?: boolean;
-//   zero_terms_query?: 'none' | 'all';
-//   cutoff_frequency?: number;
-//   fuzzy_transpositions?: boolean;
-// };
-
 export type OperatorType =
   | '>'
   | 'gt'
@@ -116,6 +92,7 @@ export type FieldType =
   | 'highlighter'
   | 'functionScores';
 
+// Elasticsearch types
 export type FieldTypeOrTypes = FieldType | FieldType[] | null;
 export type RangeShape = string | [string, string] | number | [number, number];
 export type QueryShape = Prettify<estypes.QueryDslQueryContainer>;
@@ -133,17 +110,5 @@ export type IndexCreateParams = Prettify<estypes.IndicesCreateRequest>;
 export type AliasCreateParams = Prettify<estypes.IndicesPutAliasRequest>;
 export type DeleteRequestShape = Prettify<estypes.IndicesDeleteRequest>;
 export type AliasDeleteParams = Prettify<estypes.IndicesDeleteAliasRequest>;
-
-//
-// export type SortShape =
-//   | '_score'
-//   | {
-//       [field: string]: 'asc' | 'desc';
-//     }
-//   | {
-//       [field: string]: {
-//         order: 'asc' | 'desc';
-//         format?: string;
-//       };
-//     };
-//
+export type GetRequestParams = Prettify<estypes.GetRequest>;
+export type PutRequestParams = Prettify<estypes.IndexRequest>;

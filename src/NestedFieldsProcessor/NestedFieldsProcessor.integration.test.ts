@@ -1,5 +1,10 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import getEsClient from '../getEsClient/getEsClient';
+import {
+  createBooksIndex,
+  deleteBooksIndex,
+  insertBooksData,
+} from '../testFixtures/books';
 import NestedFieldsProcessor from './NestedFieldsProcessor';
 
 describe('NestedFieldsProcessor - Integration Tests', () => {
@@ -8,158 +13,13 @@ describe('NestedFieldsProcessor - Integration Tests', () => {
   const processor = new NestedFieldsProcessor('/');
 
   beforeAll(async () => {
-    // First, delete the index if it exists
-    try {
-      await client.indices.delete({ index });
-    } catch (error) {
-      // Ignore if index doesn't exist
-    }
-
-    await client.indices.create({
-      index,
-      mappings: {
-        properties: {
-          id: { type: 'keyword' },
-          title: {
-            type: 'text',
-            analyzer: 'english',
-            search_analyzer: 'english',
-          },
-          premise: {
-            type: 'text',
-            analyzer: 'english',
-            search_analyzer: 'english',
-          },
-          country: { type: 'keyword' },
-          categories: {
-            type: 'nested',
-            properties: {
-              id: { type: 'integer' },
-              name: {
-                type: 'text',
-                analyzer: 'english',
-                search_analyzer: 'english',
-              },
-            },
-          },
-          author: {
-            type: 'keyword',
-          },
-          publishing: {
-            type: 'nested',
-            properties: {
-              author: { type: 'keyword' },
-              organization: {
-                type: 'text',
-                analyzer: 'english',
-                search_analyzer: 'english',
-              },
-              year: { type: 'integer' },
-            },
-          },
-          heroes: { type: 'keyword' },
-          price: { type: 'integer' },
-        },
-      },
-    });
-
-    await client.bulk({
-      refresh: 'wait_for',
-      body: [
-        { index: { _index: index, _id: '1' } },
-        {
-          id: '1',
-          title: "Harry Potter and the Sorcerer's Stone",
-          premise:
-            'A young boy discovers he’s a wizard and must confront a dark sorcerer while uncovering the truth about his own mysterious past.',
-          country: 'United Kingdom',
-          categories: [
-            {
-              id: 101,
-              name: 'Fantasy',
-            },
-            {
-              id: 102,
-              name: 'Coming of Age',
-            },
-            {
-              id: 104,
-              name: 'Uncovering mystery',
-            },
-          ],
-          publishing: {
-            author: 'JK Rowling',
-            organization: 'Bloomsbury Publishing',
-            year: 1998,
-          },
-          heroes: ['Harry Potter', 'Hermione Granger', 'Ron Weasley'],
-          price: 24.99,
-        },
-        { index: { _index: index, _id: '2' } },
-        {
-          id: '2',
-          title: 'Harry Potter and the Chamber of Secrets',
-          premise:
-            'At Hogwarts, Harry uncovers the mystery behind a hidden chamber',
-          country: 'United Kingdom',
-          categories: [
-            {
-              id: 101,
-              name: 'Fantasy',
-            },
-            {
-              id: 102,
-              name: 'Coming of Age',
-            },
-          ],
-          publishing: {
-            author: 'JK Rowling',
-            organization: 'Bloomsbury Publishing',
-            year: 1999,
-          },
-          heroes: ['Harry Potter', 'Hermione Granger', 'Ron Weasley'],
-          price: 22.99,
-        },
-        { index: { _index: index, _id: '3' } },
-        {
-          id: '3',
-          title: 'Skyward',
-          premise:
-            'A determined young pilot-in-training fights to prove herself worthy in a world under constant alien attack',
-          country: 'United States of America',
-          categories: [
-            {
-              id: 101,
-              name: 'Fantasy',
-            },
-            {
-              id: 103,
-              name: 'Military',
-            },
-            {
-              id: 104,
-              name: 'Uncovering mystery',
-            },
-          ],
-          publishing: {
-            author: 'Brandon Sanderson',
-            organization: 'Delacorte Press',
-            year: 2018,
-          },
-          heroes: ['Spensa'],
-          price: 18.99,
-        },
-      ],
-    });
+    await deleteBooksIndex(index);
+    await createBooksIndex(index);
+    await insertBooksData(index);
   });
 
   afterAll(async () => {
-    // Clean up
-    try {
-      await client.indices.delete({ index });
-    } catch (error) {
-      // Ignore
-    }
+    await deleteBooksIndex(index);
   });
 
   it('should handle non-nested query', async () => {

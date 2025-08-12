@@ -1,7 +1,6 @@
 import IndexNameManager, {
   IndexNameAttributes,
 } from '../IndexNameManager/IndexNameManager';
-import findBy from '../findBy/findBy';
 import QueryBuilder from '../QueryBuilder/QueryBuilder';
 import getEsClient from '../getEsClient/getEsClient';
 import { Client, estypes, errors } from '@elastic/elasticsearch';
@@ -13,6 +12,7 @@ import {
   BoostType,
   DeleteRequestShape,
   ElasticsearchRecord,
+  GetRequestParams,
   IndexCreateParams,
   IndexExistParams,
   IndexMetadataParams,
@@ -367,30 +367,21 @@ export default class IndexManager<
   /**
    * Find a single record by the given id
    * @param id  The record id
+   * @param [more]  Additional body params
    */
-  async findById(id: string) {
-    return findBy.id({
-      client: this.client,
-      index: this.index.getAliasName(),
-      id,
-    });
-  }
-
-  /**
-   * Find records that match the given where
-   * @param where  Field-value pairs of fields to match
-   * @param [more]  Additional body params such as size and from
-   */
-  async findByCriteria(
-    where: Record<string, any>,
-    more?: Partial<estypes.SearchRequest>
-  ) {
-    return findBy.criteria({
-      client: this.client,
-      index: this.index.getAliasName(),
-      where,
-      more,
-    });
+  async findById(id: string, more?: Omit<GetRequestParams, 'index' | 'id'>) {
+    try {
+      const response = await this.client.get({
+        index: this.index.getAliasName(),
+        id,
+        ...(more || {}),
+      });
+      const record = response._source;
+      this.textProcessor.prepareResult(record);
+      return { record, ...this.formatNonError(response) };
+    } catch (e) {
+      return { record: null, ...this.formatError(e as Error) };
+    }
   }
 
   /**
@@ -434,7 +425,7 @@ export default class IndexManager<
    * @param where  Field-value pairs of fields to match
    * @param [more]  Additional body params such as size and from
    */
-  async findWhere({
+  async findByCriteria({
     fetchFields = ['*'],
     where = {},
     more = {},
