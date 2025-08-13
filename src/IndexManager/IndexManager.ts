@@ -210,6 +210,10 @@ export default class IndexManager<
     }
   }
 
+  async flush() {
+    // flush it
+  }
+
   /**
    * Create a new index with these specifications
    */
@@ -434,14 +438,15 @@ export default class IndexManager<
     fetchFields?: string[];
     more?: Omit<estypes.SearchRequest, 'index' | 'query'>;
     where?: Record<string, any>;
-    boosts: BoostType;
-  }) {
+    boosts?: BoostType;
+  } = {}) {
     return this.run(runner => {
       const builder = runner.builder;
       builder.fields(fetchFields);
       for (const [field, value] of Object.entries(where)) {
         builder.match(field, value);
       }
+      console.log(`findByCriteria builder=${builder}`);
       return runner.findMany(more);
     });
   }
@@ -723,7 +728,7 @@ export const postIndex = new IndexManager({
   index: {
     name: 'post',
     version: '1',
-    analyzer: 'englishplus',
+    analyzer: 'english',
     prefix: 'prod',
   }
   schema: {

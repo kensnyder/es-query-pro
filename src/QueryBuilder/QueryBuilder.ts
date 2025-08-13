@@ -1260,6 +1260,13 @@ export default class QueryBuilder {
   }
 
   /**
+   * Debug to string
+   */
+  toString() {
+    return JSON.stringify(this.getQuery(), null, 2);
+  }
+
+  /**
    * Get a full Kibana builder string for the given builder
    * @param {String} index  The index to pull the name from
    * @return {String}

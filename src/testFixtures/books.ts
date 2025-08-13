@@ -1,6 +1,6 @@
 import { estypes } from '@elastic/elasticsearch';
 import getEsClient from '../getEsClient/getEsClient';
-import { PutRequestParams } from '../types';
+import { PutRequestParams, SchemaShape } from '../types';
 
 export function getBooksMappings(): estypes.MappingTypeMapping {
   return {
@@ -54,7 +54,7 @@ export function getBooksMappings(): estypes.MappingTypeMapping {
     },
   };
 }
-export function getBooksSchema() {
+export function getBooksSchema() : SchemaShape {
   return {
     id: 'integer',
     title: 'text',

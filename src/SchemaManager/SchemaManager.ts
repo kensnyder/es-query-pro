@@ -10,12 +10,12 @@ export default class SchemaManager<Schema = SchemaShape> {
 
   toMappings() {
     // Wrap the result in a properties object to match the expected structure
-    return { properties: this.schemaToMappings(this.schema) };
+    return { properties: this._schemaToMappings(this.schema) };
   }
 
-  private schemaToMappings<T>(
+  private _schemaToMappings<T>(
     schema: T,
-    analyzerName: string = 'englishplus'
+    analyzerName: string = 'english'
   ): Record<string, estypes.MappingProperty> {
     const properties: Record<string, estypes.MappingProperty> = {};
 
@@ -28,7 +28,10 @@ export default class SchemaManager<Schema = SchemaShape> {
         );
       } else if (typeof typeOrObject === 'object' && typeOrObject !== null) {
         // Nested object - don't wrap in properties for nested objects
-        const nestedMappings = this.schemaToNestedMappings(typeOrObject, analyzerName);
+        const nestedMappings = this._schemaToNestedMappings(
+          typeOrObject,
+          analyzerName
+        );
         properties[field] = {
           type: 'nested',
           ...nestedMappings,
@@ -38,7 +41,7 @@ export default class SchemaManager<Schema = SchemaShape> {
     return properties;
   }
 
-  private schemaToNestedMappings<T>(
+  private _schemaToNestedMappings<T>(
     schema: T,
     analyzerName: string = 'englishplus'
   ): { properties: Record<string, estypes.MappingProperty> } {
@@ -55,11 +58,11 @@ export default class SchemaManager<Schema = SchemaShape> {
         // Recursively handle nested objects
         properties[field] = {
           type: 'nested',
-          ...this.schemaToNestedMappings(typeOrObject, analyzerName),
+          ...this._schemaToNestedMappings(typeOrObject, analyzerName),
         };
       }
     }
-    
+
     return { properties };
   }
 
@@ -87,10 +90,7 @@ export default class SchemaManager<Schema = SchemaShape> {
     return fulltextFields;
   }
 
-  getPropertyType(
-    type: string,
-    analyzerName: string
-  ): estypes.MappingProperty {
+  getPropertyType(type: string, analyzerName: string): estypes.MappingProperty {
     // Handle date format like 'date.epoch_second'
     if (typeof type === 'string' && type.startsWith('date.')) {
       const [, format] = type.split('.');
@@ -98,14 +98,7 @@ export default class SchemaManager<Schema = SchemaShape> {
     }
 
     switch (type) {
-      case 'keyword':
-        return { type: 'keyword' };
       case 'text':
-        return {
-          type: 'text',
-          analyzer: analyzerName,
-        };
-      case 'fulltext':
         return {
           type: 'text',
           term_vector: 'with_positions_offsets',

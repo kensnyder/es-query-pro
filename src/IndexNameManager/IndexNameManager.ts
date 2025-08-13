@@ -41,7 +41,7 @@ export default class IndexNameManager {
     separator = '~',
     version = 1,
     prefix = '',
-    language = 'englishplus',
+    language = 'english',
   }: IndexNameAttributes) {
     this.name = name;
     this.version = version;

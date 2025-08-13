@@ -26,7 +26,7 @@ describe('SchemaManager', () => {
   });
   it('should handle fulltext', () => {
     const schema = {
-      content_description: 'fulltext',
+      content_description: 'text',
     };
     const mgr = new SchemaManager(schema);
     expect(mgr.toMappings()).toEqual({
@@ -40,7 +40,7 @@ describe('SchemaManager', () => {
             },
             fulltext: {
               type: 'text',
-              analyzer: 'englishplus',
+              analyzer: 'english',
             },
           },
           term_vector: 'with_positions_offsets',
