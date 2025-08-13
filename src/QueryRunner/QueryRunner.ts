@@ -9,7 +9,10 @@ export default class QueryRunner<ThisSchema extends SchemaShape> {
 
   constructor(index: IndexManager<ThisSchema>) {
     this.index = index;
-    this.builder = new QueryBuilder();
+    this.builder = new QueryBuilder({
+      index: this.index.getAliasName(),
+      nestedSeparator: this.index.nestedSeparator,
+    });
   }
 
   /**
@@ -51,18 +54,20 @@ export default class QueryRunner<ThisSchema extends SchemaShape> {
    * Run this builder and return results
    */
   async findMany(more: Omit<estypes.SearchRequest, 'index' | 'query'> = {}) {
+    const request = {
+      index: this.index.getAliasName(),
+      ...this.builder.getBody(),
+      ...more,
+    };
     try {
       const result: estypes.SearchResponse<ElasticsearchRecord<ThisSchema>> =
-        await this.index.client.search({
-          index: this.index.getAliasName(),
-          ...this.builder.getBody(),
-          ...more,
-        });
-      return this.formatResponse(result);
+        await this.index.client.search(request);
+      return { request, ...this.formatResponse(result) };
     } catch (e) {
       return {
         records: [],
         total: null,
+        request,
         took: null,
         aggregations: null,
         response: null,
@@ -89,7 +94,9 @@ export default class QueryRunner<ThisSchema extends SchemaShape> {
     if (records.length === 0) {
       const error = new Error('No record found');
       error.name = 'NotFoundError';
+      // @ts-ignore  Adding some metadata
       error.status = 404;
+      // @ts-ignore  Adding some metadata
       error.result = result;
       throw error;
     }
@@ -100,16 +107,30 @@ export default class QueryRunner<ThisSchema extends SchemaShape> {
    * Count the number of documents matching the current query
    * @returns The count of matching documents
    */
-  async count(more: Omit<estypes.CountRequest, 'index' | 'query'>) {
+  async count(more: Omit<estypes.CountRequest, 'index' | 'query'> = {}) {
+    const now = Date.now();
+    const request = {
+      index: this.index.getAliasName(),
+      ...this.builder.getBody(),
+      ...more,
+    };
     try {
-      const response = await this.index.client.count({
-        index: this.index.getAliasName(),
-        ...this.builder.getBody(),
-        ...more,
-      });
-      return { total: response.count, error: null, response };
+      const response = await this.index.client.count(request);
+      return {
+        total: response.count,
+        took: Date.now() - now,
+        request,
+        response,
+        error: null,
+      };
     } catch (e) {
-      return { total: null, error: e as Error, response: null };
+      return {
+        total: null,
+        took: Date.now() - now,
+        request,
+        response: e.meta || null,
+        error: e as Error,
+      };
     }
   }
 

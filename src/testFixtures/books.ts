@@ -54,7 +54,7 @@ export function getBooksMappings(): estypes.MappingTypeMapping {
     },
   };
 }
-export function getBooksSchema() : SchemaShape {
+export function getBooksSchema(): SchemaShape {
   return {
     id: 'integer',
     title: 'text',
@@ -78,7 +78,6 @@ export function getBooksSchema() : SchemaShape {
 }
 export function getBooksData(): PutRequestParams['body'][] {
   return [
-    // { index: { _index: index, _id: '1' } },
     {
       id: '1',
       title: "Harry Potter and the Sorcerer's Stone",
@@ -109,7 +108,6 @@ export function getBooksData(): PutRequestParams['body'][] {
       heroes: ['Harry Potter', 'Hermione Granger', 'Ron Weasley'],
       price: 24.99,
     },
-    // { index: { _index: index, _id: '2' } },
     {
       id: '2',
       title: 'Harry Potter and the Chamber of Secrets',
@@ -136,7 +134,6 @@ export function getBooksData(): PutRequestParams['body'][] {
       heroes: ['Harry Potter', 'Hermione Granger', 'Ron Weasley'],
       price: 22.99,
     },
-    // { index: { _index: index, _id: '3' } },
     {
       id: '3',
       title: 'Skyward',

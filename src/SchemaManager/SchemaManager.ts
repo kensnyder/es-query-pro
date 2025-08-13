@@ -3,9 +3,17 @@ import { ElasticsearchType, SchemaShape } from '../types';
 
 export default class SchemaManager<Schema = SchemaShape> {
   public schema: Schema;
+  public nestedSeparator: string;
 
-  constructor(schema: Schema) {
+  constructor({
+    schema,
+    nestedSeparator = '/',
+  }: {
+    schema: Schema;
+    nestedSeparator?: string;
+  }) {
     this.schema = schema;
+    this.nestedSeparator = nestedSeparator;
   }
 
   toMappings() {
@@ -43,7 +51,7 @@ export default class SchemaManager<Schema = SchemaShape> {
 
   private _schemaToNestedMappings<T>(
     schema: T,
-    analyzerName: string = 'englishplus'
+    analyzerName: string = 'english'
   ): { properties: Record<string, estypes.MappingProperty> } {
     const properties: Record<string, estypes.MappingProperty> = {};
 
@@ -78,13 +86,15 @@ export default class SchemaManager<Schema = SchemaShape> {
     return allFields;
   }
 
-  getFulltextFields(data = this.schema) {
+  getFulltextFields(data = this.schema, _path: string[] = []) {
     const fulltextFields: string[] = [];
     for (const [field, typeOrObject] of Object.entries(data)) {
       if (typeOrObject === 'text') {
-        fulltextFields.push(field);
+        fulltextFields.push([..._path, field].join(this.nestedSeparator));
       } else if (typeof typeOrObject === 'object' && typeOrObject !== null) {
-        fulltextFields.push(...this.getFulltextFields(typeOrObject));
+        fulltextFields.push(
+          ...this.getFulltextFields(typeOrObject, [..._path, field])
+        );
       }
     }
     return fulltextFields;

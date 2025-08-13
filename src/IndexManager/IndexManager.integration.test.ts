@@ -44,12 +44,44 @@ describe('QueryBuilder - Integration', () => {
   });
 
   it('should work with no criteria', async () => {
-    await new Promise(resolve => setTimeout(resolve, 1000));
     const found = await booksIndex.findByCriteria();
     if (found.error) {
       throw new Error(found.error);
     }
     const ids = found.records.map(r => r.id).sort();
     expect(ids).toEqual(['1', '2', '3']);
+  });
+
+  it('should match by phrase', async () => {
+    const found = await booksIndex.findByPhrase({
+      phrase: 'Potter',
+    });
+    if (found.error) {
+      throw new Error(found.error);
+    }
+    const ids = found.records.map(r => r.id).sort();
+    expect(ids).toEqual(['1', '2']);
+  });
+
+  it('should get count', async () => {
+    const res = await booksIndex.run(runner => {
+      runner.builder.matchPhrase('title', 'Chamber');
+      return runner.count();
+    });
+    expect(res.request).toHaveProperty('index');
+    expect(res.request).toHaveProperty('query');
+    expect(res.total).toEqual(1);
+  });
+
+  it('should migrate data', async () => {
+    booksIndex.index.version = 2;
+    expect(booksIndex.getFullName()).toEndWith('~v2');
+    await booksIndex.migrateIfNeeded();
+    await booksIndex.flush();
+    const res = await booksIndex.run(runner => {
+      runner.builder.matchPhrase('title', 'Chamber');
+      return runner.count();
+    });
+    expect(res.total).toEqual(1);
   });
 });
