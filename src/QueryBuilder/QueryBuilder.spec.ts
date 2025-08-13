@@ -71,7 +71,7 @@ describe('QueryBuilder', () => {
       match_phrase: {
         headline: {
           query: 'Sports medicine',
-          slop: false,
+          slop: 0,
         },
       },
     });
@@ -89,7 +89,7 @@ describe('QueryBuilder', () => {
             match_phrase: {
               headline: {
                 query: 'Sports medicine',
-                slop: false,
+                slop: 0,
               },
             },
           },
@@ -97,7 +97,7 @@ describe('QueryBuilder', () => {
             match_phrase: {
               headline: {
                 query: 'technology breakthrough',
-                slop: false,
+                slop: 0,
               },
             },
           },

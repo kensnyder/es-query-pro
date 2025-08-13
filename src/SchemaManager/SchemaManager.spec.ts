@@ -6,7 +6,7 @@ describe('SchemaManager', () => {
     const schema = {
       tag: 'keyword',
     };
-    const mgr = new SchemaManager(schema);
+    const mgr = new SchemaManager({ schema });
     expect(mgr.toMappings()).toEqual({
       properties: {
         tag: { type: 'keyword' },
@@ -17,7 +17,7 @@ describe('SchemaManager', () => {
     const schema = {
       created_at: 'date.epoch_second',
     };
-    const mgr = new SchemaManager(schema);
+    const mgr = new SchemaManager({ schema });
     expect(mgr.toMappings()).toEqual({
       properties: {
         created_at: { type: 'date', format: 'epoch_second' },
@@ -28,7 +28,7 @@ describe('SchemaManager', () => {
     const schema = {
       content_description: 'text',
     };
-    const mgr = new SchemaManager(schema);
+    const mgr = new SchemaManager({ schema });
     expect(mgr.toMappings()).toEqual({
       properties: {
         content_description: {
