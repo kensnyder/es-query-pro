@@ -106,7 +106,7 @@ export default class IndexManager<
     return this;
   }
 
-  private formatError(e: any) {
+  private _formatError(e: any) {
     if (e instanceof errors.ResponseError) {
       // Handle Elasticsearch response errors
       return {
@@ -144,7 +144,7 @@ export default class IndexManager<
     };
   }
 
-  private formatNonError<T>(response: T) {
+  private _formatNonError<T>(response: T) {
     return {
       error: null,
       errorKind: null,
@@ -158,23 +158,27 @@ export default class IndexManager<
   async exists(more?: Omit<IndexExistParams, 'index'>) {
     const start = Date.now();
     const request = {
-      index: this.index.getFullName(),
-      ...(more || {}),
+      method: 'HEAD',
+      endpoint: `/${this.getFullName()}`,
+      body: {
+        index: this.getFullName(),
+        ...(more || {}),
+      },
     };
     try {
-      const response = await this.client.indices.exists(request);
+      const response = await this.client.indices.exists(request.body);
       return {
         exists: response,
         took: Date.now() - start,
         request,
-        ...this.formatNonError(null),
+        ...this._formatNonError(null),
       };
     } catch (e) {
       return {
         exists: null,
         took: Date.now() - start,
         request,
-        ...this.formatError(e),
+        ...this._formatError(e),
       };
     }
   }
@@ -193,16 +197,20 @@ export default class IndexManager<
   async aliasExists(more?: Omit<AliasExistParams, 'name'>) {
     const start = Date.now();
     const request = {
-      name: this.index.getAliasName(),
-      ...(more || {}),
+      method: 'HEAD',
+      endpoint: `/_alias/${this.getAliasName()}`,
+      body: {
+        name: this.getAliasName(),
+        ...(more || {}),
+      },
     };
     try {
-      const response = this.client.indices.existsAlias(request);
+      const response = this.client.indices.existsAlias(request.body);
       return {
         exists: Object.keys(response)[0],
         request,
         took: Date.now() - start,
-        ...this.formatNonError(response),
+        ...this._formatNonError(response),
       };
     } catch (e) {
       const error = e as errors.ResponseError;
@@ -211,10 +219,15 @@ export default class IndexManager<
           exists: false,
           request,
           took: Date.now() - start,
-          ...this.formatNonError(e.meta || null),
+          ...this._formatNonError(e.meta || null),
         };
       }
-      return { exists: null, took: Date.now() - start, ...this.formatError(e) };
+      return {
+        exists: null,
+        request,
+        took: Date.now() - start,
+        ...this._formatError(e),
+      };
     }
   }
 
@@ -224,17 +237,21 @@ export default class IndexManager<
   async getIndexMetadata(more?: Omit<IndexMetadataParams, 'index'>) {
     const start = Date.now();
     const request = {
-      index: this.index.getFullName(),
-      ...(more || {}),
+      method: 'GET',
+      endpoint: `/${this.getFullName()}`,
+      body: {
+        index: this.getFullName(),
+        ...(more || {}),
+      },
     };
     try {
-      const response = await this.client.indices.get(request);
+      const response = await this.client.indices.get(request.body);
       const indexName = Object.keys(response.body)[0];
       return {
         name: indexName,
         request,
         took: Date.now() - start,
-        ...this.formatNonError(response),
+        ...this._formatNonError(response),
       };
     } catch (e) {
       // const exists = e.statusCode === 404;
@@ -242,7 +259,7 @@ export default class IndexManager<
         name: null,
         request,
         took: Date.now() - start,
-        ...this.formatError(e),
+        ...this._formatError(e),
       };
     }
   }
@@ -253,24 +270,28 @@ export default class IndexManager<
   async getAliasMetadata(more?: Omit<AliasMetadataParams, 'name'>) {
     const start = Date.now();
     const request = {
-      name: this.index.getAliasName(),
-      ...(more || {}),
+      method: 'GET',
+      endpoint: `/_alias/${this.getAliasName()}`,
+      body: {
+        name: this.getAliasName(),
+        ...(more || {}),
+      },
     };
     try {
-      const response = await this.client.indices.getAlias(request);
+      const response = await this.client.indices.getAlias(request.body);
       const indexName = Object.keys(response.body)[0];
       return {
         name: indexName,
         request,
         took: Date.now() - start,
-        ...this.formatNonError(response),
+        ...this._formatNonError(response),
       };
     } catch (e) {
       return {
         name: null,
         request,
         took: Date.now() - start,
-        ...this.formatError(e),
+        ...this._formatError(e),
       };
     }
   }
@@ -282,23 +303,27 @@ export default class IndexManager<
   async flush(more?: Omit<FlushRequestParams, 'index'>) {
     const start = Date.now();
     const request = {
-      index: this.index.getAliasName(),
-      ...(more || {}),
+      method: 'POST',
+      endpoint: `/${this.getAliasName()}/_flush`,
+      body: {
+        index: this.getAliasName(),
+        ...(more || {}),
+      },
     };
     try {
-      const response = await this.client.indices.flush(request);
+      const response = await this.client.indices.flush(request.body);
       return {
         success: response._shards.failed === 0,
         request,
         took: Date.now() - start,
-        ...this.formatNonError(response),
+        ...this._formatNonError(response),
       };
     } catch (e) {
       return {
         success: false,
         request,
         took: Date.now() - start,
-        ...this.formatError(e as Error),
+        ...this._formatError(e as Error),
       };
     }
   }
@@ -313,25 +338,29 @@ export default class IndexManager<
     const sm = new SchemaManager(this.schema);
     const settings = this.settings;
     const request = {
-      index: this.index.getFullName(),
-      mappings: sm.toMappings(),
-      settings,
-      ...(more || {}),
+      method: 'PUT',
+      endpoint: `/${this.getFullName()}`,
+      body: {
+        index: this.getFullName(),
+        mappings: sm.toMappings(),
+        settings,
+        ...(more || {}),
+      },
     };
     try {
-      const response = await this.client.indices.create(request);
+      const response = await this.client.indices.create(request.body);
       return {
         index: response.index,
         request,
         took: Date.now() - start,
-        ...this.formatNonError(response),
+        ...this._formatNonError(response),
       };
     } catch (e) {
       return {
         index: null,
         request,
         took: Date.now() - start,
-        ...this.formatError(e),
+        ...this._formatError(e),
       };
     }
   }
@@ -342,16 +371,20 @@ export default class IndexManager<
   async drop(more?: Omit<DeleteRequestShape, 'index'>) {
     const start = Date.now();
     const request = {
-      index: this.index.getFullName(),
-      ...(more || {}),
+      method: 'DELETE',
+      endpoint: `/${this.getFullName()}`,
+      body: {
+        index: this.getFullName(),
+        ...(more || {}),
+      },
     };
     const { exists } = await this.aliasExists();
     try {
-      const response = await this.client.indices.delete(request);
+      const response = await this.client.indices.delete(request.body);
       if (response.acknowledged && exists) {
         await this.client.indices.deleteAlias({
-          index: this.index.getFullName(),
-          name: this.index.getAliasName(),
+          index: this.getFullName(),
+          name: this.getAliasName(),
         });
       }
       return {
@@ -359,7 +392,7 @@ export default class IndexManager<
         shards: response._shards,
         request,
         took: Date.now() - start,
-        ...this.formatNonError(response),
+        ...this._formatNonError(response),
       };
     } catch (e) {
       return {
@@ -367,7 +400,7 @@ export default class IndexManager<
         shards: null,
         request,
         took: Date.now() - start,
-        ...this.formatError(e),
+        ...this._formatError(e),
       };
     }
   }
@@ -378,24 +411,28 @@ export default class IndexManager<
   async createAlias(more?: Omit<AliasCreateParams, 'name' | 'index'>) {
     const start = Date.now();
     const request = {
-      name: this.index.getAliasName(),
-      index: this.index.getFullName(),
-      ...(more || {}),
+      method: 'PUT',
+      endpoint: `/${this.getFullName()}/_alias/${this.getAliasName()}`,
+      body: {
+        name: this.getAliasName(),
+        index: this.getFullName(),
+        ...(more || {}),
+      },
     };
     try {
-      const response = await this.client.indices.putAlias(request);
+      const response = await this.client.indices.putAlias(request.body);
       return {
         acknowledged: response.acknowledged,
         request,
         took: Date.now() - start,
-        ...this.formatNonError(response),
+        ...this._formatNonError(response),
       };
     } catch (e) {
       return {
         acknowledged: false,
         request,
         took: Date.now() - start,
-        ...this.formatError(e),
+        ...this._formatError(e),
       };
     }
   }
@@ -406,24 +443,28 @@ export default class IndexManager<
   async dropAlias(more?: Omit<AliasDeleteParams, 'index' | 'name'>) {
     const start = Date.now();
     const request = {
-      name: this.index.getAliasName(),
-      index: this.index.getFullName(),
-      ...(more || {}),
+      method: 'DELETE',
+      endpoint: `/${this.getFullName()}/_alias/${this.getAliasName()}`,
+      body: {
+        name: this.getAliasName(),
+        index: this.getFullName(),
+        ...(more || {}),
+      },
     };
     try {
-      const response = await this.client.indices.deleteAlias(request);
+      const response = await this.client.indices.deleteAlias(request.body);
       return {
         acknowledged: response.acknowledged,
         request,
         took: Date.now() - start,
-        ...this.formatNonError(response),
+        ...this._formatNonError(response),
       };
     } catch (e) {
       return {
         acknowledged: false,
         request,
         took: Date.now() - start,
-        ...this.formatError(e),
+        ...this._formatError(e),
       };
     }
   }
@@ -532,24 +573,28 @@ export default class IndexManager<
   async findById(id: string, more?: Omit<GetRequestParams, 'index' | 'id'>) {
     const start = Date.now();
     const request = {
-      index: this.index.getAliasName(),
-      id,
-      ...(more || {}),
+      method: 'GET',
+      endpoint: `/${this.getAliasName()}/_doc/${id}`,
+      body: {
+        index: this.getAliasName(),
+        id,
+        ...(more || {}),
+      },
     };
     try {
-      const response = await this.client.get(request);
+      const response = await this.client.get(request.body);
       const record = response._source;
       this.textProcessor.prepareResult(record);
       return {
         record,
         took: Date.now() - start,
-        ...this.formatNonError(response),
+        ...this._formatNonError(response),
       };
     } catch (e) {
       return {
         record: null,
         took: Date.now() - start,
-        ...this.formatError(e as Error),
+        ...this._formatError(e as Error),
       };
     }
   }
@@ -645,24 +690,28 @@ export default class IndexManager<
     const start = Date.now();
     this.textProcessor.prepareInsertion(body);
     const request = {
-      index: this.index.getAliasName(),
-      id: id,
-      body,
+      method: 'PUT',
+      endpoint: `/${this.getAliasName()}/_doc/${id}`,
+      body: {
+        index: this.getAliasName(),
+        id: id,
+        body,
+      },
     };
     try {
-      const response = await this.client.index(request);
+      const response = await this.client.index(request.body);
       return {
         result: response.result,
         took: Date.now() - start,
         request,
-        ...this.formatNonError(response),
+        ...this._formatNonError(response),
       };
     } catch (e) {
       return {
         result: null,
         took: Date.now() - start,
         request,
-        ...this.formatError(e as Error),
+        ...this._formatError(e as Error),
       };
     }
   }
@@ -678,7 +727,7 @@ export default class IndexManager<
   ) {
     const start = Date.now();
     records.forEach(r => this.textProcessor.prepareInsertion(r));
-    const index = this.index.getAliasName();
+    const index = this.getAliasName();
     const bulkBody: any[] = [];
     for (const record of records) {
       bulkBody.push(
@@ -687,24 +736,28 @@ export default class IndexManager<
       );
     }
     const request = {
-      index,
-      body: bulkBody,
-      ...(more || {}),
+      method: 'PUT',
+      endpoint: `/_bulk`,
+      body: {
+        index,
+        body: bulkBody,
+        ...(more || {}),
+      },
     };
     try {
-      const response = await this.client.bulk(request);
+      const response = await this.client.bulk(request.body);
       return {
         success: response.errors === null,
         request,
         took: Date.now() - start,
-        ...this.formatNonError(response),
+        ...this._formatNonError(response),
       };
     } catch (e) {
       return {
         success: false,
         request,
         took: Date.now() - start,
-        ...this.formatError(e as Error),
+        ...this._formatError(e as Error),
       };
     }
   }
@@ -722,20 +775,24 @@ export default class IndexManager<
   ) {
     const start = Date.now();
     const request = {
-      index: this.index.getAliasName(),
-      id,
-      body,
-      ...(more || {}),
+      method: 'POST',
+      endpoint: `/${this.getAliasName()}/_update/${id}`,
+      body: {
+        index: this.getAliasName(),
+        id,
+        body,
+        ...(more || {}),
+      },
     };
     this.textProcessor.prepareInsertion(body);
     try {
-      const response = await this.client.update(request);
+      const response = await this.client.update(request.body);
       return {
         success: true,
         result: 'updated',
         request,
         took: Date.now() - start,
-        ...this.formatNonError(response),
+        ...this._formatNonError(response),
       };
     } catch (e) {
       return {
@@ -743,7 +800,7 @@ export default class IndexManager<
         result: 'error',
         request,
         took: Date.now() - start,
-        ...this.formatError(e),
+        ...this._formatError(e),
       };
     }
   }
@@ -755,23 +812,27 @@ export default class IndexManager<
   async deleteById(id: string) {
     const start = Date.now();
     const request = {
-      index: this.index.getAliasName(),
-      id,
+      method: 'DELETE',
+      endpoint: `/${this.getAliasName()}/_doc/${id}`,
+      body: {
+        index: this.getAliasName(),
+        id,
+      },
     };
     try {
-      const response = await this.client.delete(request);
+      const response = await this.client.delete(request.body);
       return {
         success: true,
         request,
         took: Date.now() - start,
-        ...this.formatNonError(response),
+        ...this._formatNonError(response),
       };
     } catch (e) {
       return {
         success: false,
         request,
         took: Date.now() - start,
-        ...this.formatError(e),
+        ...this._formatError(e),
       };
     }
   }
@@ -788,8 +849,8 @@ export default class IndexManager<
    */
   async migrateIfNeeded() {
     const start = Date.now();
-    const currentIndexName = this.index.getFullName();
-    const aliasName = this.index.getAliasName();
+    const currentIndexName = this.getFullName();
+    const aliasName = this.getAliasName();
     try {
       // Check if the index exists
       const indexExists = await this.exists();
@@ -811,7 +872,7 @@ export default class IndexManager<
             code: 'CREATED_INDEX',
             oldName: null,
             newName: currentIndexName,
-            ...this.formatNonError(indexExists),
+            ...this._formatNonError(indexExists),
           };
         }
 
@@ -909,7 +970,7 @@ export default class IndexManager<
             code: 'MIGRATED',
             oldName: oldIndexName,
             newName: currentIndexName,
-            ...this.formatNonError(indexExists),
+            ...this._formatNonError(indexExists),
           };
         } catch (e) {
           return {
@@ -918,7 +979,7 @@ export default class IndexManager<
             code: 'MIGRATION_FAILED',
             oldName: oldIndexName,
             newName: currentIndexName,
-            ...this.formatError(e),
+            ...this._formatError(e),
           };
         } finally {
           // Ensure we reinstate writes to old index upon error
@@ -936,7 +997,7 @@ export default class IndexManager<
         code: 'NO_CHANGE',
         oldName: currentIndexName,
         newName: currentIndexName,
-        ...this.formatNonError(indexExists),
+        ...this._formatNonError(indexExists),
       };
     } catch (e) {
       return {
@@ -945,7 +1006,7 @@ export default class IndexManager<
         code: 'ERROR',
         oldName: null,
         newName: null,
-        ...this.formatError(e),
+        ...this._formatError(e),
       };
     }
   }
