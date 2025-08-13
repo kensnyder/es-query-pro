@@ -10,13 +10,16 @@ import {
   AliasExistParams,
   AliasMetadataParams,
   BoostType,
+  BulkRequestParams,
   DeleteRequestShape,
   ElasticsearchRecord,
+  FlushRequestParams,
   GetRequestParams,
   IndexCreateParams,
   IndexExistParams,
   IndexMetadataParams,
   IndexSettings,
+  PatchRequestParams,
   SchemaShape,
 } from '../types';
 import TextProcessor from '../TextProcessor/TextProcessor';
@@ -156,6 +159,14 @@ export default class IndexManager<
     }
   }
 
+  getAliasName() {
+    return this.index.getAliasName();
+  }
+
+  getFullName() {
+    return this.index.getFullName();
+  }
+
   /**
    * Check if the alias already exists in the database
    */
@@ -190,6 +201,7 @@ export default class IndexManager<
       const indexName = Object.keys(response.body)[0];
       return { name: indexName, ...this.formatNonError(response) };
     } catch (e) {
+      // const exists = e.statusCode === 404;
       return { name: null, ...this.formatError(e) };
     }
   }
@@ -210,8 +222,23 @@ export default class IndexManager<
     }
   }
 
-  async flush() {
-    // flush it
+  /**
+   * Save the given records
+   * @param [more]  Additional body params
+   */
+  async flush(more?: Omit<FlushRequestParams, 'index'>) {
+    try {
+      const response = await this.client.indices.flush({
+        index: this.index.getAliasName(),
+        ...(more || {}),
+      });
+      return {
+        success: response._shards.failed === 0,
+        ...this.formatNonError(response),
+      };
+    } catch (e) {
+      return { success: false, ...this.formatError(e as Error) };
+    }
   }
 
   /**
@@ -446,7 +473,6 @@ export default class IndexManager<
       for (const [field, value] of Object.entries(where)) {
         builder.match(field, value);
       }
-      console.log(`findByCriteria builder=${builder}`);
       return runner.findMany(more);
     });
   }
@@ -479,31 +505,47 @@ export default class IndexManager<
   async put(id: string, body: ElasticsearchRecord<ThisSchema>) {
     this.textProcessor.prepareInsertion(body);
     try {
-      const result = await this.client.index({
+      const response = await this.client.index({
         index: this.index.getAliasName(),
         id: id,
         body,
       });
-      return { result, error: null };
+      return { result: response.result, ...this.formatNonError(response) };
     } catch (e) {
-      return { result: null, error: e as Error };
+      return { result: null, ...this.formatError(e as Error) };
     }
   }
 
   /**
    * Save the given records
    * @param records  The records to save
+   * @param [more]  Additional body params
    */
-  async putBulk(records: ElasticsearchRecord<ThisSchema>[]) {
+  async putBulk(
+    records: ElasticsearchRecord<ThisSchema>[],
+    more?: Omit<BulkRequestParams, 'index' | 'body'>
+  ) {
     records.forEach(r => this.textProcessor.prepareInsertion(r));
+    const index = this.index.getAliasName();
+    const bulkBody: any[] = [];
+    for (const record of records) {
+      bulkBody.push(
+        { index: { _index: index, _id: record.id || crypto.randomUUID() } },
+        record
+      );
+    }
     try {
-      const result = await this.client.bulk({
-        index: this.index.getAliasName(),
-        body: records,
+      const response = await this.client.bulk({
+        index,
+        body: bulkBody,
+        ...(more || {}),
       });
-      return { result, error: null };
+      return {
+        success: response.errors === null,
+        ...this.formatNonError(response),
+      };
     } catch (e) {
-      return { result: null, error: e as Error };
+      return { success: false, ...this.formatError(e as Error) };
     }
   }
 
@@ -511,14 +553,20 @@ export default class IndexManager<
    * Save the given partial record (uses updateRecord())
    * @param id  The record id
    * @param body  The record to save
+   * @param [more]  Additional body params
    */
-  async patch(id: string, body: ElasticsearchRecord<ThisSchema>) {
+  async patch(
+    id: string,
+    body: ElasticsearchRecord<ThisSchema>,
+    more?: Omit<PatchRequestParams, 'index' | 'id' | 'body'>
+  ) {
     this.textProcessor.prepareInsertion(body);
     try {
       const response = await this.client.update({
         index: this.index.getAliasName(),
         id,
         body,
+        ...(more || {}),
       });
       return {
         success: true,
@@ -559,6 +607,7 @@ export default class IndexManager<
   async migrateIfNeeded() {
     const start = Date.now();
     const currentIndexName = this.index.getFullName();
+    const aliasName = this.index.getAliasName();
     try {
       // Check if the index exists
       const indexExists = await this.exists();
@@ -571,7 +620,7 @@ export default class IndexManager<
         const indexInfo = await this.getIndexMetadata();
         const oldIndexName = indexInfo.name;
 
-        if (oldIndexName === currentIndexName) {
+        if (oldIndexName === null || oldIndexName === currentIndexName) {
           // No index at all
           await this.createAlias();
           return {
@@ -587,7 +636,6 @@ export default class IndexManager<
         // Get the current sequence number before starting reindex
         const stats = await this.client.indices.stats({
           index: oldIndexName,
-          metric: ['seq_no'],
         });
         const maxSeqNo =
           stats.indices?.[oldIndexName]?.total?.translog?.operations || 0;
@@ -613,13 +661,13 @@ export default class IndexManager<
               {
                 remove: {
                   index: oldIndexName,
-                  alias: this.index.getAliasName(),
+                  alias: aliasName,
                 },
               },
               {
                 add: {
                   index: currentIndexName,
-                  alias: this.index.getAliasName(),
+                  alias: aliasName,
                 },
               },
             ],

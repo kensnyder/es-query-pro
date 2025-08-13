@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import getEsClient from '../getEsClient/getEsClient';
 import { getBooksData, getBooksSchema } from '../testFixtures/books';
 import IndexManager from './IndexManager';
 
@@ -10,7 +11,7 @@ describe('QueryBuilder - Integration', () => {
       prefix: 'test',
       language: 'english',
     },
-    analyzer: 'english',
+    // analyzer: 'english',
     schema: getBooksSchema(),
     // settings: {
     //   // Specify fields (other than relevance) we might sort by to make sorting faster
@@ -24,10 +25,18 @@ describe('QueryBuilder - Integration', () => {
 
   beforeAll(async () => {
     await booksIndex.drop();
-    const creation = await booksIndex.create();
-    const put = await booksIndex.putBulk(getBooksData());
+    const migration = await booksIndex.migrateIfNeeded();
+    if (migration.error) {
+      throw new Error(migration.error);
+    }
+    const bulk = await booksIndex.putBulk(getBooksData(), { refresh: true });
+    if (bulk.error) {
+      throw new Error(bulk.error);
+    }
     const flush = await booksIndex.flush();
-    console.log('flush', JSON.stringify(creation, null, 2));
+    if (flush.error) {
+      throw new Error(flush.error);
+    }
   });
 
   afterAll(async () => {
@@ -35,8 +44,11 @@ describe('QueryBuilder - Integration', () => {
   });
 
   it('should work with no criteria', async () => {
+    await new Promise(resolve => setTimeout(resolve, 1000));
     const found = await booksIndex.findByCriteria();
-    console.log(`findByCriteria found=${JSON.stringify(found, null, 2)}`);
+    if (found.error) {
+      throw new Error(found.error);
+    }
     const ids = found.records.map(r => r.id).sort();
     expect(ids).toEqual(['1', '2', '3']);
   });

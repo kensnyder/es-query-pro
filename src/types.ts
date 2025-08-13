@@ -112,3 +112,6 @@ export type DeleteRequestShape = Prettify<estypes.IndicesDeleteRequest>;
 export type AliasDeleteParams = Prettify<estypes.IndicesDeleteAliasRequest>;
 export type GetRequestParams = Prettify<estypes.GetRequest>;
 export type PutRequestParams = Prettify<estypes.IndexRequest>;
+export type BulkRequestParams = Prettify<estypes.BulkRequest>;
+export type PatchRequestParams = Prettify<estypes.UpdateRequest>;
+export type FlushRequestParams = Prettify<estypes.IndicesFlushRequest>;
