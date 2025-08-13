@@ -2,9 +2,6 @@ import { describe, expect, it } from 'bun:test';
 import QueryBuilder from './QueryBuilder';
 
 describe('QueryBuilder', () => {
-  it('should be a function', () => {
-    expect(QueryBuilder).toBeInstanceOf(Function);
-  });
   it('should start empty', () => {
     const query = new QueryBuilder();
     expect(query.getQuery()).toEqual({
@@ -22,14 +19,8 @@ describe('QueryBuilder', () => {
     const query = new QueryBuilder();
     query.match('headline', 'News');
     expect(query.getBody().query).toEqual({
-      bool: {
-        must: [
-          {
-            match: {
-              headline: 'News',
-            },
-          },
-        ],
+      match: {
+        headline: 'News',
       },
     });
   });
@@ -38,21 +29,15 @@ describe('QueryBuilder', () => {
     query.match('headline', ['Tech', 'Sports']);
     expect(query.getBody().query).toEqual({
       bool: {
-        must: [
+        should: [
           {
-            bool: {
-              should: [
-                {
-                  match: {
-                    headline: 'Tech',
-                  },
-                },
-                {
-                  match: {
-                    headline: 'Sports',
-                  },
-                },
-              ],
+            match: {
+              headline: 'Tech',
+            },
+          },
+          {
+            match: {
+              headline: 'Sports',
             },
           },
         ],
@@ -83,14 +68,11 @@ describe('QueryBuilder', () => {
     const query = new QueryBuilder();
     query.matchPhrase('headline', 'Sports medicine');
     expect(query.getBody().query).toEqual({
-      bool: {
-        must: [
-          {
-            match_phrase: {
-              headline: 'Sports medicine',
-            },
-          },
-        ],
+      match_phrase: {
+        headline: {
+          query: 'Sports medicine',
+          slop: false,
+        },
       },
     });
   });
@@ -102,21 +84,21 @@ describe('QueryBuilder', () => {
     ]);
     expect(query.getBody().query).toEqual({
       bool: {
-        must: [
+        should: [
           {
-            bool: {
-              should: [
-                {
-                  match_phrase: {
-                    headline: 'Sports medicine',
-                  },
-                },
-                {
-                  match_phrase: {
-                    headline: 'technology breakthrough',
-                  },
-                },
-              ],
+            match_phrase: {
+              headline: {
+                query: 'Sports medicine',
+                slop: false,
+              },
+            },
+          },
+          {
+            match_phrase: {
+              headline: {
+                query: 'technology breakthrough',
+                slop: false,
+              },
             },
           },
         ],
@@ -127,14 +109,8 @@ describe('QueryBuilder', () => {
     const query = new QueryBuilder();
     query.matchPhrasePrefix('headline', 'ElasticSearch builder');
     expect(query.getBody().query).toEqual({
-      bool: {
-        must: [
-          {
-            match_phrase_prefix: {
-              headline: 'ElasticSearch builder',
-            },
-          },
-        ],
+      match_phrase_prefix: {
+        headline: 'ElasticSearch builder',
       },
     });
   });
@@ -142,16 +118,10 @@ describe('QueryBuilder', () => {
     const query = new QueryBuilder();
     query.matchPhrasePrefix(['headline', 'body'], 'ElasticSearch builder');
     expect(query.getBody().query).toEqual({
-      bool: {
-        must: [
-          {
-            multi_match: {
-              fields: ['headline', 'body'],
-              type: 'phrase_prefix',
-              query: 'ElasticSearch builder',
-            },
-          },
-        ],
+      multi_match: {
+        fields: ['headline', 'body'],
+        type: 'phrase_prefix',
+        query: 'ElasticSearch builder',
       },
     });
   });
@@ -163,25 +133,19 @@ describe('QueryBuilder', () => {
     );
     expect(query.getBody().query).toEqual({
       bool: {
-        must: [
+        should: [
           {
-            bool: {
-              should: [
-                {
-                  multi_match: {
-                    fields: ['headline', 'body'],
-                    type: 'phrase_prefix',
-                    query: 'ElasticSearch builder',
-                  },
-                },
-                {
-                  multi_match: {
-                    fields: ['headline', 'body'],
-                    type: 'phrase_prefix',
-                    query: 'ElasticSearch tool',
-                  },
-                },
-              ],
+            multi_match: {
+              fields: ['headline', 'body'],
+              type: 'phrase_prefix',
+              query: 'ElasticSearch builder',
+            },
+          },
+          {
+            multi_match: {
+              fields: ['headline', 'body'],
+              type: 'phrase_prefix',
+              query: 'ElasticSearch tool',
             },
           },
         ],
@@ -196,21 +160,15 @@ describe('QueryBuilder', () => {
     ]);
     expect(query.getBody().query).toEqual({
       bool: {
-        must: [
+        should: [
           {
-            bool: {
-              should: [
-                {
-                  match_phrase_prefix: {
-                    headline: 'ElasticSearch builder',
-                  },
-                },
-                {
-                  match_phrase_prefix: {
-                    headline: 'ElasticSearch tool',
-                  },
-                },
-              ],
+            match_phrase_prefix: {
+              headline: 'ElasticSearch builder',
+            },
+          },
+          {
+            match_phrase_prefix: {
+              headline: 'ElasticSearch tool',
             },
           },
         ],
@@ -225,95 +183,88 @@ describe('QueryBuilder', () => {
     });
     expect(query.getBody().query).toEqual({
       bool: {
-        must: [
+        should: [
           {
-            bool: {
-              should: [
-                {
-                  multi_match: {
-                    fields: ['body'],
-                    operator: 'or',
-                    query: 'Sports medicine doctor',
-                    boost: 2,
-                  },
-                },
-                {
-                  multi_match: {
-                    fields: ['body'],
-                    operator: 'and',
-                    query: 'Sports medicine doctor',
-                    boost: 4,
-                  },
-                },
-                {
-                  multi_match: {
-                    fields: ['body'],
-                    type: 'phrase',
-                    query: 'Sports medicine doctor',
-                    boost: 7,
-                  },
-                },
-              ],
+            match: {
+              body: {
+                boost: 2,
+                operator: 'or',
+                query: 'Sports medicine doctor',
+              },
+            },
+          },
+          {
+            match: {
+              body: {
+                boost: 4,
+                operator: 'and',
+                query: 'Sports medicine doctor',
+              },
+            },
+          },
+          {
+            match: {
+              body: {
+                boost: 7,
+                query: 'Sports medicine doctor',
+              },
             },
           },
         ],
       },
     });
   });
-  it.skip('should fulltext match single boostedPhrase against nested field', () => {
+  it('should fulltext match single boostedPhrase against nested field', () => {
     const query = new QueryBuilder();
-    query.matchBoostedPhrase('categories.value', 'Sports medicine doctor', {
+    query.matchBoostedPhrase('categories/value', 'Sports medicine doctor', {
       expand: true,
       boosts: [2, 4, 7],
     });
     expect(query.getBody().query).toEqual({
       bool: {
-        must: [
+        should: [
           {
-            bool: {
-              should: [
-                {
-                  nested: {
-                    path: 'categories',
-                    query: {
-                      match: {
-                        'categories.value': {
-                          query: 'Sports medicine doctor',
-                          operator: 'or',
-                        },
-                      },
-                    },
+            nested: {
+              path: 'categories',
+              ignore_unmapped: true,
+              query: {
+                match: {
+                  'categories.value': {
+                    query: 'Sports medicine doctor',
+                    operator: 'or',
                     boost: 2,
                   },
                 },
-                {
-                  nested: {
-                    path: 'categories',
-                    query: {
-                      match: {
-                        'categories.value': {
-                          query: 'Sports medicine doctor',
-                          operator: 'and',
-                        },
-                      },
-                    },
+              },
+            },
+          },
+          {
+            nested: {
+              path: 'categories',
+              ignore_unmapped: true,
+              query: {
+                match: {
+                  'categories.value': {
+                    query: 'Sports medicine doctor',
+                    operator: 'and',
                     boost: 4,
                   },
                 },
-                {
-                  nested: {
-                    path: 'categories',
-                    query: {
-                      match_phrase: {
-                        'categories.value': {
-                          query: 'Sports medicine doctor',
-                        },
-                      },
-                    },
+              },
+            },
+          },
+          {
+            nested: {
+              path: 'categories',
+              ignore_unmapped: true,
+              query: {
+                match: {
+                  'categories.value': {
+                    query: 'Sports medicine doctor',
                     boost: 7,
                   },
                 },
-              ],
+              },
             },
           },
         ],
@@ -327,27 +278,20 @@ describe('QueryBuilder', () => {
     });
     expect(query.getBody().query).toEqual({
       bool: {
-        must: [
+        should: [
           {
-            bool: {
-              should: [
-                {
-                  multi_match: {
-                    fields: ['headline', 'body'],
-                    operator: 'and',
-                    query: 'Sports medicine doctor',
-                    boost: 3,
-                  },
-                },
-                {
-                  multi_match: {
-                    fields: ['headline', 'body'],
-                    type: 'phrase',
-                    query: 'Sports medicine doctor',
-                    boost: 5,
-                  },
-                },
-              ],
+            multi_match: {
+              fields: ['headline', 'body'],
+              operator: 'and',
+              query: 'Sports medicine doctor',
+              boost: 3,
+            },
+          },
+          {
+            multi_match: {
+              fields: ['headline', 'body'],
+              query: 'Sports medicine doctor',
+              boost: 5,
             },
           },
         ],
@@ -359,21 +303,15 @@ describe('QueryBuilder', () => {
     query.multiTerm(['category', 'tag'], 'Sports');
     expect(query.getBody().query).toEqual({
       bool: {
-        must: [
+        should: [
           {
-            bool: {
-              should: [
-                {
-                  term: {
-                    category: 'Sports',
-                  },
-                },
-                {
-                  term: {
-                    tag: 'Sports',
-                  },
-                },
-              ],
+            term: {
+              category: 'Sports',
+            },
+          },
+          {
+            term: {
+              tag: 'Sports',
             },
           },
         ],
@@ -384,15 +322,9 @@ describe('QueryBuilder', () => {
     const query = new QueryBuilder();
     query.multiMatch(['category', 'tag'], 'Sports', 'ALL');
     expect(query.getBody().query).toEqual({
-      bool: {
-        must: [
-          {
-            multi_match: {
-              fields: ['category', 'tag'],
-              query: 'Sports',
-            },
-          },
-        ],
+      multi_match: {
+        fields: ['category', 'tag'],
+        query: 'Sports',
       },
     });
   });
@@ -431,14 +363,8 @@ describe('QueryBuilder', () => {
     const query = new QueryBuilder();
     query.term('tag', 'News');
     expect(query.getBody().query).toEqual({
-      bool: {
-        must: [
-          {
-            term: {
-              tag: 'News',
-            },
-          },
-        ],
+      term: {
+        tag: 'News',
       },
     });
   });
@@ -446,14 +372,8 @@ describe('QueryBuilder', () => {
     const query = new QueryBuilder();
     query.term('tag', ['News', 'Entertainment']);
     expect(query.getBody().query).toEqual({
-      bool: {
-        must: [
-          {
-            terms: {
-              tag: ['News', 'Entertainment'],
-            },
-          },
-        ],
+      terms: {
+        tag: ['News', 'Entertainment'],
       },
     });
   });
@@ -481,11 +401,12 @@ describe('QueryBuilder', () => {
   describe('nested field support', () => {
     it('should handle nested term queries', () => {
       const query = new QueryBuilder();
-      query.term('category->id', '123');
+      query.term('category/id', '123');
       const body = query.getBody();
       expect(body.query).toEqual({
         nested: {
           path: 'category',
+          ignore_unmapped: true,
           query: {
             term: {
               'category.id': '123',
@@ -497,11 +418,12 @@ describe('QueryBuilder', () => {
 
     it('should handle nested exists queries', () => {
       const query = new QueryBuilder();
-      query.exists('author->name');
+      query.exists('author/name');
       const body = query.getBody();
       expect(body.query).toEqual({
         nested: {
           path: 'author',
+          ignore_unmapped: true,
           query: {
             exists: {
               field: 'author.name',
@@ -513,14 +435,16 @@ describe('QueryBuilder', () => {
 
     it('should handle multiple levels of nesting', () => {
       const query = new QueryBuilder();
-      query.term('author->contact->email', 'test@example.com');
+      query.term('author/contact/email', 'test@example.com');
       const body = query.getBody();
       expect(body.query).toEqual({
         nested: {
           path: 'author',
+          ignore_unmapped: true,
           query: {
             nested: {
               path: 'author.contact',
+              ignore_unmapped: true,
               query: {
                 term: {
                   'author.contact.email': 'test@example.com',
@@ -532,8 +456,10 @@ describe('QueryBuilder', () => {
       });
     });
 
-    it('should handle nested fields in must_not', () => {
-      const query = new QueryBuilder();
+    it('should handle nested fields in must_not with custom separator', () => {
+      const query = new QueryBuilder({
+        nestedSeparator: '->',
+      });
       query.notExists('metadata->tags');
       const body = query.getBody();
       expect(body.query).toEqual({
@@ -542,12 +468,12 @@ describe('QueryBuilder', () => {
             {
               nested: {
                 path: 'metadata',
+                ignore_unmapped: true,
                 query: {
                   exists: {
                     field: 'metadata.tags',
                   },
                 },
-                ignore_unmapped: true,
               },
             },
           ],

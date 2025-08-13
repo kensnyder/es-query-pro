@@ -47,6 +47,7 @@ describe('NestedFieldsProcessor', () => {
     expect(result).toEqual({
       nested: {
         path: 'category',
+        ignore_unmapped: true,
         query: {
           term: {
             'category.id': '123',
@@ -63,6 +64,7 @@ describe('NestedFieldsProcessor', () => {
     expect(result).toEqual({
       nested: {
         path: 'publishing',
+        ignore_unmapped: true,
         query: {
           exists: {
             field: 'publishing.organization',
@@ -79,6 +81,7 @@ describe('NestedFieldsProcessor', () => {
     expect(result).toEqual({
       nested: {
         path: 'publishing',
+        ignore_unmapped: true,
         query: {
           range: {
             'publishing.year': {
@@ -97,6 +100,7 @@ describe('NestedFieldsProcessor', () => {
     expect(result).toEqual({
       nested: {
         path: 'publishing',
+        ignore_unmapped: true,
         query: {
           range: {
             'publishing.year': { gte: 1999, lt: 2000 },
@@ -119,12 +123,101 @@ describe('NestedFieldsProcessor', () => {
     expect(result).toEqual({
       nested: {
         path: 'categories',
+        ignore_unmapped: true,
         query: {
           multi_match: {
             query: 'Coming',
             fields: ['categories.name'],
           },
         },
+      },
+    });
+  });
+
+  it('should process boosted phrase with one nested field', () => {
+    const query = {
+      bool: {
+        should: [
+          {
+            match: {
+              'categories/value': {
+                query: 'Sports medicine doctor',
+                operator: 'or',
+                boost: 2,
+              },
+            },
+          },
+          {
+            match: {
+              'categories/value': {
+                query: 'Sports medicine doctor',
+                operator: 'and',
+                boost: 4,
+              },
+            },
+          },
+          {
+            match: {
+              'categories/value': {
+                query: 'Sports medicine doctor',
+                boost: 7,
+              },
+            },
+          },
+        ],
+      },
+    };
+
+    const result = processor.process(query);
+
+    expect(result).toEqual({
+      bool: {
+        should: [
+          {
+            nested: {
+              path: 'categories',
+              ignore_unmapped: true,
+              query: {
+                match: {
+                  'categories.value': {
+                    query: 'Sports medicine doctor',
+                    operator: 'or',
+                    boost: 2,
+                  },
+                },
+              },
+            },
+          },
+          {
+            nested: {
+              path: 'categories',
+              ignore_unmapped: true,
+              query: {
+                match: {
+                  'categories.value': {
+                    query: 'Sports medicine doctor',
+                    operator: 'and',
+                    boost: 4,
+                  },
+                },
+              },
+            },
+          },
+          {
+            nested: {
+              path: 'categories',
+              ignore_unmapped: true,
+              query: {
+                match: {
+                  'categories.value': {
+                    query: 'Sports medicine doctor',
+                    boost: 7,
+                  },
+                },
+              },
+            },
+          },
+        ],
       },
     });
   });
@@ -153,6 +246,7 @@ describe('NestedFieldsProcessor', () => {
           {
             nested: {
               path: 'categories',
+              ignore_unmapped: true,
               query: {
                 multi_match: {
                   query: 'uncover',
@@ -182,6 +276,7 @@ describe('NestedFieldsProcessor', () => {
       range: { price: { gt: 100 } },
       nested: {
         path: 'metadata',
+        ignore_unmapped: true,
         query: {
           multi_match: {
             query: 'search term',
@@ -219,6 +314,7 @@ describe('NestedFieldsProcessor', () => {
           {
             nested: {
               path: 'categories',
+              ignore_unmapped: true,
               query: {
                 multi_match: {
                   query: 'Bloomsbury',
@@ -230,6 +326,7 @@ describe('NestedFieldsProcessor', () => {
           {
             nested: {
               path: 'publishing',
+              ignore_unmapped: true,
               query: {
                 multi_match: {
                   query: 'Bloomsbury',
@@ -239,6 +336,111 @@ describe('NestedFieldsProcessor', () => {
             },
           },
         ],
+      },
+    });
+  });
+
+  it('should handle 3-level term query', () => {
+    const query = {
+      term: { 'author/contact/email': 'test@example.com' },
+    };
+
+    const result = processor.process(query);
+
+    expect(result).toEqual({
+      nested: {
+        path: 'author',
+        ignore_unmapped: true,
+        query: {
+          nested: {
+            path: 'author.contact',
+            ignore_unmapped: true,
+            query: {
+              term: { 'author.contact.email': 'test@example.com' },
+            },
+          },
+        },
+      },
+    });
+  });
+
+  it('should handle 3-level exists query', () => {
+    const query = {
+      exists: { field: 'author/contact/email' },
+    };
+
+    const result = processor.process(query);
+
+    expect(result).toEqual({
+      nested: {
+        path: 'author',
+        ignore_unmapped: true,
+        query: {
+          nested: {
+            path: 'author.contact',
+            ignore_unmapped: true,
+            query: {
+              exists: { field: 'author.contact.email' },
+            },
+          },
+        },
+      },
+    });
+  });
+
+  it('should handle 3-level range query', () => {
+    const query = {
+      range: { 'author/contact/created': { gte: '2025-08-12' } },
+    };
+
+    const result = processor.process(query);
+
+    expect(result).toEqual({
+      nested: {
+        path: 'author',
+        ignore_unmapped: true,
+        query: {
+          nested: {
+            path: 'author.contact',
+            ignore_unmapped: true,
+            query: {
+              range: { 'author.contact.created': { gte: '2025-08-12' } },
+            },
+          },
+        },
+      },
+    });
+  });
+
+  it('should handle 3-level multi_match query', () => {
+    const query = {
+      multi_match: {
+        query: 'test@example.com',
+        fields: ['author/contact/workEmail', 'author/contact/personalEmail'],
+      },
+    };
+
+    const result = processor.process(query);
+
+    expect(result).toEqual({
+      nested: {
+        path: 'author',
+        ignore_unmapped: true,
+        query: {
+          nested: {
+            path: 'author.contact',
+            ignore_unmapped: true,
+            query: {
+              multi_match: {
+                query: 'test@example.com',
+                fields: [
+                  'author.contact.workEmail',
+                  'author.contact.personalEmail',
+                ],
+              },
+            },
+          },
+        },
       },
     });
   });

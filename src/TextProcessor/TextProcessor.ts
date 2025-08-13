@@ -39,15 +39,19 @@ export default class TextProcessor<Path = string[]> {
 
   /**
    * Register a field to process (e.g. "title" or "tags.value")
-   * @param name Field name as string or regex pattern
+   * @param name Field name to process
    */
-  registerField(name: string | RegExp) {
-    if (name instanceof RegExp) {
-      // For regex patterns, we'll handle them specially in the process methods
-      this.paths.push([`${name}` as unknown as Path]);
-    } else {
-      this.paths.push(name.split('.') as unknown as Path[]);
-    }
+  registerField(name: string) {
+    this.paths.push(name.split('.') as unknown as Path[]);
+    return this;
+  }
+
+  /**
+   * Register a field to process (e.g. "title" or "tags.value")
+   * @param names Field names to process
+   */
+  registerFields(names: string[]) {
+    names.map(n => this.registerField(n));
     return this;
   }
 

@@ -40,7 +40,13 @@ export function getBooksMappings(): estypes.MappingTypeMapping {
             analyzer: 'english',
             search_analyzer: 'english',
           },
+          series: {
+            type: 'text',
+            analyzer: 'english',
+            search_analyzer: 'english',
+          },
           year: { type: 'integer' },
+          movieYear: { type: 'integer' },
         },
       },
       heroes: { type: 'keyword' },
@@ -61,8 +67,10 @@ export function getBooksSchema() {
     author: 'keyword',
     publishing: {
       author: 'keyword',
+      series: 'text',
       organization: 'text',
       year: 'integer',
+      movieYear: 'integer',
     },
     heroes: 'keyword',
     price: 'integer',
@@ -93,8 +101,10 @@ export function getBooksData(): PutRequestParams['body'][] {
       ],
       publishing: {
         author: 'JK Rowling',
+        series: 'First book of the Harry Potter series',
         organization: 'Bloomsbury Publishing',
         year: 1998,
+        movieYear: 2001,
       },
       heroes: ['Harry Potter', 'Hermione Granger', 'Ron Weasley'],
       price: 24.99,
@@ -104,7 +114,7 @@ export function getBooksData(): PutRequestParams['body'][] {
       id: '2',
       title: 'Harry Potter and the Chamber of Secrets',
       premise:
-        'At Hogwarts, Harry uncovers the mystery behind a hidden chamber',
+        'At Hogwarts, Harry uncovers the mystery behind a mysterious hidden chamber',
       country: 'United Kingdom',
       categories: [
         {
@@ -118,8 +128,10 @@ export function getBooksData(): PutRequestParams['body'][] {
       ],
       publishing: {
         author: 'JK Rowling',
+        series: 'Second book of the Harry Potter series',
         organization: 'Bloomsbury Publishing',
         year: 1999,
+        movieYear: 2002,
       },
       heroes: ['Harry Potter', 'Hermione Granger', 'Ron Weasley'],
       price: 22.99,
@@ -147,6 +159,7 @@ export function getBooksData(): PutRequestParams['body'][] {
       ],
       publishing: {
         author: 'Brandon Sanderson',
+        series: 'First book of the Skyward series',
         organization: 'Delacorte Press',
         year: 2018,
       },

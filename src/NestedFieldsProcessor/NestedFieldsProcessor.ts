@@ -43,39 +43,124 @@ type Transformer = {
   transform: (value: any, separator: string) => any;
 };
 
+function insideOut(path: string[], inside: any) {
+  while (path.length > 1) {
+    path.pop();
+    inside = {
+      nested: {
+        path: path.join('.'),
+        ignore_unmapped: true,
+        query: inside,
+      },
+    };
+  }
+  return inside;
+}
+
+function insideOutSort(path: string[], inside: any) {
+  while (path.length > 1) {
+    path.pop();
+    inside = {
+      nested: {
+        path: path.join('.'),
+        sort: inside,
+      },
+    };
+  }
+  return inside;
+}
+
+function groupByPath(fields: string[], separator: string, _level = 0) {
+  const root: string[] = [];
+  const groupsByPath: Record<string, string[]> = {};
+  for (const field of fields) {
+    const parts = field.split(separator);
+    if (parts.length > _level + 1) {
+      const path = parts.slice(0, _level + 1).join('.');
+      if (!groupsByPath[path]) {
+        groupsByPath[path] = [];
+      }
+      groupsByPath[path].push(field);
+    } else {
+      root.push(field);
+    }
+  }
+  const groups = Object.entries(groupsByPath).map(([path, fields]) => ({
+    path,
+    fields,
+  }));
+  return { root, groups };
+}
+
 const templates: Record<string, Transformer> = {
   term: {
     test: (value: any, separator: string) => {
       const keys = Object.keys(value);
       return keys.length === 1 && keys[0].includes(separator);
     },
+    // e.g. { 'category/tag': 'Mystery' }
     transform: (value: any, separator: string) => {
       const keys = Object.keys(value);
-      return {
-        nested: {
-          path: keys[0].split(separator)[0],
-          query: {
-            term: { [keys[0].split(separator).join('.')]: value[keys[0]] },
-          },
-        },
-      };
+      const path = keys[0].split(separator);
+      return insideOut(path, { term: { [path.join('.')]: value[keys[0]] } });
+    },
+  },
+  sort: {
+    test: (sortsArray: any[], separator: string) => {
+      return sortsArray.some(s => Object.keys(s)[0]?.includes(separator));
+    },
+    // e.g. [{ price: { order: 'desc' } }, { 'publishing/year': { order; 'desc' } }]
+    transform: (sortsArray: any[], separator: string) => {
+      const newArray = [];
+      for (const sort of sortsArray) {
+        const [key, value] = Object.entries(sort)[0] || [];
+        if (!key || !value) {
+          continue;
+        }
+        if (key?.includes(separator)) {
+          const path = key.split(separator);
+          newArray.push(insideOutSort(path, { [path.join('.')]: value }));
+        } else {
+          newArray.push(sort);
+        }
+      }
+      return { sort: newArray };
+    },
+  },
+  match: {
+    test: (value: any, separator: string) => {
+      const keys = Object.keys(value);
+      return keys.length === 1 && keys[0].includes(separator);
+    },
+    // e.g. { 'category/tag': 'Mystery' }
+    transform: (value: any, separator: string) => {
+      const keys = Object.keys(value);
+      const path = keys[0].split(separator);
+      return insideOut(path, { match: { [path.join('.')]: value[keys[0]] } });
+    },
+  },
+  match_phrase: {
+    test: (value: any, separator: string) => {
+      const keys = Object.keys(value);
+      return keys.some(k => k.includes(separator));
+    },
+    // e.g. { 'category/tag': { query: 'Mystery', slop: 3 } }
+    transform: (value: any, separator: string) => {
+      const keys = Object.keys(value);
+      const path = keys[0].split(separator);
+      return insideOut(path, {
+        match_phrase: { [path.join('.')]: value[keys[0]] },
+      });
     },
   },
   exists: {
     test: (value: any, separator: string) => {
       return typeof value.field === 'string' && value.field.includes(separator);
     },
+    // e.g. { field: 'category/tag' }
     transform: (value: any, separator: string) => {
-      return {
-        nested: {
-          path: value.field.split(separator)[0],
-          query: {
-            exists: {
-              field: value.field.split(separator).join('.'),
-            },
-          },
-        },
-      };
+      const path = value.field.split(separator);
+      return insideOut(path, { exists: { field: path.join('.') } });
     },
   },
   range: {
@@ -85,18 +170,15 @@ const templates: Record<string, Transformer> = {
         [1, 2].includes(keys.length) && keys.every(k => k.includes(separator))
       );
     },
+    // e.g. { gte: 100, lt: 200 }
     transform: (value: any, separator: string) => {
       const keys = Object.keys(value);
-      return {
-        nested: {
-          path: keys[0].split(separator)[0],
-          query: {
-            range: Object.fromEntries(
-              keys.map((f, i) => [f.split(separator).join('.'), value[keys[i]]])
-            ),
-          },
-        },
-      };
+      const path = keys[0].split(separator);
+      const range: Record<string, any> = {};
+      for (const [prop, criteria] of Object.entries(value)) {
+        range[prop.split(separator).join('.')] = criteria;
+      }
+      return insideOut(path, { range });
     },
   },
   multi_match: {
@@ -108,30 +190,10 @@ const templates: Record<string, Transformer> = {
         value.fields.some(f => f.includes(separator))
       );
     },
+    // e.g. { fields: ['characters/name','tags/name'], query: 'Batman' }
     transform: (value: any, separator: string) => {
-      function groupByPath(fields: string[], _level = 0) {
-        const root: string[] = [];
-        const groupsByPath: Record<string, string[]> = {};
-        for (const field of fields) {
-          const parts = field.split(separator);
-          if (parts.length > _level + 1) {
-            const path = parts.slice(0, _level + 1).join('.');
-            if (!groupsByPath[path]) {
-              groupsByPath[path] = [];
-            }
-            groupsByPath[path].push(field);
-          } else {
-            root.push(field);
-          }
-        }
-        const groups = Object.entries(groupsByPath).map(([path, fields]) => ({
-          path,
-          fields,
-        }));
-        return { root, groups };
-      }
       const should = [];
-      const { root, groups } = groupByPath(value.fields);
+      const { root, groups } = groupByPath(value.fields, separator);
       if (root.length > 0) {
         should.push({
           multi_match: {
@@ -142,18 +204,15 @@ const templates: Record<string, Transformer> = {
         });
       }
       for (const group of groups) {
-        should.push({
-          nested: {
-            path: group.path,
-            query: {
-              multi_match: {
-                ...value,
-                fields: group.fields.map(f => f.split(separator).join('.')),
-                query: value.query,
-              },
+        should.push(
+          insideOut(group.fields[0].split(separator), {
+            multi_match: {
+              ...value,
+              fields: group.fields.map(f => f.split(separator).join('.')),
+              query: value.query,
             },
-          },
-        });
+          })
+        );
       }
       if (should.length === 0) {
         return {};
@@ -165,8 +224,8 @@ const templates: Record<string, Transformer> = {
     },
   },
 };
-templates.terms = templates.term;
-templates.match = templates.term;
+// Need to be able to specify the key to use in the terms.transform function
+// templates.terms = templates.term;
 
 /**
  * Processes nested fields in Elasticsearch queries by converting '->' notation to nested queries

@@ -1,13 +1,22 @@
-import { estypes } from '@elastic/elasticsearch';
+import { estypes } from '@elastic/elasticsearch'; // TypeScript needs this even if we don't use it
 import isEmptyObject from '../isEmptyObject/isEmptyObject';
+import NestedFieldsProcessor from '../NestedFieldsProcessor/NestedFieldsProcessor';
 import TextProcessor from '../TextProcessor/TextProcessor';
 import {
   AnyAllType,
+  BoolQueryShape,
   BoostType,
   FieldTypeOrTypes,
+  FunctionScoreShape,
   IntervalType,
   MatchType,
+  MultiMatchQueryShape,
   OperatorType,
+  Prettify,
+  QueryShape,
+  RangeShape,
+  SearchRequestShape,
+  SortShape,
 } from '../types';
 
 /**
@@ -15,7 +24,11 @@ import {
  */
 export default class QueryBuilder {
   public textProcessor: TextProcessor;
-  public nestedSeparator: string;
+  public nestedFieldsProcessor: NestedFieldsProcessor;
+  /**
+   * The index to query from
+   */
+  private _index: string;
   /**
    * The fields to fetch
    */
@@ -29,27 +42,27 @@ export default class QueryBuilder {
   /**
    * The must filters
    */
-  private _must: estypes.QueryDslQueryContainer[] = [];
+  private _must: QueryShape[] = [];
 
   /**
    * The must_not filters
    */
-  private _mustNot: estypes.QueryDslQueryContainer[] = [];
+  private _mustNot: QueryShape[] = [];
 
   /**
    * The "aggs" to add to the builder
    */
-  private _aggs: estypes.SearchRequest['aggs'] = {};
+  private _aggs: SearchRequestShape['aggs'] = {};
 
   /**
    * The function score builder
    */
-  private _functionScores: estypes.QueryDslDecayFunctionBase[] = [];
+  private _functionScores: FunctionScoreShape[] = [];
 
   /**
    * The highlight definition
    */
-  private _highlighter: estypes.SearchRequest['highlight'] = null;
+  private _highlighter: SearchRequestShape['highlight'] = null;
 
   /**
    * The max number of records to return
@@ -64,7 +77,7 @@ export default class QueryBuilder {
   /**
    * Fields to sort by
    */
-  private _sorts: estypes.SortCombinations[] = [];
+  private _sorts: SortShape[] = [];
 
   /**
    * If true, use "random_score" for a function score
@@ -73,14 +86,27 @@ export default class QueryBuilder {
 
   constructor({
     textProcessor = new TextProcessor(),
-    nestedSeparator = '->',
+    nestedSeparator = '/',
+    index,
   }: {
     textProcessor?: TextProcessor;
     nestedSeparator?: string;
+    index?: string;
   } = {}) {
     this.textProcessor = textProcessor;
-    this.nestedSeparator = nestedSeparator;
+    this.nestedFieldsProcessor = new NestedFieldsProcessor(nestedSeparator);
+    this._index = index;
   }
+
+  /**
+   * Set the index name (optional)
+   * @param name
+   */
+  index(name: string) {
+    this._index = name;
+    return this;
+  }
+
   /**
    * Set the fields to fetch
    * @param fields  The fields to select
@@ -108,7 +134,7 @@ export default class QueryBuilder {
    * @param valueOrValues  A value or array of possible values
    */
   addMultiMatchAny(
-    filters: estypes.QueryDslQueryContainer[],
+    filters: QueryShape[],
     fields: string[],
     valueOrValues: any | any[]
   ) {
@@ -137,11 +163,7 @@ export default class QueryBuilder {
    * @param fields  The name of the fields to search
    * @param value  A value
    */
-  addMultiTermAny(
-    filters: estypes.QueryDslQueryContainer[],
-    fields: string[],
-    value: any
-  ) {
+  addMultiTermAny(filters: QueryShape[], fields: string[], value: any) {
     const terms = [];
     for (const field of fields) {
       terms.push({
@@ -159,11 +181,7 @@ export default class QueryBuilder {
    * @param fields  The name of the fields to search
    * @param value  A value to search for
    */
-  addMultiTermAll(
-    filters: estypes.QueryDslQueryContainer[],
-    fields: string[],
-    value: any
-  ) {
+  addMultiTermAll(filters: QueryShape[], fields: string[], value: any) {
     for (const field of fields) {
       filters.push({
         term: {
@@ -181,7 +199,7 @@ export default class QueryBuilder {
    * @param valueOrValues  A value or array of possible values
    */
   addFilterAny(
-    filters: estypes.QueryDslQueryContainer[],
+    filters: QueryShape[],
     matchType: 'match' | 'term',
     field: string,
     valueOrValues: any | any[]
@@ -217,7 +235,7 @@ export default class QueryBuilder {
    * @param valueOrValues  A value or array of possible values
    */
   addFilterAll(
-    filters: estypes.QueryDslQueryContainer[],
+    filters: QueryShape[],
     matchType: MatchType,
     field: string,
     valueOrValues: any | any[]
@@ -241,7 +259,7 @@ export default class QueryBuilder {
    * @param valueOrValues  A value or array of possible values
    */
   addMultiMatchAll(
-    filters: estypes.QueryDslQueryContainer[],
+    filters: QueryShape[],
     fields: string[],
     valueOrValues: any | any[]
   ) {
@@ -266,10 +284,10 @@ export default class QueryBuilder {
    * @param value  The limit(s) to search against
    */
   addRange(
-    filters: estypes.QueryDslQueryContainer[],
+    filters: QueryShape[],
     field: string,
     op: OperatorType,
-    value: string | [string, string] | number | [number, number]
+    value: RangeShape
   ) {
     // Map operator aliases to their canonical form
     const opMap: Record<string, string> = {
@@ -353,34 +371,19 @@ export default class QueryBuilder {
 
     const terms = [];
     for (const phrase of phrases) {
-      // For single phrase, use direct value
-      if (phrases.length === 1) {
-        terms.push({
-          match_phrase: {
-            [field]:
-              options.slop !== undefined
-                ? { query: phrase, slop: options.slop }
-                : phrase,
+      terms.push({
+        match_phrase: {
+          [field]: {
+            query: phrase,
+            slop: options.slop || 0,
           },
-        });
-      } else {
-        // For multiple phrases, use query object to support slop
-        const matchPhraseQuery: any = { query: phrase };
-        if (options.slop !== undefined) {
-          matchPhraseQuery.slop = options.slop;
-        }
-        terms.push({
-          match_phrase: {
-            [field]: matchPhraseQuery,
-          },
-        });
-      }
+        },
+      });
     }
 
     if (terms.length === 1) {
       this._must.push(terms[0]);
     } else {
-      // Don't include minimum_should_match for OR queries to match test expectations
       this._must.push({ bool: { should: terms } });
     }
     return this;
@@ -441,7 +444,7 @@ export default class QueryBuilder {
    * It gives more weight to the phrase as a whole so results with the whole phrase will be higher
    * in the results.
    * @param fieldOrFields  The names of the fields to search (often ['content_*.fulltext'])
-   * @param termOrTerms  The search phrase or phrases (often ['my search here'])
+   * @param term  The search phrase
    * @param boostOptions  Additional options
    * @property boostOptions.expand  If true, also match with "OR" but at a lower relevance (default true)
    * @property boostOptions.boosts  The boosts for "OR", "AND", then "phrase" (default [1,3,5])
@@ -450,117 +453,46 @@ export default class QueryBuilder {
    */
   matchBoostedPhrase(
     fieldOrFields: string | string[],
-    termOrTerms: string | string[],
+    term: string,
     boostOptions: BoostType = {}
   ) {
-    const fields = Array.isArray(fieldOrFields)
-      ? fieldOrFields
-      : [fieldOrFields];
-    const terms = Array.isArray(termOrTerms)
-      ? termOrTerms.map(v => this.textProcessor.processText(v))
-      : [this.textProcessor.processText(termOrTerms)];
-    // enumerate options
+    term = this.textProcessor.processText(term);
     const expand = 'expand' in boostOptions ? boostOptions.expand : true;
     const boosts = boostOptions.boosts || [1, 3, 5];
-    // build subquery
     const subquery = new QueryBuilder({ textProcessor: this.textProcessor });
-    if (expand) {
-      subquery.multiMatchWithPhrase(fields, terms, {
-        operator: 'or',
-        boost: boosts[0],
+    if (Array.isArray(fieldOrFields)) {
+      const fields = fieldOrFields;
+      if (expand) {
+        subquery.multiMatchWithPhrase(fields, term, {
+          operator: 'or',
+          boost: boosts[0],
+        });
+      }
+      subquery.multiMatchWithPhrase(fields, term, {
+        operator: 'and',
+        boost: boosts[1],
       });
+      subquery.multiMatchWithPhrase(fields, term, {
+        boost: boosts[2],
+      });
+      this.should(subquery);
+    } else {
+      const field = fieldOrFields;
+      if (expand) {
+        subquery.matchWithPhrase(field, term, {
+          operator: 'or',
+          boost: boosts[0],
+        });
+      }
+      subquery.matchWithPhrase(field, term, {
+        operator: 'and',
+        boost: boosts[1],
+      });
+      subquery.matchWithPhrase(field, term, {
+        boost: boosts[2],
+      });
+      this.should(subquery);
     }
-    subquery.multiMatchWithPhrase(fields, terms, {
-      operator: 'and',
-      boost: boosts[1],
-    });
-    subquery.multiMatchWithPhrase(fields, terms, {
-      type: 'phrase',
-      boost: boosts[2],
-    });
-    this.should(subquery);
-    // TODO: if fieldOrFields is a string with a dot, use a nested multi_match like this:
-    /*
-      should: [
-        // OR match on fulltext_* fields
-        {
-          multi_match: {
-            fields: ['fulltext_*'],
-            operator: 'or',
-            query: 'Sports medicine doctor',
-            boost: 1,
-          },
-        },
-
-        // AND match on fulltext_* fields
-        {
-          multi_match: {
-            fields: ['fulltext_*'],
-            operator: 'and',
-            query: 'Sports medicine doctor',
-            boost: 3,
-          },
-        },
-
-        // PHRASE match on fulltext_* fields
-        {
-          multi_match: {
-            fields: ['fulltext_*'],
-            type: 'phrase',
-            query: 'Sports medicine doctor',
-            boost: 5,
-          },
-        },
-
-        // OR match in nested categories.value
-        {
-          nested: {
-            path: 'categories',
-            query: {
-              match: {
-                'categories.value': {
-                  builder: 'Sports medicine doctor',
-                  operator: 'or',
-                },
-              },
-            },
-            boost: 1,
-          },
-        },
-
-        // AND match in nested categories.value
-        {
-          nested: {
-            path: 'categories',
-            query: {
-              match: {
-                'categories.value': {
-                  builder: 'Sports medicine doctor',
-                  operator: 'and',
-                },
-              },
-            },
-            boost: 3,
-          },
-        },
-
-        // PHRASE match in nested categories.value
-        {
-          nested: {
-            path: 'categories',
-            query: {
-              match_phrase: {
-                'categories.value': {
-                  builder: 'Sports medicine doctor',
-                },
-              },
-            },
-            boost: 5,
-          },
-        },
-      ],
-
-     */
     return this;
   }
 
@@ -589,31 +521,50 @@ export default class QueryBuilder {
    * Create a basic multi_match clause and add any of the available options.
    * than they would be in a regular multi_match builder
    * See the "Combining OR, AND, and match phrase queries" section of https://www.elastic.co/blog/how-to-improve-elasticsearch-search-relevance-with-boolean-queries.
-   * @param fieldOrFields The field(s) to search
-   * @param valueOrValues  The value(s) to match on
+   * @param fields The fields to search
+   * @param value  The value to match on
    * @param options  Additional options, including `type`, `analyzer`, `boost`, `operator`, `minimum_should_match`, `fuzziness`, `lenient`, `prefix_length`, `max_expansions`, `fuzzy_rewrite`, `zero_terms_query`, `cutoff_frequency`, and `fuzzy_transpositions`
    * @chainable
    */
   multiMatchWithPhrase(
-    fieldOrFields: string | string[],
-    valueOrValues: string | string[],
-    options: Omit<estypes.QueryDslMultiMatchQuery, 'query' | 'fields'> = {}
+    fields: string[],
+    value: string,
+    options: Prettify<Omit<MultiMatchQueryShape, 'query' | 'fields'>> = {}
   ) {
-    const fields = Array.isArray(fieldOrFields)
-      ? fieldOrFields
-      : [fieldOrFields];
-    const values = Array.isArray(valueOrValues)
-      ? valueOrValues
-      : [valueOrValues];
-    for (const value of values) {
-      const baseMultiMatch = {
+    value = this.textProcessor.processText(value);
+    this._must.push({
+      multi_match: {
         fields,
-        query: this.textProcessor.processText(value),
-      };
-      this._must.push({
-        multi_match: { ...baseMultiMatch, ...options },
-      });
-    }
+        query: value,
+        ...options,
+      },
+    });
+    return this;
+  }
+
+  /**
+   * Create a basic match clause and add any of the available options.
+   * than they would be in a regular multi_match builder
+   * See the "Combining OR, AND, and match phrase queries" section of https://www.elastic.co/blog/how-to-improve-elasticsearch-search-relevance-with-boolean-queries.
+   * @param field The field to search
+   * @param phrase  The value to match on
+   * @param options  Additional options, including `type`, `analyzer`, `boost`, `operator`, `minimum_should_match`, `fuzziness`, `lenient`, `prefix_length`, `max_expansions`, `fuzzy_rewrite`, `zero_terms_query`, `cutoff_frequency`, and `fuzzy_transpositions`
+   * @chainable
+   */
+  matchWithPhrase(
+    field: string,
+    phrase: string,
+    options: Prettify<Omit<MultiMatchQueryShape, 'query' | 'fields'>> = {}
+  ) {
+    phrase = this.textProcessor.processText(phrase);
+    this._must.push({
+      match: {
+        [field]: {
+          query: phrase,
+          ...options,
+        },
+      },
+    });
     return this;
   }
 
@@ -671,69 +622,8 @@ export default class QueryBuilder {
   }
 
   /**
-   * Convert a field path with -> notation to a nested query if needed
-   * @param field  The field path (e.g., 'author->name' or 'author->address->city')
-   * @param value  The value to match
-   * @param queryType  The type of query ('term', 'match', 'range', 'exists')
-   * @param operator  For range queries, the operator (e.g., '>', '<', '>=')
-   */
-  private processNestedField(
-    field: string,
-    value: any,
-    queryType: 'term' | 'match' | 'range' | 'exists',
-    operator?: string
-  ): estypes.QueryDslQueryContainer {
-    // Check if this is a nested field path (contains this.nestedSeparator)
-    if (!field.includes(this.nestedSeparator)) {
-      // Not a nested field, return a simple query
-      if (queryType === 'term') {
-        return { term: { [field]: value } };
-      } else if (queryType === 'match') {
-        return { match: { [field]: value } };
-      } else if (queryType === 'range') {
-        const rangeQuery: Record<string, any> = {};
-        rangeQuery[field] = { [operator!]: value };
-        return { range: rangeQuery };
-      } else if (queryType === 'exists') {
-        return { exists: { field } };
-      }
-    }
-
-    // Handle nested field path (e.g., 'author->name' or 'author->address->city')
-    const pathParts = field.split(this.nestedSeparator);
-    const path = pathParts.slice(0, -1).join('.');
-    const leafField = pathParts[pathParts.length - 1];
-
-    // Create the inner query based on the query type
-    let innerQuery: estypes.QueryDslQueryContainer;
-
-    if (queryType === 'term') {
-      innerQuery = { term: { [`${path}.${leafField}`]: value } };
-    } else if (queryType === 'match') {
-      innerQuery = { match: { [`${path}.${leafField}`]: value } };
-    } else if (queryType === 'range') {
-      const rangeQuery: Record<string, any> = {};
-      rangeQuery[`${path}.${leafField}`] = { [operator!]: value };
-      innerQuery = { range: rangeQuery };
-    } else if (queryType === 'exists') {
-      innerQuery = { exists: { field: `${path}.${leafField}` } };
-    } else {
-      throw new Error(`Unsupported query type: ${queryType}`);
-    }
-
-    // Create the nested query
-    return {
-      nested: {
-        path,
-        query: innerQuery,
-        score_mode: 'none',
-      },
-    };
-  }
-
-  /**
    * Add an exact matching condition
-   * @param field  The name of the field to search (can use this.nestedSeparator for nested fields)
+   * @param field  The name of the field to search (can use nested separator for nested fields)
    * @param valueOrValues  A value or array of possible values
    * @param type  Use "ALL" to require document to contain all values, otherwise match any value
    * @return {QueryBuilder}
@@ -743,41 +633,16 @@ export default class QueryBuilder {
     if (valueOrValues === null) {
       this.notExists(field);
     } else if (type.toUpperCase() === 'ALL') {
-      if (field.includes(this.nestedSeparator)) {
-        const values = Array.isArray(valueOrValues)
-          ? valueOrValues
-          : [valueOrValues];
-        for (const value of values) {
-          this._must.push(this.processNestedField(field, value, 'term'));
-        }
-      } else {
-        this.addFilterAll(this._must, 'term', field, valueOrValues);
-      }
+      this.addFilterAll(this._must, 'term', field, valueOrValues);
     } else {
-      if (field.includes(this.nestedSeparator)) {
-        const values = Array.isArray(valueOrValues)
-          ? valueOrValues
-          : [valueOrValues];
-        if (values.length === 1) {
-          this._must.push(this.processNestedField(field, values[0], 'term'));
-        } else {
-          const shouldQueries = values.map(value =>
-            this.processNestedField(field, value, 'term')
-          );
-          this._must.push({
-            bool: { should: shouldQueries, minimum_should_match: 1 },
-          });
-        }
-      } else {
-        this.addFilterAny(this._must, 'term', field, valueOrValues);
-      }
+      this.addFilterAny(this._must, 'term', field, valueOrValues);
     }
     return this;
   }
 
   /**
    * Require that the given field or fields contain values (i.e. non-missing, non-null)
-   * @param fieldOrFields  The name or names of the fields (can use this.nestedSeparator for nested fields)
+   * @param fieldOrFields  The name or names of the fields (can use nested separator for nested fields)
    * @returns {QueryBuilder}
    */
   exists(fieldOrFields: string | string[]) {
@@ -786,18 +651,14 @@ export default class QueryBuilder {
       : [fieldOrFields];
 
     for (const field of fields) {
-      if (field.includes(this.nestedSeparator)) {
-        this._must.push(this.processNestedField(field, null, 'exists'));
-      } else {
-        this._must.push({ exists: { field } });
-      }
+      this._must.push({ exists: { field } });
     }
     return this;
   }
 
   /**
    * Require that the given field or fields contain no values (i.e. missing or null)
-   * @param fieldOrFields  The name or names of the fields (can use this.nestedSeparator for nested fields)
+   * @param fieldOrFields  The name or names of the fields (can use nested separator for nested fields)
    * @returns {QueryBuilder}
    */
   notExists(fieldOrFields: string | string[]) {
@@ -806,11 +667,7 @@ export default class QueryBuilder {
       : [fieldOrFields];
 
     for (const field of fields) {
-      if (field.includes(this.nestedSeparator)) {
-        this._mustNot.push(this.processNestedField(field, null, 'exists'));
-      } else {
-        this._mustNot.push({ exists: { field } });
-      }
+      this._mustNot.push({ exists: { field } });
     }
     return this;
   }
@@ -849,43 +706,27 @@ export default class QueryBuilder {
 
   /**
    * Add a numeric range matching condition
-   * @param field  The name of the field to search (can use this.nestedSeparator for nested fields)
+   * @param field  The name of the field to search (can use nested separator for nested fields)
    * @param op  One of the following: > < >= <= gt lt gte lte between
    * @param value  A string or number to search against
    * @return {QueryBuilder}
    * @chainable
    */
-  range(
-    field: string,
-    op: OperatorType,
-    value: string | [string, string] | number | [number, number]
-  ) {
-    if (field.includes(this.nestedSeparator)) {
-      this._must.push(this.processNestedField(field, value, 'range', op));
-    } else {
-      this.addRange(this._must, field, op, value);
-    }
+  range(field: string, op: OperatorType, value: RangeShape) {
+    this.addRange(this._must, field, op, value);
     return this;
   }
 
   /**
    * Add a numeric range negative matching condition
-   * @param field  The name of the field to search (can use this.nestedSeparator for nested fields)
+   * @param field  The name of the field to search (can use nested separator for nested fields)
    * @param op  One of the following: > < >= <= gt lt gte lte between
-   * @param value  A value to search against@return {QueryBuilder}
+   * @param value  A value to search against
    * @return {QueryBuilder}
    * @chainable
    */
-  notRange(
-    field: string,
-    op: OperatorType,
-    value: estypes.MappingRangePropertyBase
-  ) {
-    if (field.includes(this.nestedSeparator)) {
-      this._mustNot.push(this.processNestedField(field, value, 'range', op));
-    } else {
-      this.addRange(this._mustNot, field, op, value);
-    }
+  notRange(field: string, op: OperatorType, value: RangeShape) {
+    this.addRange(this._mustNot, field, op, value);
     return this;
   }
 
@@ -1047,15 +888,12 @@ export default class QueryBuilder {
    *   qb.sort({ created_at: 'desc' });
    *   qb.sort([ { name: 'asc' }, { created_at: 'desc' } ]);
    */
-  sort(field: estypes.SortCombinations, maybeDirection?: 'asc' | 'desc') {
+  sort(field: SortShape, maybeDirection?: 'asc' | 'desc') {
     // DESC string such as "-created_at"
     if (typeof field === 'string' && field.slice(0, 1) === '-') {
       this._sorts.push({ [field.slice(1)]: { order: 'desc' } });
-    } else if (
-      typeof field === 'string' &&
-      typeof maybeDirection === 'string'
-    ) {
-      this._sorts.push({ [field]: { order: maybeDirection } });
+    } else if (typeof field === 'string') {
+      this._sorts.push({ [field]: { order: maybeDirection || 'asc' } });
     } else if (Array.isArray(field)) {
       field.forEach(f => {
         const field = Object.keys(f)[0];
@@ -1119,7 +957,6 @@ export default class QueryBuilder {
   /**
    * Enable or disable sorting by random
    * @param trueOrFalse
-   * @return {QueryBuilder}
    * @chainable
    */
   sortByRandom(trueOrFalse: boolean = true) {
@@ -1130,17 +967,15 @@ export default class QueryBuilder {
   /**
    * Add a decay function score builder
    * @see https://www.elastic.co/guide/en/elasticsearch/reference/7.17/query-dsl-function-score-query.html#function-decay
-   * @return {QueryBuilder}
    * @chainable
    */
-  decayFunctionScore(functionScore: estypes.QueryDslDecayFunctionBase) {
+  decayFunctionScore(functionScore: FunctionScoreShape) {
     this._functionScores.push(functionScore);
     return this;
   }
 
   /**
    * Get the function score definition
-   * @return
    */
   getFunctionScores() {
     return this._functionScores;
@@ -1148,18 +983,20 @@ export default class QueryBuilder {
 
   /**
    * Add a must condition using a callback to build the subquery
-   * @param callback  A function that receives a new QueryBuilder instance for building the subquery
-   * @return This instance
+   * @param subquery  A function that receives a new QueryBuilder instance for building the subquery
    * @chainable
    */
-  must(callback: (qb: QueryBuilder) => void): QueryBuilder {
-    const subquery = new QueryBuilder();
-    callback(subquery);
-    const mustClauses = subquery.getMust();
-    if (mustClauses.length > 0) {
+  must(subquery: QueryBuilder) {
+    const must = subquery.getMust();
+    if (must.length === 0) {
+      return this;
+    } else if (must.length === 1) {
+      this._must.push(must[0]);
+      return this;
+    } else if (must.length > 1) {
       this._must.push({
         bool: {
-          must: mustClauses,
+          must,
         },
       });
     }
@@ -1168,18 +1005,21 @@ export default class QueryBuilder {
 
   /**
    * Add a must_not condition using a callback to build the subquery
-   * @param callback  A function that receives a new QueryBuilder instance for building the subquery
+   * @param subquery  A new QueryBuilder instance
    * @return This instance
    * @chainable
    */
-  mustNot(callback: (qb: QueryBuilder) => void): QueryBuilder {
-    const subquery = new QueryBuilder();
-    callback(subquery);
-    const mustClauses = subquery.getMust();
-    if (mustClauses.length > 0) {
+  mustNot(subquery: QueryBuilder) {
+    const must = subquery.getMust();
+    if (must.length === 0) {
+      return this;
+    } else if (must.length === 1) {
+      this._mustNot.push(must[0]);
+      return this;
+    } else if (must.length > 1) {
       this._mustNot.push({
         bool: {
-          must: mustClauses,
+          should: must,
         },
       });
     }
@@ -1190,7 +1030,7 @@ export default class QueryBuilder {
    * Get the current array of "must" filters
    * @return The must filters
    */
-  getMust(): estypes.QueryDslQueryContainer[] {
+  getMust(): QueryShape[] {
     return this._must;
   }
 
@@ -1201,11 +1041,19 @@ export default class QueryBuilder {
    * @chainable
    */
   should(subquery: QueryBuilder) {
-    this._must.push({
-      bool: {
-        should: subquery.getMust(),
-      },
-    });
+    const must = subquery.getMust();
+    if (must.length === 0) {
+      return this;
+    } else if (must.length === 1) {
+      this._must.push(must[0]);
+      return this;
+    } else if (must.length > 1) {
+      this._must.push({
+        bool: {
+          should: must,
+        },
+      });
+    }
     return this;
   }
 
@@ -1244,7 +1092,7 @@ export default class QueryBuilder {
         should: {
           bool: {
             must_not: subquery.getMust(),
-          } as estypes.QueryDslBoolQuery,
+          } as BoolQueryShape,
         },
       },
     });
@@ -1271,7 +1119,7 @@ export default class QueryBuilder {
    *   tags_schema: 'styled'
    * }
    */
-  useHighlighter(value: estypes.SearchRequest['highlight']) {
+  useHighlighter(value: SearchRequestShape['highlight']) {
     this._highlighter = value;
     return this;
   }
@@ -1280,7 +1128,7 @@ export default class QueryBuilder {
    * Return the fields we will fetch
    * @return
    */
-  getFields(): string[] {
+  getFields() {
     return this._fields;
   }
 
@@ -1292,19 +1140,41 @@ export default class QueryBuilder {
    * Return the builder body
    */
   getBody() {
-    const body: Pick<estypes.SearchRequest, 'query' | 'highlight' | 'aggs'> =
-      {};
+    const body: Pick<SearchRequestShape, 'query' | 'highlight' | 'aggs'> = {};
 
     // Build the base query
-    if (this._must.length > 0 || this._mustNot.length > 0) {
+    if (this._must.length > 0 && this._mustNot.length > 0) {
       // Build the query with must and must_not conditions
       body.query = {
         bool: {
-          ...(this._must.length > 0 ? { must: this._must } : {}),
-          ...(this._mustNot.length > 0 ? { must_not: this._mustNot } : {}),
+          must: this._must,
+          must_not: this._mustNot,
         },
-      } as estypes.QueryDslQueryContainer;
+      };
+    } else if (this._must.length === 1) {
+      body.query = this._must[0];
+    } else if (this._must.length > 1) {
+      body.query = {
+        bool: {
+          must: this._must,
+        },
+      };
+    } else if (this._mustNot.length > 0) {
+      body.query = {
+        bool: {
+          must_not: this._mustNot,
+        },
+      };
     }
+    // if (this._must.length > 0 || this._mustNot.length > 0) {
+    //   // Build the query with must and must_not conditions
+    //   body.query = {
+    //     bool: {
+    //       ...(this._must.length > 0 ? { must: this._must } : {}),
+    //       ...(this._mustNot.length > 0 ? { must_not: this._mustNot } : {}),
+    //     },
+    //   } as QueryShape;
+    // }
 
     // Add highlighting if specified
     if (this._highlighter) {
@@ -1331,9 +1201,7 @@ export default class QueryBuilder {
       };
     }
 
-    // Nested fields are now handled at query construction time
-
-    return body;
+    return this.nestedFieldsProcessor.process(body);
   }
 
   /**
@@ -1341,7 +1209,7 @@ export default class QueryBuilder {
    * @return The options to send in the builder
    */
   getOptions() {
-    const options: Pick<estypes.SearchRequest, 'size' | 'from' | 'sort'> = {};
+    const options: Pick<SearchRequestShape, 'size' | 'from' | 'sort'> = {};
     if (this._limit !== null) {
       options.size = this._limit;
       if (this._page > 1) {
@@ -1351,7 +1219,7 @@ export default class QueryBuilder {
     if (this._sorts.length > 0) {
       options.sort = this._sorts;
     }
-    return options;
+    return this.nestedFieldsProcessor.process(options);
   }
 
   /**
@@ -1359,11 +1227,8 @@ export default class QueryBuilder {
    * suitable for the Elasticsearch SDK or Kibana
    * @return {Object}
    */
-  getQuery(
-    overrides: Partial<estypes.SearchRequest> = {}
-  ): estypes.SearchRequest {
-    const source: Pick<estypes.SearchRequest, '_source' | '_source_excludes'> =
-      {};
+  getQuery(overrides: Partial<SearchRequestShape> = {}): SearchRequestShape {
+    const source: Pick<SearchRequestShape, '_source' | '_source_excludes'> = {};
     if (this._fields.length > 0) {
       source._source = this._fields;
     }
@@ -1371,6 +1236,7 @@ export default class QueryBuilder {
       source._source_excludes = this._excludeFields;
     }
     return {
+      ...(this._index ? { index: this._index } : {}),
       ...source,
       ...this.getBody(),
       ...this.getOptions(),
