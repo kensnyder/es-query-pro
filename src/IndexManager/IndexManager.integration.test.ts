@@ -1,5 +1,4 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
-import getEsClient from '../getEsClient/getEsClient';
 import { getBooksData, getBooksSchema } from '../testFixtures/books';
 import IndexManager from './IndexManager';
 

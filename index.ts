@@ -1,3 +1,10 @@
+export { default as englishplus } from './src/analyzers/englishplus';
+export { default as getEsClient } from './src/getEsClient/getEsClient';
 export { default as IndexManager } from './src/IndexManager/IndexManager';
+export { default as isEmptyObject } from './src/isEmptyObject/isEmptyObject';
 export { default as QueryBuilder } from './src/QueryBuilder/QueryBuilder';
+export { default as QueryRunner } from './src/QueryRunner/QueryRunner';
+export { default as SchemaManager } from './src/SchemaManager/SchemaManager';
+export { default as SchemaRegistry } from './src/SchemaRegistry/SchemaRegistry';
 export { default as TextProcessor } from './src/TextProcessor/TextProcessor';
+import { default as IndexNameManager } from './src/IndexNameManager/IndexNameManager';

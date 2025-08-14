@@ -76,7 +76,7 @@ export function getBooksSchema(): SchemaShape {
     price: 'integer',
   };
 }
-export function getBooksData(): PutRequestParams['body'][] {
+export function getBooksData(): any {
   return [
     {
       id: '1',

@@ -123,11 +123,9 @@ describe('QueryBuilder - Integration', () => {
     expect(prices).toEqual([18.99, 22.99]);
   });
 
-  it.skip('should handle pagination', async () => {
+  it('should handle pagination', async () => {
     const qb = new QueryBuilder();
     qb.index(index);
-    // qb.fields(['publishing.year']);
-    qb.sort('publishing/year'); // TODO: ask chatgpt how to do nested sorting
     qb.limit(2);
     qb.page(2);
     console.log('qb query=', JSON.stringify(qb.getQuery(), null, 2));

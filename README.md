@@ -8,7 +8,7 @@
 [![Tree shakeable](https://badgen.net/bundlephobia/tree-shaking/es-query-pro?v=2.0.0-beta.1)](https://www.npmjs.com/package/es-query-pro)
 [![ISC License](https://badgen.net/static/license/ISC/green?v=2.0.0-beta.1)](https://opensource.org/licenses/ISC)
 
-Simple and powerful ElasticSearch builder builder
+Simple and powerful ElasticSearch builder and Index Manager
 
 ## Installation
 
@@ -16,19 +16,55 @@ Simple and powerful ElasticSearch builder builder
 
 ## Basic usage
 
-```ts
-import EsQueryBuilder from 'es-builder-pro';
+Query Builder
 
-const builder = new EsQueryBuilder();
+```ts
+import { QueryBuilder } from 'es-builder-pro';
+
+const builder = new QueryBuilder();
 builder.term('author', 15);
-builder.matchBoostedPhrase(['fulltext_*'], 'Cold pressed juice');
+builder.matchBoostedPhrase('description', 'Mobile phone app');
 builder.range('created_at', '>=', '2021-01-01');
 builder.sort('created_at', 'desc');
-builder.limit(25);
+builder.limit(10);
 builder.page(2);
 ```
 
-## Function reference
+Index Manager
+
+```ts
+import { IndexManager, schemaRegistry } from 'es-builder-pro';
+
+const schemaRegistry = new SchemaRegistry();
+
+export const booksIndex = new IndexManager({
+  index: {
+    name: 'books',
+    version: 1,
+    prefix: process.env.NODE_ENV,
+    language: 'english',
+  },
+  analyzer: 'english',
+  schema: {
+    id: 'integer',
+    title: 'text',
+    premise: 'text',
+    categories: {
+      id: 'integer',
+      name: 'text',
+    },
+    author: 'keyword',
+  },
+});
+
+schemaRegistry.add(booksIndex);
+
+schemaManager.createOrMigrate();
+```
+
+## Table of Contents
+
+## Query Builder function reference
 
 ### Basic
 
@@ -108,7 +144,7 @@ boostedPhrase??
 ```js
 const EsQueryBuilder = require('es-builder-pro');
 
-const builder = new EsQueryBuilder();
+const builder = new QueryBuilder();
 builder.term('author', 15);
 builder.matchBoostedPhrase(['fulltext_*'], 'Cold pressed juice');
 builder.range('created_at', '>=', '2021-01-01');
@@ -119,22 +155,96 @@ builder.page(2);
 
 ```js
 const textProcessor = new TextProcessor();
-textProcessor.setArrayJoiner('ψ');
 textProcessor.registerPattern(
   { find: /([a-z])&([a-z0-9])/gi, replace: '$1ε$2' },
   { find: /([a-z])ε([a-z0-9])/gi, replace: '$1&$2' }
 );
-textProcessor.registerField(/^fulltext_/);
-QueryBuilder.registerProcessor(textProcessor);
 ```
+
+# Roadmap
+
+- client.search() ✅
+- client.msearch()
+- client.count() ✅
+- client.explain()
+- client.termsEnum()
+- client.validateQuery()
+- client.index() ✅
+- client.create() ✅
+- client.get() ✅
+- client.mget()
+- client.update() ✅
+- client.delete() ✅
+- client.bulk() ✅
+- client.reindex()
+- client.updateByQuery()
+- client.deleteByQuery()
+- client.indices.create() ✅
+- client.indices.createFromSource()
+- client.indices.delete() ✅
+- client.indices.exists() ✅
+- client.indices.get() ✅
+- client.indices.open()
+- client.indices.close()
+- client.indices.refresh()
+- client.indices.flush() ✅
+- client.indices.clearCache()
+- client.indices.stats()
+- client.indices.segments()
+- client.indices.recovery()
+- client.indices.shardsStores()
+- client.indices.forcemerge()
+- client.indices.addBlock()
+- client.indices.putSettings()
+- client.indices.getSettings()
+- client.indices.putMapping()
+- client.indices.getMapping()
+- client.indices.getFieldMapping()
+- client.indices.putAlias() ✅
+- client.indices.getAlias() ✅
+- client.indices.existsAlias() ✅
+- client.indices.deleteAlias() ✅
+- client.indices.updateAliases()
+- client.indices.resolveIndex()
+- client.indices.getDataStream()
+- client.indices.createDataStream()
+- client.indices.deleteDataStream()
+- client.indices.migrateToDataStream()
+- must ✅
+- must_not ✅
+- filter
+- exists ✅
+- query_string ✅
+- multi_match ✅
+- term ✅
+- match ✅
+- match_phrase ✅
+- range ✅
+- Boosts ✅
+- Nested queries ✅
+- Nested schema creation ✅
+- Facets ✅
+- Date Histogram ✅
+- Limit, page, sort ✅
+- Sort on nested fields
+- Sort by random ✅
+- Function scores ✅
+- Highlighting ✅
+- Get Kibana Query ✅
+- Migrate Index schema and data ✅
+- Fancy englishplus analyzer ✅
+- Text processing on insert and fetch ✅
+- \_source ✅
+- \_source_excludes ✅
+- Support Elasticsearch 6-8
 
 ### Unit Tests and Code Coverage
 
-Powered by jest
+Powered by bun
 
 ```bash
-npm test
-npm run coverage
+bun test
+bun run coverage
 ```
 
 ## Contributing
