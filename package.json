@@ -1,6 +1,6 @@
 {
   "name": "es-query-pro",
-  "version": "2.0.0-beta.1",
+  "version": "2.0.0-beta.2",
   "description": "Simple and powerful ElasticSearch query builder",
   "type": "module",
   "engines": {
