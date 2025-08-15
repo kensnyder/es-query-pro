@@ -1,6 +1,6 @@
 {
   "name": "es-query-pro",
-  "version": "2.0.0-beta.2",
+  "version": "2.0.0-beta.3",
   "description": "Simple and powerful ElasticSearch query builder",
   "type": "module",
   "engines": {
@@ -16,6 +16,11 @@
       "import": "./dist/index.mjs"
     }
   },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE.md"
+  ],
   "sideEffects": false,
   "keywords": [
     "ElasticSearch",
