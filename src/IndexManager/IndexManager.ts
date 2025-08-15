@@ -106,7 +106,7 @@ export default class IndexManager<
     return this;
   }
 
-  private _formatError(e: any) {
+  _formatError(e: any) {
     if (e instanceof errors.ResponseError) {
       // Handle Elasticsearch response errors
       return {
@@ -144,7 +144,7 @@ export default class IndexManager<
     };
   }
 
-  private _formatNonError<T>(response: T) {
+  _formatNonError<T>(response: T) {
     return {
       error: null,
       errorKind: null,
@@ -155,7 +155,7 @@ export default class IndexManager<
   /**
    * Check if the index already exists in the database
    */
-  async exists(more?: Omit<IndexExistParams, 'index'>) {
+  async exists(more?: Partial<IndexExistParams>) {
     const start = Date.now();
     const request = {
       method: 'HEAD',
@@ -194,7 +194,7 @@ export default class IndexManager<
   /**
    * Check if the alias already exists in the database
    */
-  async aliasExists(more?: Omit<AliasExistParams, 'name'>) {
+  async aliasExists(more?: Partial<AliasExistParams>) {
     const start = Date.now();
     const request = {
       method: 'HEAD',
@@ -234,7 +234,7 @@ export default class IndexManager<
   /**
    * Get metadata for the index
    */
-  async getIndexMetadata(more?: Omit<IndexMetadataParams, 'index'>) {
+  async getIndexMetadata(more?: Partial<IndexMetadataParams>) {
     const start = Date.now();
     const request = {
       method: 'GET',
@@ -267,7 +267,7 @@ export default class IndexManager<
   /**
    * Get metadata for the alias
    */
-  async getAliasMetadata(more?: Omit<AliasMetadataParams, 'name'>) {
+  async getAliasMetadata(more?: Partial<AliasMetadataParams>) {
     const start = Date.now();
     const request = {
       method: 'GET',
@@ -300,7 +300,7 @@ export default class IndexManager<
    * Save the given records
    * @param [more]  Additional body params
    */
-  async flush(more?: Omit<FlushRequestParams, 'index'>) {
+  async flush(more?: Partial<FlushRequestParams>) {
     const start = Date.now();
     const request = {
       method: 'POST',
@@ -331,9 +331,7 @@ export default class IndexManager<
   /**
    * Create a new index with these specifications
    */
-  async create(
-    more?: Omit<IndexCreateParams, 'index' | 'mappings' | 'settings'>
-  ) {
+  async create(more?: Partial<IndexCreateParams>) {
     const start = Date.now();
     const sm = new SchemaManager(this.schema);
     const settings = this.settings;
@@ -368,7 +366,7 @@ export default class IndexManager<
   /**
    * Drop index and all data; delete alias if exists
    */
-  async drop(more?: Omit<DeleteRequestShape, 'index'>) {
+  async drop(more?: Partial<DeleteRequestShape>) {
     const start = Date.now();
     const request = {
       method: 'DELETE',
@@ -408,7 +406,7 @@ export default class IndexManager<
   /**
    * Create an alias for this index
    */
-  async createAlias(more?: Omit<AliasCreateParams, 'name' | 'index'>) {
+  async createAlias(more?: Partial<AliasCreateParams>) {
     const start = Date.now();
     const request = {
       method: 'PUT',
@@ -440,7 +438,7 @@ export default class IndexManager<
   /**
    * Drop alias
    */
-  async dropAlias(more?: Omit<AliasDeleteParams, 'index' | 'name'>) {
+  async dropAlias(more?: Partial<AliasDeleteParams>) {
     const start = Date.now();
     const request = {
       method: 'DELETE',
@@ -570,7 +568,7 @@ export default class IndexManager<
    * @param id  The record id
    * @param [more]  Additional body params
    */
-  async findById(id: string, more?: Omit<GetRequestParams, 'index' | 'id'>) {
+  async findById(id: string, more?: Partial<GetRequestParams>) {
     const start = Date.now();
     const request = {
       method: 'GET',
@@ -619,7 +617,7 @@ export default class IndexManager<
     searchFields?: string[];
     fetchFields?: string[];
     phrase: string;
-    more?: Omit<estypes.SearchRequest, 'index' | 'query'>;
+    more?: Partial<estypes.SearchRequest>;
     where?: Record<string, any>;
     boosts?: BoostType;
   }) {
@@ -647,7 +645,7 @@ export default class IndexManager<
   }: {
     searchFields?: string[];
     fetchFields?: string[];
-    more?: Omit<estypes.SearchRequest, 'index' | 'query'>;
+    more?: Partial<estypes.SearchRequest>;
     where?: Record<string, any>;
     boosts?: BoostType;
   } = {}) {
@@ -723,7 +721,7 @@ export default class IndexManager<
    */
   async putBulk(
     records: ElasticsearchRecord<ThisSchema>[],
-    more?: Omit<BulkRequestParams, 'index' | 'body'>
+    more?: Partial<BulkRequestParams>
   ) {
     const start = Date.now();
     records.forEach(r => this.textProcessor.prepareInsertion(r));
@@ -771,7 +769,7 @@ export default class IndexManager<
   async patch(
     id: string,
     body: ElasticsearchRecord<ThisSchema>,
-    more?: Omit<PatchRequestParams, 'index' | 'id' | 'body'>
+    more?: Partial<PatchRequestParams>
   ) {
     const start = Date.now();
     const request = {

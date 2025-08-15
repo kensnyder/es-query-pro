@@ -43,11 +43,13 @@ export type ElasticsearchRecord<T> =
   T extends Record<string, any>
     ? { [K in keyof T]: ElasticsearchRecord<T[K]> }
     : T extends ElasticsearchType
-      ? T extends 'number'
-        ? number
+      ? T extends 'integer'
+        ? number | null
         : T extends 'boolean'
-          ? boolean
-          : string
+          ? boolean | null
+          : T extends 'date'
+            ? Date | string | null
+            : string | null
       : never;
 
 export type BoostType = {
