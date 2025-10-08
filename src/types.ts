@@ -41,16 +41,18 @@ export type ElasticsearchType =
 
 export type ElasticsearchRecord<T> =
   T extends Record<string, any>
-    ? { [K in keyof T]: ElasticsearchRecord<T[K]> }
+    ? {
+        [K in keyof T]: ElasticsearchRecord<T[K]> | ElasticsearchRecord<T[K]>[];
+      }
     : T extends ElasticsearchType
       ? T extends 'integer'
-        ? number | null
+        ? number | null | number[]
         : T extends 'boolean'
-          ? boolean | null
+          ? boolean | null | boolean[]
           : T extends 'date'
-            ? Date | string | null
-            : string | null
-      : never;
+            ? Date | string | null | Date[] | string[]
+            : string | null | string[]
+      : any;
 
 export type BoostType = {
   expand?: boolean;
@@ -104,6 +106,8 @@ export type FunctionScoreShape = Prettify<estypes.QueryDslDecayFunctionBase>;
 export type BoolQueryShape = Prettify<estypes.QueryDslBoolQuery>;
 export type SearchRequestShape = Prettify<estypes.SearchRequest>;
 export type IndexSettings = Prettify<estypes.IndicesCreateRequest['settings']>;
+export type MappingProperty = Prettify<estypes.MappingProperty>;
+export type Mappings = Record<string, MappingProperty>;
 export type IndexMetadataParams = Prettify<estypes.IndicesGetRequest>;
 export type AliasMetadataParams = Prettify<estypes.IndicesGetAliasRequest>;
 export type IndexExistParams = Prettify<estypes.IndicesExistsAliasRequest>;

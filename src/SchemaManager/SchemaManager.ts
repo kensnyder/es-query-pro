@@ -1,31 +1,44 @@
-import { estypes } from '@elastic/elasticsearch';
-import { ElasticsearchType, SchemaShape } from '../types';
+import {
+  ElasticsearchType,
+  MappingProperty,
+  Mappings,
+  SchemaShape,
+} from '../types';
 
 export default class SchemaManager<Schema = SchemaShape> {
   public schema: Schema;
   public nestedSeparator: string;
+  public mappings: Mappings;
 
   constructor({
-    schema,
+    schema = {} as Schema,
     nestedSeparator = '/',
+    mappings = {} as Mappings,
   }: {
-    schema: Schema;
+    schema?: Schema;
     nestedSeparator?: string;
+    mappings?: Mappings;
   }) {
     this.schema = schema;
     this.nestedSeparator = nestedSeparator;
+    this.mappings = mappings;
   }
 
   toMappings() {
     // Wrap the result in a properties object to match the expected structure
-    return { properties: this._schemaToMappings(this.schema) };
+    return {
+      properties: {
+        ...this._schemaToMappings(this.schema),
+        ...this.mappings,
+      },
+    };
   }
 
   private _schemaToMappings<T>(
     schema: T,
     analyzerName: string = 'english'
-  ): Record<string, estypes.MappingProperty> {
-    const properties: Record<string, estypes.MappingProperty> = {};
+  ): Mappings {
+    const properties: Mappings = {};
 
     for (const [field, typeOrObject] of Object.entries(schema)) {
       if (typeof typeOrObject === 'string') {
@@ -52,8 +65,8 @@ export default class SchemaManager<Schema = SchemaShape> {
   private _schemaToNestedMappings<T>(
     schema: T,
     analyzerName: string = 'english'
-  ): { properties: Record<string, estypes.MappingProperty> } {
-    const properties: Record<string, estypes.MappingProperty> = {};
+  ): { properties: Mappings } {
+    const properties: Mappings = {};
 
     for (const [field, typeOrObject] of Object.entries(schema)) {
       if (typeof typeOrObject === 'string') {
@@ -74,33 +87,57 @@ export default class SchemaManager<Schema = SchemaShape> {
     return { properties };
   }
 
-  getAllFields(data = this.schema) {
+  getAllFieldsFromSchema(data: Schema): string[] {
     const allFields: string[] = [];
     for (const [field, typeOrObject] of Object.entries(data)) {
       if (typeof typeOrObject === 'string') {
         allFields.push(field);
       } else if (typeof typeOrObject === 'object' && typeOrObject !== null) {
-        allFields.push(...this.getFulltextFields(typeOrObject));
+        allFields.push(...this.getAllFieldsFromSchema(typeOrObject));
       }
     }
     return allFields;
   }
 
-  getFulltextFields(data = this.schema, _path: string[] = []) {
+  getAllFields() {
+    const allFields = this.getAllFieldsFromSchema(this.schema);
+    allFields.push(...Object.keys(this.mappings));
+    return allFields;
+  }
+
+  getFulltextFieldsFromSchema(data: Schema, _path: string[] = []) {
     const fulltextFields: string[] = [];
     for (const [field, typeOrObject] of Object.entries(data)) {
       if (typeOrObject === 'text') {
         fulltextFields.push([..._path, field].join(this.nestedSeparator));
       } else if (typeof typeOrObject === 'object' && typeOrObject !== null) {
         fulltextFields.push(
-          ...this.getFulltextFields(typeOrObject, [..._path, field])
+          ...this.getFulltextFieldsFromSchema(typeOrObject, [..._path, field])
         );
       }
     }
     return fulltextFields;
   }
 
-  getPropertyType(type: string, analyzerName: string): estypes.MappingProperty {
+  getFulltextFields() {
+    const fields = this.getFulltextFieldsFromSchema(this.schema);
+    const textSearchTypes = [
+      'text',
+      'match_only_text',
+      'completion',
+      'search_as_you_type',
+      'semantic_text',
+      'token_count',
+    ];
+    for (const [field, mapping] of Object.entries(this.mappings)) {
+      if (textSearchTypes.includes(mapping.type)) {
+        fields.push(field);
+      }
+    }
+    return fields;
+  }
+
+  getPropertyType(type: string, analyzerName: string): MappingProperty {
     // Handle date format like 'date.epoch_second'
     if (typeof type === 'string' && type.startsWith('date.')) {
       const [, format] = type.split('.');

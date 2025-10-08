@@ -1,0 +1,8 @@
+telemetry = false
+
+[console]
+depth = 8
+
+[install]
+peer = true
+exact = true

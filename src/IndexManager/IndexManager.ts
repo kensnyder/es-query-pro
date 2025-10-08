@@ -19,6 +19,7 @@ import {
   IndexExistParams,
   IndexMetadataParams,
   IndexSettings,
+  Mappings,
   PatchRequestParams,
   SchemaShape,
 } from '../types';
@@ -62,22 +63,28 @@ export default class IndexManager<
    * @property prefix
    * @property language
    * @property separator
+   * @param analyzer
    * @param schema  The schema definition (see schemaToMappings.spec.js)
+   * @param mappings  Additional ElasticSearch mappings to add to schema; e.g. for custom fields
    * @param settings  The ElasticSearch settings; e.g. for sort hints
    * @param textProcessor  A TextProcessor to use
    * @param nestedSeparator  The separator to use for nested fields
    */
   constructor({
     index,
-    schema,
-    settings = {},
+    schema = {} as ThisSchema,
+    settings = {} as IndexSettings,
     textProcessor = new TextProcessor(),
+    analyzer = 'english',
+    mappings = {} as Mappings,
     client = getEsClient(),
     nestedSeparator = '/',
   }: {
     client?: Client;
     index: IndexNameAttributes;
-    schema: ThisSchema;
+    schema?: ThisSchema;
+    mappings?: Mappings;
+    analyzer?: string;
     settings?: IndexSettings;
     textProcessor?: TextProcessor;
     nestedSeparator?: string;
@@ -87,23 +94,15 @@ export default class IndexManager<
     this.nestedSeparator = nestedSeparator;
     this.textProcessor = textProcessor;
     this.textProcessor.registerSchema(schema);
+    this.analyzer = analyzer || 'english';
     this.index = new IndexNameManager(index);
     this.schema = new SchemaManager({
       schema,
+      mappings,
       nestedSeparator: this.nestedSeparator,
     });
     this.fulltextFields = this.schema.getFulltextFields();
     this.allFields = this.schema.getAllFields();
-  }
-
-  /**
-   * Update the analyzer which will be reflected in getIndexName()
-   * @param analyzerName  An analyzer name such as cjk, spanish, englishplus
-   * @see https://www.elastic.co/guide/en/elasticsearch/reference/7.17/analysis-lang-analyzer.html
-   */
-  setAnalyzer(analyzerName: string) {
-    this.analyzer = analyzerName;
-    return this;
   }
 
   _formatError(e: any) {
@@ -684,7 +683,7 @@ export default class IndexManager<
    * @param id  The record id
    * @param body  The record to save
    */
-  async put(id: string, body: ElasticsearchRecord<ThisSchema>) {
+  async put(id: number | string, body: ElasticsearchRecord<ThisSchema>) {
     const start = Date.now();
     this.textProcessor.prepareInsertion(body);
     const request = {
@@ -692,7 +691,7 @@ export default class IndexManager<
       endpoint: `/${this.getAliasName()}/_doc/${id}`,
       body: {
         index: this.getAliasName(),
-        id: id,
+        id: String(id),
         body,
       },
     };
