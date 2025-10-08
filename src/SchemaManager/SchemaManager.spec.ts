@@ -53,7 +53,7 @@ describe('SchemaManager', () => {
       title: 'keyword',
       description: 'text',
     };
-    const mappings = {
+    const properties = {
       drugName: {
         type: 'text' as const,
         analyzer: 'drug_name_index',
@@ -67,9 +67,9 @@ describe('SchemaManager', () => {
         },
       },
     };
-    const mgr = new SchemaManager({ schema, mappings });
+    const mgr = new SchemaManager({ schema, properties });
     expect(mgr.getAllFields()).toEqual(['title', 'description', 'drugName']);
-    expect(mgr.getFulltextFields()).toEqual(['description','drugName']);
+    expect(mgr.getFulltextFields()).toEqual(['description', 'drugName']);
   });
   it('should handle nesting', () => {
     const schema = {
@@ -98,7 +98,7 @@ describe('SchemaManager', () => {
     const schema = {
       createdAt: 'date',
     };
-    const mappings = {
+    const properties = {
       drugName: {
         type: 'text' as const,
         analyzer: 'drug_name_index',
@@ -112,7 +112,7 @@ describe('SchemaManager', () => {
         },
       },
     };
-    const mgr = new SchemaManager({ schema, mappings });
+    const mgr = new SchemaManager({ schema, properties });
     expect(mgr.toMappings()).toEqual({
       properties: {
         createdAt: { type: 'date' },

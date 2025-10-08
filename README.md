@@ -32,7 +32,7 @@ builder.page(2);
 Index Manager
 
 ```ts
-import { IndexManager, SchemaRegistry, nest } from 'es-builder-pro';
+import { IndexManager, SchemaRegistry } from 'es-builder-pro';
 
 const schemaRegistry = new SchemaRegistry();
 
@@ -48,12 +48,68 @@ export const booksIndex = new IndexManager({
     id: 'integer',
     title: 'text',
     premise: 'text',
-    categories: nest({
+    categories: {
       id: 'integer',
       name: 'text',
-    }),
+    },
     author: 'keyword',
   },
+  // optional
+  settings: {
+    analysis: {
+      char_filter: {
+        tm_strip: { type: 'mapping', mappings: ['®=>', '™=>'] },
+      },
+      filter: {
+        wdg: { type: 'word_delimiter_graph' },
+        dbl_metaphone: {
+          type: 'phonetic',
+          encoder: 'double_metaphone',
+          replace: false,
+        },
+      },
+      normalizer: {
+        keyword_fold: {
+          type: 'custom',
+          filter: ['lowercase', 'asciifolding'],
+        },
+      },
+      analyzer: {
+        title_index: {
+          type: 'custom',
+          tokenizer: 'standard',
+          char_filter: ['tm_strip'],
+          filter: ['lowercase', 'asciifolding', 'wdg'],
+        },
+        title_search: {
+          type: 'custom',
+          tokenizer: 'standard',
+          char_filter: ['tm_strip'],
+          filter: ['lowercase', 'asciifolding'],
+        },
+        title_phonetic: {
+          type: 'custom',
+          tokenizer: 'standard',
+          char_filter: ['tm_strip'],
+          filter: ['lowercase', 'asciifolding', 'dbl_metaphone'],
+        },
+      },
+    },
+  },
+  // optional: additional fields
+  properties: {
+    title: {
+      type: 'text' as const,
+      analyzer: 'title_index',
+      search_analyzer: 'title_search',
+      fields: {
+        phonetic: {
+          type: 'text' as const,
+          analyzer: 'title_phonetic',
+          search_analyzer: 'title_phonetic',
+        },
+      }
+  }
 });
 
 schemaRegistry.add(booksIndex);

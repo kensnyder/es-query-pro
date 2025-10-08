@@ -19,7 +19,7 @@ import {
   IndexExistParams,
   IndexMetadataParams,
   IndexSettings,
-  Mappings,
+  MappingProperties,
   PatchRequestParams,
   SchemaShape,
 } from '../types';
@@ -65,7 +65,7 @@ export default class IndexManager<
    * @property separator
    * @param analyzer
    * @param schema  The schema definition (see schemaToMappings.spec.js)
-   * @param mappings  Additional ElasticSearch mappings to add to schema; e.g. for custom fields
+   * @param properties  Additional ElasticSearch mapping properties to add to schema; e.g. for custom fields
    * @param settings  The ElasticSearch settings; e.g. for sort hints
    * @param textProcessor  A TextProcessor to use
    * @param nestedSeparator  The separator to use for nested fields
@@ -76,14 +76,14 @@ export default class IndexManager<
     settings = {} as IndexSettings,
     textProcessor = new TextProcessor(),
     analyzer = 'english',
-    mappings = {} as Mappings,
+    properties = {} as MappingProperties,
     client = getEsClient(),
     nestedSeparator = '/',
   }: {
     client?: Client;
     index: IndexNameAttributes;
     schema?: ThisSchema;
-    mappings?: Mappings;
+    properties?: MappingProperties;
     analyzer?: string;
     settings?: IndexSettings;
     textProcessor?: TextProcessor;
@@ -98,7 +98,7 @@ export default class IndexManager<
     this.index = new IndexNameManager(index);
     this.schema = new SchemaManager({
       schema,
-      mappings,
+      properties,
       nestedSeparator: this.nestedSeparator,
     });
     this.fulltextFields = this.schema.getFulltextFields();
@@ -327,23 +327,26 @@ export default class IndexManager<
     }
   }
 
-  /**
-   * Create a new index with these specifications
-   */
-  async create(more?: Partial<IndexCreateParams>) {
-    const start = Date.now();
+  getCreateRequest(more?: Partial<IndexCreateParams>) {
     const sm = new SchemaManager(this.schema);
-    const settings = this.settings;
-    const request = {
+    return {
       method: 'PUT',
       endpoint: `/${this.getFullName()}`,
       body: {
         index: this.getFullName(),
         mappings: sm.toMappings(),
-        settings,
+        settings: this.settings,
         ...(more || {}),
       },
     };
+  }
+
+  /**
+   * Create a new index with these specifications
+   */
+  async create(more?: Partial<IndexCreateParams>) {
+    const start = Date.now();
+    const request = this.getCreateRequest(more || {});
     try {
       const response = await this.client.indices.create(request.body);
       return {

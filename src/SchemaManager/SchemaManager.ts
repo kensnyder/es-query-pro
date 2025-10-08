@@ -1,27 +1,27 @@
 import {
   ElasticsearchType,
+  MappingProperties,
   MappingProperty,
-  Mappings,
   SchemaShape,
 } from '../types';
 
 export default class SchemaManager<Schema = SchemaShape> {
   public schema: Schema;
   public nestedSeparator: string;
-  public mappings: Mappings;
+  public properties: MappingProperties;
 
   constructor({
     schema = {} as Schema,
     nestedSeparator = '/',
-    mappings = {} as Mappings,
+    properties = {} as MappingProperties,
   }: {
     schema?: Schema;
     nestedSeparator?: string;
-    mappings?: Mappings;
+    properties?: MappingProperties;
   }) {
     this.schema = schema;
     this.nestedSeparator = nestedSeparator;
-    this.mappings = mappings;
+    this.properties = properties;
   }
 
   toMappings() {
@@ -29,7 +29,7 @@ export default class SchemaManager<Schema = SchemaShape> {
     return {
       properties: {
         ...this._schemaToMappings(this.schema),
-        ...this.mappings,
+        ...this.properties,
       },
     };
   }
@@ -37,8 +37,8 @@ export default class SchemaManager<Schema = SchemaShape> {
   private _schemaToMappings<T>(
     schema: T,
     analyzerName: string = 'english'
-  ): Mappings {
-    const properties: Mappings = {};
+  ): MappingProperties {
+    const properties: MappingProperties = {};
 
     for (const [field, typeOrObject] of Object.entries(schema)) {
       if (typeof typeOrObject === 'string') {
@@ -65,8 +65,8 @@ export default class SchemaManager<Schema = SchemaShape> {
   private _schemaToNestedMappings<T>(
     schema: T,
     analyzerName: string = 'english'
-  ): { properties: Mappings } {
-    const properties: Mappings = {};
+  ): { properties: MappingProperties } {
+    const properties: MappingProperties = {};
 
     for (const [field, typeOrObject] of Object.entries(schema)) {
       if (typeof typeOrObject === 'string') {
@@ -101,7 +101,7 @@ export default class SchemaManager<Schema = SchemaShape> {
 
   getAllFields() {
     const allFields = this.getAllFieldsFromSchema(this.schema);
-    allFields.push(...Object.keys(this.mappings));
+    allFields.push(...Object.keys(this.properties));
     return allFields;
   }
 
@@ -129,7 +129,7 @@ export default class SchemaManager<Schema = SchemaShape> {
       'semantic_text',
       'token_count',
     ];
-    for (const [field, mapping] of Object.entries(this.mappings)) {
+    for (const [field, mapping] of Object.entries(this.properties)) {
       if (textSearchTypes.includes(mapping.type)) {
         fields.push(field);
       }
