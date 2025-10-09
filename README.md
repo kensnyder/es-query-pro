@@ -1,11 +1,11 @@
 # es-builder-pro
 
-[![NPM Link](https://badgen.net/npm/v/es-query-pro?v=2.0.0-beta.6)](https://npmjs.com/package/es-query-pro)
-[![Language](https://badgen.net/static/language/TS?v=2.0.0-beta.6)](https://github.com/search?q=repo:kensnyder/es-query-pro++language:TypeScript&type=code)
-[![Build Status](https://github.com/kensnyder/es-query-pro/actions/workflows/tests.yml/badge.svg?v=2.0.0-beta.6)](https://github.com/kensnyder/es-query-pro/actions)
-[![Code Coverage](https://codecov.io/gh/kensnyder/es-query-pro/branch/main/graph/badge.svg?v=2.0.0-beta.6)](https://codecov.io/gh/kensnyder/es-query-pro)
-![GzippedSize](https://deno.bundlejs.com/?q=es-query-pro&badge&v=2.0.0-beta.6)
-[![ISC License](https://badgen.net/static/license/ISC/green?v=2.0.0-beta.6)](https://opensource.org/licenses/ISC)
+[![NPM Link](https://badgen.net/npm/v/es-query-pro?v=2.0.0-beta.7)](https://npmjs.com/package/es-query-pro)
+[![Language](https://badgen.net/static/language/TS?v=2.0.0-beta.7)](https://github.com/search?q=repo:kensnyder/es-query-pro++language:TypeScript&type=code)
+[![Build Status](https://github.com/kensnyder/es-query-pro/actions/workflows/tests.yml/badge.svg?v=2.0.0-beta.7)](https://github.com/kensnyder/es-query-pro/actions)
+[![Code Coverage](https://codecov.io/gh/kensnyder/es-query-pro/branch/main/graph/badge.svg?v=2.0.0-beta.7)](https://codecov.io/gh/kensnyder/es-query-pro)
+![GzippedSize](https://deno.bundlejs.com/?q=es-query-pro&badge&v=2.0.0-beta.7)
+[![ISC License](https://badgen.net/static/license/ISC/green?v=2.0.0-beta.7)](https://opensource.org/licenses/ISC)
 
 Simple and powerful ElasticSearch query builder and Index Manager
 
