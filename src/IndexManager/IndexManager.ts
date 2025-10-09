@@ -27,6 +27,38 @@ import TextProcessor from '../TextProcessor/TextProcessor';
 import QueryRunner from '../QueryRunner/QueryRunner';
 import SchemaManager from '../SchemaManager/SchemaManager';
 
+export type ErrorShape = IndexManager['_formatError'];
+export type ExistsShape = Awaited<ReturnType<IndexManager['exists']>>;
+export type AliasExistsShape = Awaited<ReturnType<IndexManager['aliasExists']>>;
+export type IndexMetadataShape = Awaited<
+  ReturnType<IndexManager['getIndexMetadata']>
+>;
+export type AliasMetadataShape = Awaited<
+  ReturnType<IndexManager['getAliasMetadata']>
+>;
+export type FlushResult = Awaited<ReturnType<IndexManager['flush']>>;
+export type CreateResult = Awaited<ReturnType<IndexManager['create']>>;
+export type DropResult = Awaited<ReturnType<IndexManager['drop']>>;
+export type CreateAliasResult = Awaited<
+  ReturnType<IndexManager['createAlias']>
+>;
+export type DropAliasResult = Awaited<ReturnType<IndexManager['dropAlias']>>;
+export type CreateIfNeededResult = Awaited<
+  ReturnType<IndexManager['createIfNeeded']>
+>;
+export type CreateAliasIfNeededResult = Awaited<
+  ReturnType<IndexManager['createAliasIfNeeded']>
+>;
+export type PutResult = Awaited<ReturnType<IndexManager['put']>>;
+export type PutBulkResult = Awaited<ReturnType<IndexManager['putBulk']>>;
+export type PatchResult = Awaited<ReturnType<IndexManager['patch']>>;
+export type DeleteResult = Awaited<ReturnType<IndexManager['deleteById']>>;
+export type StatusReport = Awaited<ReturnType<IndexManager['getStatus']>>;
+export type MigrationReport = Awaited<
+  ReturnType<IndexManager['migrateIfNeeded']>
+>;
+export type MigrationCode = MigrationReport['code'];
+
 /**
  * ElasticSearch index manager for creating, searching and saving data
  * for a particular index
@@ -835,6 +867,34 @@ export default class IndexManager<
         ...this._formatError(e),
       };
     }
+  }
+
+  async getStatus() {
+    const start = Date.now();
+    const fullName = this.getFullName();
+    const aliasName = this.getAliasName();
+    const indexExists = await this.exists();
+    const aliasExists = await this.aliasExists();
+    return {
+      took: Date.now() - start,
+      fullName,
+      aliasName,
+      indexExists: indexExists.exists,
+      aliasExists: aliasExists.exists,
+      needsMigration:
+        indexExists.exists === false || aliasExists.exists === false,
+      needsCreation: aliasExists.exists === false,
+    };
+  }
+
+  async needsCreation() {
+    const status = await this.getStatus();
+    return status.needsCreation;
+  }
+
+  async needsMigration() {
+    const status = await this.getStatus();
+    return status.needsMigration;
   }
 
   /**
