@@ -27,8 +27,8 @@ import TextProcessor from '../TextProcessor/TextProcessor';
 import QueryRunner from '../QueryRunner/QueryRunner';
 import SchemaManager from '../SchemaManager/SchemaManager';
 
-export type ErrorShape = IndexManager['_formatError'];
-export type ExistsShape = Awaited<ReturnType<IndexManager['exists']>>;
+export type IndexErrorShape = IndexManager['_formatError'];
+export type IndexExistsShape = Awaited<ReturnType<IndexManager['exists']>>;
 export type AliasExistsShape = Awaited<ReturnType<IndexManager['aliasExists']>>;
 export type IndexMetadataShape = Awaited<
   ReturnType<IndexManager['getIndexMetadata']>
@@ -36,28 +36,37 @@ export type IndexMetadataShape = Awaited<
 export type AliasMetadataShape = Awaited<
   ReturnType<IndexManager['getAliasMetadata']>
 >;
-export type FlushResult = Awaited<ReturnType<IndexManager['flush']>>;
-export type CreateResult = Awaited<ReturnType<IndexManager['create']>>;
-export type DropResult = Awaited<ReturnType<IndexManager['drop']>>;
-export type CreateAliasResult = Awaited<
+export type IndexFlushResult = Awaited<ReturnType<IndexManager['flush']>>;
+export type IndexCreateResult = Awaited<ReturnType<IndexManager['create']>>;
+export type IndexDropResult = Awaited<ReturnType<IndexManager['drop']>>;
+export type IndexCreateAliasResult = Awaited<
   ReturnType<IndexManager['createAlias']>
 >;
-export type DropAliasResult = Awaited<ReturnType<IndexManager['dropAlias']>>;
-export type CreateIfNeededResult = Awaited<
+export type IndexDropAliasResult = Awaited<
+  ReturnType<IndexManager['dropAlias']>
+>;
+export type IndexCreateIfNeededResult = Awaited<
   ReturnType<IndexManager['createIfNeeded']>
 >;
-export type CreateAliasIfNeededResult = Awaited<
+export type IndexCreateAliasIfNeededResult = Awaited<
   ReturnType<IndexManager['createAliasIfNeeded']>
 >;
-export type PutResult = Awaited<ReturnType<IndexManager['put']>>;
-export type PutBulkResult = Awaited<ReturnType<IndexManager['putBulk']>>;
-export type PatchResult = Awaited<ReturnType<IndexManager['patch']>>;
-export type DeleteResult = Awaited<ReturnType<IndexManager['deleteById']>>;
-export type StatusReport = Awaited<ReturnType<IndexManager['getStatus']>>;
-export type MigrationReport = Awaited<
+export type IndexPutResult = Awaited<ReturnType<IndexManager['put']>>;
+export type IndexPutBulkResult = Awaited<ReturnType<IndexManager['putBulk']>>;
+export type IndexPatchResult = Awaited<ReturnType<IndexManager['patch']>>;
+export type IndexDeleteResult = Awaited<ReturnType<IndexManager['deleteById']>>;
+export type IndexStatusReport = Awaited<ReturnType<IndexManager['getStatus']>>;
+export type IndexRecreateResult = Awaited<ReturnType<IndexManager['recreate']>>;
+export type IndexMigrationReport = Awaited<
   ReturnType<IndexManager['migrateIfNeeded']>
 >;
-export type MigrationCode = MigrationReport['code'];
+export type IndexMigrationReportCode = IndexMigrationReport['code'];
+
+export type IndexInferSchema<T extends IndexManager<any>> =
+  T extends IndexManager<infer S> ? S : never;
+export type IndexInferRecordShape<T extends IndexManager<any>> =
+  ElasticsearchRecord<IndexInferSchema<T>>;
+export type IndexRunShape<T extends IndexManager> = ReturnType<T['run']>;
 
 /**
  * ElasticSearch index manager for creating, searching and saving data
@@ -435,6 +444,16 @@ export default class IndexManager<
         ...this._formatError(e),
       };
     }
+  }
+
+  async recreate() {
+    const exists = await this.exists();
+    if (!exists.exists) {
+      await this.drop();
+    }
+    const res = await this.create();
+    await this.flush();
+    return res;
   }
 
   /**
@@ -869,6 +888,39 @@ export default class IndexManager<
     }
   }
 
+  /**
+   * Remove all records from index
+   */
+  async deleteAll() {
+    const start = Date.now();
+    const request = {
+      method: 'DELETE',
+      endpoint: `/${this.getAliasName()}/delete_by_query/?conflicts=proceed`,
+      body: {
+        index: this.getAliasName(),
+        query: {
+          match_all: {},
+        },
+      },
+    };
+    try {
+      const response = await this.client.deleteByQuery(request.body);
+      return {
+        success: true,
+        request,
+        took: Date.now() - start,
+        ...this._formatNonError(response),
+      };
+    } catch (e) {
+      return {
+        success: false,
+        request,
+        took: Date.now() - start,
+        ...this._formatError(e),
+      };
+    }
+  }
+
   async getStatus() {
     const start = Date.now();
     const fullName = this.getFullName();
@@ -917,7 +969,20 @@ export default class IndexManager<
 
       if (!indexExists.exists) {
         // There is no index at all OR the version number has changed
-        await this.create();
+        const createResult = await this.create();
+
+        if (createResult.error !== null) {
+          return {
+            success: false,
+            took: Date.now() - start,
+            code: 'ERROR_CREATING_INDEX',
+            oldName: null,
+            newName: currentIndexName,
+            error: createResult.error,
+            errorKind: createResult.errorKind,
+            response: createResult.response,
+          };
+        }
 
         // Get the index that the alias points to
         const indexInfo = await this.getIndexMetadata();
@@ -932,7 +997,7 @@ export default class IndexManager<
             code: 'CREATED_INDEX',
             oldName: null,
             newName: currentIndexName,
-            ...this._formatNonError(indexExists),
+            ...this._formatNonError(createResult),
           };
         }
 

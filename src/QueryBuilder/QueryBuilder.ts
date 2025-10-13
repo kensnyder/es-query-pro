@@ -10,14 +10,19 @@ import {
   FunctionScoreShape,
   IntervalType,
   MatchType,
+  MoreLikeThisLikeParams,
+  MoreLikeThisOptions,
   MultiMatchQueryShape,
   OperatorType,
   Prettify,
   QueryShape,
   RangeShape,
+  RetrieverBase,
   SearchRequestShape,
   SortShape,
 } from '../types';
+
+export type QueryBuilderBody = QueryBuilder['getBody'];
 
 /**
  * Build ElasticSearch builder
@@ -78,6 +83,15 @@ export default class QueryBuilder {
    * Fields to sort by
    */
   private _sorts: SortShape[] = [];
+
+  /** Retrievers to use */
+  private _retrievers: estypes.InnerRetriever[] = [];
+
+  /** type of normalizer for retrievers */
+  private _normalizer: 'minmax' | 'l2_norm' | 'none' = 'minmax';
+
+  private _rankWindowSize = 50;
+  private _rankConstant = 60;
 
   /**
    * If true, use "random_score" for a function score
@@ -303,8 +317,20 @@ export default class QueryBuilder {
     };
 
     const normalizedOp = op.toLowerCase();
-    const opName = opMap[normalizedOp] || normalizedOp;
-
+    let opName = opMap[normalizedOp] || normalizedOp;
+    if (opName === 'between' && Array.isArray(value)) {
+      if (!value[0] && !value[1]) {
+        return this;
+      }
+      if (!value[0]) {
+        opName = 'lt';
+        value = value[0];
+      }
+      if (!value[1]) {
+        opName = 'gt';
+        value = value[1];
+      }
+    }
     if (opName === 'between' && Array.isArray(value)) {
       // Handle 'between' operator with array of [min, max]
       filters.push({
@@ -326,6 +352,7 @@ export default class QueryBuilder {
       // Fallback for unknown operators
       throw new Error(`Unsupported range operator: ${op}`);
     }
+    return this;
   }
 
   /**
@@ -568,6 +595,36 @@ export default class QueryBuilder {
     return this;
   }
 
+  semantic(field: string, phrase: string) {
+    const query = this.textProcessor.processText(phrase);
+    this._must.push({
+      semantic: {
+        field,
+        query,
+      },
+    });
+  }
+
+  rrf(field: string, phrase: string, weight: number = 1) {
+    const query = this.textProcessor.processText(phrase);
+    this._retrievers.push({
+      retriever: {
+        rrf: {
+          query: {
+            semantic: {
+              field,
+              query,
+            },
+          },
+        },
+        rank_window_size: this._rankWindowSize,
+        rank_constant: this._rankConstant,
+      },
+      weight,
+      normalizer: this._normalizer,
+    });
+  }
+
   /**
    * Add a keyword matching condition across multiple fields
    * @param fields  The names of the fields to search. Wildcards are not allowed.
@@ -727,6 +784,48 @@ export default class QueryBuilder {
    */
   notRange(field: string, op: OperatorType, value: RangeShape) {
     this.addRange(this._mustNot, field, op, value);
+    return this;
+  }
+
+  /**
+   * Add a more_like_this condition to find documents similar to the given text or documents
+   * @param fieldOrFields  The names of the fields to search (can use nested separator for nested fields)
+   * @param like  A string or array of strings, or an object or array of objects describing documents
+   * @param options  Additional options for the more_like_this query (e.g., min_term_freq, max_query_terms)
+   * @return {QueryBuilder}
+   * @chainable
+   */
+  moreLikeThis(
+    fieldOrFields: string | string[],
+    like: MoreLikeThisLikeParams,
+    options: MoreLikeThisOptions = {}
+  ) {
+    const likes = Array.isArray(like) ? like : [like];
+    const fields = Array.isArray(fieldOrFields)
+      ? fieldOrFields
+      : [fieldOrFields];
+    likes.forEach((item, i) => {
+      if (typeof item === 'string') {
+        likes[i] = this.textProcessor.processText(item);
+      }
+    });
+    this._must.push({
+      more_like_this: {
+        fields,
+        like: likes,
+        ...options,
+      },
+    });
+    return this;
+  }
+
+  rawCondition(query: QueryShape) {
+    this._must.push(query);
+    return this;
+  }
+
+  notRawCondition(query: QueryShape) {
+    this._mustNot.push(query);
     return this;
   }
 
@@ -1033,7 +1132,6 @@ export default class QueryBuilder {
   getMust(): QueryShape[] {
     return this._must;
   }
-
   /**
    * Require matching of a subquery
    * @param subquery  The builder object
@@ -1140,41 +1238,46 @@ export default class QueryBuilder {
    * Return the builder body
    */
   getBody() {
-    const body: Pick<SearchRequestShape, 'query' | 'highlight' | 'aggs'> = {};
+    const body: Pick<SearchRequestShape, 'retriever' | 'highlight' | 'aggs'> =
+      {};
 
-    // Build the base query
-    if (this._must.length > 0 && this._mustNot.length > 0) {
-      // Build the query with must and must_not conditions
-      body.query = {
-        bool: {
-          must: this._must,
-          must_not: this._mustNot,
+    // Determine what we're working with
+    const hasLinearRetrievers = this._retrievers && this._retrievers.length > 0;
+    const hasFilters = this._must.length > 0 || this._mustNot.length > 0;
+
+    // Build the retriever
+    if (hasLinearRetrievers) {
+      // LINEAR RETRIEVER PATH
+      body.retriever = {
+        linear: {
+          retrievers: this._retrievers,
+          normalizer: this._normalizer,
+          ...(hasFilters && { filter: this._buildFilterForRetriever() }),
         },
       };
-    } else if (this._must.length === 1) {
-      body.query = this._must[0];
-    } else if (this._must.length > 1) {
-      body.query = {
-        bool: {
-          must: this._must,
+    } else if (hasFilters) {
+      // STANDARD RETRIEVER PATH (with query)
+      let query = this._buildBoolQuery();
+
+      if (this._shouldSortByRandom) {
+        query = this._wrapWithRandomScore(query);
+      }
+
+      body.retriever = {
+        standard: {
+          query,
         },
       };
-    } else if (this._mustNot.length > 0) {
-      body.query = {
-        bool: {
-          must_not: this._mustNot,
+    } else {
+      // FALLBACK: No filters, no retrievers - match all documents
+      body.retriever = {
+        standard: {
+          query: this._shouldSortByRandom
+            ? this._wrapWithRandomScore({ match_all: {} })
+            : { match_all: {} },
         },
       };
     }
-    // if (this._must.length > 0 || this._mustNot.length > 0) {
-    //   // Build the query with must and must_not conditions
-    //   body.query = {
-    //     bool: {
-    //       ...(this._must.length > 0 ? { must: this._must } : {}),
-    //       ...(this._mustNot.length > 0 ? { must_not: this._mustNot } : {}),
-    //     },
-    //   } as QueryShape;
-    // }
 
     // Add highlighting if specified
     if (this._highlighter) {
@@ -1186,22 +1289,83 @@ export default class QueryBuilder {
       body.aggs = this._aggs;
     }
 
-    // Handle random scoring if needed
-    if (this._shouldSortByRandom) {
-      body.query = {
-        function_score: {
-          query: body.query || { match_all: {} },
-          functions: [
-            {
-              random_score: {},
-            },
-          ],
-          boost_mode: 'replace',
+    return this.nestedFieldsProcessor.process(body);
+  }
+
+  /**
+   * Build a bool query from must/must_not conditions
+   */
+  private _buildBoolQuery(): estypes.QueryDslQueryContainer {
+    const boolQuery: any = {};
+
+    if (this._must.length > 0) {
+      boolQuery.must = this._must;
+    }
+
+    if (this._mustNot.length > 0) {
+      boolQuery.must_not = this._mustNot;
+    }
+
+    // Simplify if only one must clause and no must_not
+    if (this._must.length === 1 && this._mustNot.length === 0) {
+      return this._must[0];
+    }
+
+    return { bool: boolQuery };
+  }
+
+  /**
+   * Build filter for linear/rrf retrievers
+   * Filters don't affect scoring but documents must match
+   */
+  private _buildFilterForRetriever():
+    | estypes.QueryDslQueryContainer
+    | estypes.QueryDslQueryContainer[]
+    | undefined {
+    // If we have both must and must_not, use bool structure
+    if (this._must.length > 0 && this._mustNot.length > 0) {
+      return {
+        bool: {
+          must: this._must,
+          must_not: this._mustNot,
         },
       };
     }
 
-    return this.nestedFieldsProcessor.process(body);
+    // If only must conditions, return as array (cleaner)
+    if (this._must.length > 0) {
+      return this._must.length === 1 ? [this._must[0]] : this._must;
+    }
+
+    // If only must_not conditions, wrap in bool
+    if (this._mustNot.length > 0) {
+      return {
+        bool: {
+          must_not: this._mustNot,
+        },
+      };
+    }
+
+    return undefined;
+  }
+
+  /**
+   * Wrap a query with random score function
+   */
+  private _wrapWithRandomScore(
+    query: estypes.QueryDslQueryContainer
+  ): estypes.QueryDslQueryContainer {
+    return {
+      function_score: {
+        query,
+        functions: [
+          {
+            random_score: {},
+          },
+        ],
+        boost_mode: 'replace',
+      },
+    };
   }
 
   /**

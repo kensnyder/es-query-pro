@@ -1,18 +1,21 @@
 import { estypes } from '@elastic/elasticsearch';
 import IndexManager, {
-  DropResult,
-  MigrationCode,
-  MigrationReport,
-  StatusReport,
+  IndexDropResult,
+  IndexMigrationReport,
+  IndexMigrationReportCode,
+  IndexRecreateResult,
+  IndexStatusReport,
 } from '../IndexManager/IndexManager';
 
-export type MigrationResultShape = Awaited<
+export type SchemaMigrationResultShape = Awaited<
   ReturnType<SchemaRegistry['migrateIfNeeded']>
 >;
-export type StatusResultShape = Awaited<
+export type SchemaStatusResultShape = Awaited<
   ReturnType<SchemaRegistry['getStatus']>
 >;
-export type DropResultShape = Awaited<ReturnType<SchemaRegistry['dropAll']>>;
+export type SchemaDropResultShape = Awaited<
+  ReturnType<SchemaRegistry['dropAll']>
+>;
 
 export default class SchemaRegistry {
   // Yes, I know the proper term is "indices"
@@ -32,7 +35,7 @@ export default class SchemaRegistry {
     return this;
   }
 
-  private chunkify<T>(array: T[], size: number): T[][] {
+  public chunkify<T>(array: T[], size: number): T[][] {
     const chunks: T[][] = [];
     for (let i = 0; i < array.length; i += size) {
       chunks.push(array.slice(i, i + size));
@@ -42,17 +45,28 @@ export default class SchemaRegistry {
 
   async migrateIfNeeded(concurrency = 2) {
     const start = Date.now();
-    const report: MigrationReport[] = [];
-    const summary: Record<string, MigrationCode> = {};
+    if (this.indexes.length === 0) {
+      throw new Error(
+        'No indexes registered in SchemaRegistry; cannot migrateIfNeeded'
+      );
+    }
+    const report: IndexMigrationReport[] = [];
+    const summary: Record<string, IndexMigrationReportCode> = {};
     try {
       const groups = this.chunkify(this.indexes, concurrency);
       await Promise.all(
-        groups.map(async group => {
-          for (const index of group) {
-            const result = await index.migrateIfNeeded();
-            report.push(result);
-            summary[index.getAliasName()] = result.code;
-          }
+        groups.map(group => {
+          return (async () => {
+            for (const index of group) {
+              try {
+                const result = await index.migrateIfNeeded();
+                report.push(result);
+                summary[index.getFullName()] = result.code;
+              } catch (e) {
+                summary[index.getFullName()] = 'ERROR';
+              }
+            }
+          })();
         })
       );
       return {
@@ -63,8 +77,9 @@ export default class SchemaRegistry {
         error: null,
       };
     } catch (e) {
+      console.error(e);
       return {
-        success: true,
+        success: false,
         took: Date.now() - start,
         report,
         summary,
@@ -73,9 +88,70 @@ export default class SchemaRegistry {
     }
   }
 
+  async recreateAll(concurrency = 2) {
+    const start = Date.now();
+    if (this.indexes.length === 0) {
+      throw new Error(
+        'No indexes registered in SchemaRegistry; cannot recreateAll'
+      );
+    }
+    const report: IndexRecreateResult[] = [];
+    const summary: Record<string, string> = {};
+    try {
+      const groups = this.chunkify(this.indexes, concurrency);
+      await Promise.all(
+        groups.map(group => {
+          return (async () => {
+            for (const index of group) {
+              try {
+                const result = await index.recreate();
+                report.push(result);
+                summary[index.getFullName()] = 'SUCCESS';
+              } catch (e) {
+                summary[index.getFullName()] = 'ERROR';
+              }
+            }
+          })();
+        })
+      );
+      return {
+        success: true,
+        took: Date.now() - start,
+        report,
+        summary,
+        error: null,
+      };
+    } catch (e) {
+      console.error(e);
+      return {
+        success: false,
+        took: Date.now() - start,
+        report,
+        summary,
+        error: (e as Error).message,
+      };
+    }
+  }
+
+  listIndexes() {
+    return this.indexes.map(index => ({
+      alias: index.getAliasName(),
+      name: index.getFullName(),
+      version: index.schema.schema.version,
+    }));
+  }
+
+  getIndexLookup() {
+    const map: Record<string, IndexManager> = {};
+    for (const index of this.indexes) {
+      map[index.getAliasName()] = index;
+    }
+    return map;
+  }
+
   async getStatus(concurrency = 2) {
     const start = Date.now();
-    const report: StatusReport[] = [];
+    const report: IndexStatusReport[] = [];
     const summary: Record<
       string,
       'needsCreation' | 'current' | 'needsMigration'
@@ -84,15 +160,17 @@ export default class SchemaRegistry {
       const groups = this.chunkify(this.indexes, concurrency);
       await Promise.all(
         groups.map(async group => {
-          for (const index of group) {
-            const status = await index.getStatus();
-            report.push(status);
-            summary[index.getAliasName()] = status.needsCreation
-              ? 'needsCreation'
-              : status.needsMigration
-                ? 'needsMigration'
-                : 'current';
-          }
+          return (async () => {
+            for (const index of group) {
+              const status = await index.getStatus();
+              report.push(status);
+              summary[index.getFullName()] = status.needsCreation
+                ? 'needsCreation'
+                : status.needsMigration
+                  ? 'needsMigration'
+                  : 'current';
+            }
+          })();
         })
       );
       return {
@@ -115,7 +193,7 @@ export default class SchemaRegistry {
 
   async dropAll(concurrency = 2) {
     const start = Date.now();
-    const results: DropResult[] = [];
+    const results: IndexDropResult[] = [];
     try {
       const groups = this.chunkify(this.indexes, concurrency);
       await Promise.all(

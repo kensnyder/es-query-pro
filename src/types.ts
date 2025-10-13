@@ -121,3 +121,10 @@ export type PutRequestParams = Prettify<estypes.IndexRequest>;
 export type BulkRequestParams = Prettify<estypes.BulkRequest>;
 export type PatchRequestParams = Prettify<estypes.UpdateRequest>;
 export type FlushRequestParams = Prettify<estypes.IndicesFlushRequest>;
+export type MoreLikeThisOptions = Prettify<
+  Omit<estypes.QueryDslMoreLikeThisQuery, 'fields' | 'like'>
+>;
+export type MoreLikeThisLikeParams = Prettify<
+  estypes.QueryDslMoreLikeThisQuery['like']
+>;
+export type RetrieverBase = Prettify<estypes.RetrieverBase>;

@@ -1,9 +1,15 @@
 import {
+  ElasticsearchRecord,
   ElasticsearchType,
   MappingProperties,
   MappingProperty,
   SchemaShape,
 } from '../types';
+
+export type ManagerInferSchema<T extends SchemaManager<any>> =
+  T extends SchemaManager<infer S> ? S : never;
+export type ManagerInferRecordShape<T extends SchemaManager<any>> =
+  ElasticsearchRecord<ManagerInferSchema<T>>;
 
 export default class SchemaManager<Schema = SchemaShape> {
   public schema: Schema;

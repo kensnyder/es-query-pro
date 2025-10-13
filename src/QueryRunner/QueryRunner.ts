@@ -3,6 +3,16 @@ import IndexManager from '../IndexManager/IndexManager';
 import QueryBuilder from '../QueryBuilder/QueryBuilder';
 import { ElasticsearchRecord, SchemaShape } from '../types';
 
+export type QueryFindManyResult<T extends QueryRunner<any>> = Awaited<
+  ReturnType<T['findMany']>
+>;
+export type QueryFindFirstResult<T extends QueryRunner<any>> = Awaited<
+  ReturnType<T['findFirst']>
+>;
+export type QueryCountResult<T extends QueryRunner<any>> = Awaited<
+  ReturnType<T['count']>
+>;
+
 export default class QueryRunner<ThisSchema extends SchemaShape> {
   public index: IndexManager<ThisSchema>;
   public builder: QueryBuilder;
@@ -70,8 +80,7 @@ export default class QueryRunner<ThisSchema extends SchemaShape> {
    */
   async findMany(more: Omit<estypes.SearchRequest, 'index' | 'query'> = {}) {
     const request = {
-      index: this.index.getAliasName(),
-      ...this.builder.getBody(),
+      ...this.builder.getQuery(),
       ...more,
     };
     try {
@@ -125,8 +134,7 @@ export default class QueryRunner<ThisSchema extends SchemaShape> {
   async count(more: Omit<estypes.CountRequest, 'index' | 'query'> = {}) {
     const now = Date.now();
     const request = {
-      index: this.index.getAliasName(),
-      ...this.builder.getBody(),
+      ...this.builder.getQuery(),
       ...more,
     };
     try {
