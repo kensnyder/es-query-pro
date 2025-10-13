@@ -6,6 +6,13 @@ describe('QueryBuilder', () => {
     const query = new QueryBuilder();
     expect(query.getQuery()).toEqual({
       _source: ['*'],
+      retriever: {
+        standard: {
+          query: {
+            match_all: {},
+          },
+        },
+      },
     });
   });
   it('should build fields', () => {
@@ -13,6 +20,13 @@ describe('QueryBuilder', () => {
     query.fields(['title', 'body']);
     expect(query.getQuery()).toEqual({
       _source: ['title', 'body'],
+      retriever: {
+        standard: {
+          query: {
+            match_all: {},
+          },
+        },
+      },
     });
   });
   it('should fulltext match single value', () => {
@@ -371,7 +385,7 @@ describe('QueryBuilder', () => {
   it('should exact match multiple values ANY', () => {
     const query = new QueryBuilder();
     query.term('tag', ['News', 'Entertainment']);
-    expect(query.getBody().query).toEqual({
+    expect(query.getBody().retriever.standard.query).toEqual({
       terms: {
         tag: ['News', 'Entertainment'],
       },
@@ -380,7 +394,7 @@ describe('QueryBuilder', () => {
   it('should exact match multiple values ALL', () => {
     const query = new QueryBuilder();
     query.term('tag', ['News', 'Entertainment'], 'ALL');
-    expect(query.getBody().query).toEqual({
+    expect(query.getBody().retriever.standard.query).toEqual({
       bool: {
         must: [
           {
@@ -403,7 +417,7 @@ describe('QueryBuilder', () => {
       const query = new QueryBuilder();
       query.term('category/id', '123');
       const body = query.getBody();
-      expect(body.query).toEqual({
+      expect(body.retriever.standard.query).toEqual({
         nested: {
           path: 'category',
           ignore_unmapped: true,
@@ -420,7 +434,7 @@ describe('QueryBuilder', () => {
       const query = new QueryBuilder();
       query.exists('author/name');
       const body = query.getBody();
-      expect(body.query).toEqual({
+      expect(body.retriever.standard.query).toEqual({
         nested: {
           path: 'author',
           ignore_unmapped: true,
@@ -437,7 +451,7 @@ describe('QueryBuilder', () => {
       const query = new QueryBuilder();
       query.term('author/contact/email', 'test@example.com');
       const body = query.getBody();
-      expect(body.query).toEqual({
+      expect(body.retriever.standard.query).toEqual({
         nested: {
           path: 'author',
           ignore_unmapped: true,
@@ -462,7 +476,7 @@ describe('QueryBuilder', () => {
       });
       query.notExists('metadata->tags');
       const body = query.getBody();
-      expect(body.query).toEqual({
+      expect(body.retriever.standard.query).toEqual({
         bool: {
           must_not: [
             {
@@ -477,6 +491,78 @@ describe('QueryBuilder', () => {
               },
             },
           ],
+        },
+      });
+    });
+  });
+
+  describe('QueryBuilder retrievers', () => {
+    it('semantic() should add a semantic retriever with weight and normalizer', () => {
+      const qb = new QueryBuilder();
+      qb.semantic('title-embed', 'harry potter', 2);
+      const body = qb.getBody();
+
+      expect(body).toHaveProperty('retriever.linear');
+      const linear: any = (body as any).retriever.linear;
+
+      expect(linear.normalizer).toBe('minmax');
+      expect(Array.isArray(linear.retrievers)).toBe(true);
+      expect(linear.retrievers.length).toBe(1);
+
+      const entry = linear.retrievers[0];
+      expect(entry.weight).toBe(2);
+      expect(entry.normalizer).toBe('minmax');
+      expect(entry.retriever).toEqual({
+        standard: {
+          query: {
+            semantic: {
+              field: 'title-embed',
+              query: 'harry potter',
+            },
+          },
+        },
+      });
+    });
+
+    it('rrf() should add an rrf retriever combining lexical and semantic', () => {
+      const qb = new QueryBuilder();
+      qb.rankWindowSize(100).rankConstant(60);
+      qb.rrf({ semanticField: 'content-vector', standardField: 'content', phrase: 'magic castle', weight: 3 });
+      const body = qb.getBody();
+
+      expect(body).toHaveProperty('retriever.linear');
+      const linear: any = (body as any).retriever.linear;
+      expect(linear.normalizer).toBe('minmax');
+      expect(linear.retrievers.length).toBe(1);
+
+      const entry = linear.retrievers[0];
+      expect(entry.weight).toBe(3);
+      expect(entry.normalizer).toBe('minmax');
+      expect(entry.retriever).toEqual({
+        rrf: {
+          retrievers: [
+            {
+              standard: {
+                query: {
+                  match: {
+                    content: 'magic castle',
+                  },
+                },
+              },
+            },
+            {
+              standard: {
+                query: {
+                  semantic: {
+                    field: 'content-vector',
+                    query: 'magic castle',
+                  },
+                },
+              },
+            },
+          ],
+          rank_window_size: 100,
+          rank_constant: 60,
         },
       });
     });

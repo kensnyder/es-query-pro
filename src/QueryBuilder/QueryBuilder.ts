@@ -1351,14 +1351,20 @@ export default class QueryBuilder {
         },
       };
     } else {
-      // FALLBACK: No filters, no retrievers - match all documents
-      body.retriever = {
-        standard: {
-          query: this._shouldSortByRandom
-            ? this._wrapWithRandomScore({ match_all: {} })
-            : { match_all: {} },
-        },
-      };
+      // FALLBACK: No filters, no retrievers
+      // If sorting is requested, omit retriever to allow ES to sort normally
+      if (this._sorts.length > 0) {
+        // no retriever
+      } else {
+        // match all documents via retriever
+        body.retriever = {
+          standard: {
+            query: this._shouldSortByRandom
+              ? this._wrapWithRandomScore({ match_all: {} })
+              : { match_all: {} },
+          },
+        };
+      }
     }
 
     // Add highlighting if specified
