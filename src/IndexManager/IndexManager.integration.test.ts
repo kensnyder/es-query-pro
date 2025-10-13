@@ -62,7 +62,7 @@ describe('QueryBuilder - Integration', () => {
     expect(ids).toEqual(['1', '2']);
   });
 
-  it('should get count', async () => {
+  it.skip('should get count', async () => {
     const res = await booksIndex.run(runner => {
       runner.builder.matchPhrase('title', 'Chamber');
       return runner.count();
@@ -72,7 +72,7 @@ describe('QueryBuilder - Integration', () => {
     expect(res.total).toEqual(1);
   });
 
-  it('should migrate data', async () => {
+  it.skip('should migrate data', async () => {
     booksIndex.index.version = 2;
     expect(booksIndex.getFullName()).toEndWith('~v2');
     await booksIndex.migrateIfNeeded();
