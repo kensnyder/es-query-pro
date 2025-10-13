@@ -85,11 +85,7 @@ export default class QueryBuilder {
   private _sorts: SortShape[] = [];
 
   /** Retrievers to use */
-  private _retrievers: Array<{
-    retriever: RetrieverContainer;
-    weight?: number;
-    normalizer?: 'minmax' | 'l2_norm' | 'none';
-  }> = [];
+  private _retrievers: estypes.LinearRetriever['retrievers'] = [];
 
   /** type of normalizer for retrievers */
   private _normalizer: 'minmax' | 'l2_norm' | 'none' = 'minmax';
@@ -99,6 +95,12 @@ export default class QueryBuilder {
 
   /** How much to consider lower ranking content, on a scale of 0-100 */
   private _rankConstant = 20;
+
+  /** Optional rescore phase */
+  private _rescore: SearchRequestShape['rescore'] = undefined;
+
+  /** Optional minimum score */
+  private _minScore: number = undefined;
 
   /**
    * If true, use "random_score" for a function score
@@ -1289,6 +1291,43 @@ export default class QueryBuilder {
   }
 
   /**
+   * Convenience helper to add FVH highlighting for one or more fields.
+   * Ensures tags_schema: 'styled' at the top level and merges with any existing
+   * highlighter definition without removing custom options.
+   * @see https://www.elastic.co/guide/en/elasticsearch/reference/9.x/highlighting.html
+   */
+  highlightField(fieldOrFields: string | string[], fragmentSize: number, numberOfFragments: number) {
+    const fields = Array.isArray(fieldOrFields)
+      ? fieldOrFields
+      : [fieldOrFields];
+
+    // Initialize the highlighter if needed, preserving prior settings
+    const current: NonNullable<SearchRequestShape['highlight']> =
+      (this._highlighter as any) ?? ({} as any);
+
+    // Ensure fields container exists
+    const currentFields: Record<string, any> = { ...(current.fields as any) };
+
+    // Apply/override per-field FVH configuration
+    for (const f of fields) {
+      currentFields[f] = {
+        type: 'fvh',
+        fragment_size: fragmentSize,
+        number_of_fragments: numberOfFragments,
+      };
+    }
+
+    // Assemble the updated highlighter; preserve other options like 'order'
+    this._highlighter = {
+      ...(current as any),
+      tags_schema: 'styled',
+      fields: currentFields as any,
+    } as SearchRequestShape['highlight'];
+
+    return this;
+  }
+
+  /**
    * Return the fields we will fetch
    * @return
    */
@@ -1304,7 +1343,7 @@ export default class QueryBuilder {
    * Return the builder body
    */
   getBody() {
-    const body: Pick<SearchRequestShape, 'retriever' | 'highlight' | 'aggs'> =
+    const body: Pick<SearchRequestShape, 'retriever' | 'highlight' | 'aggs' | 'rescore'> =
       {};
 
     // Determine what we're working with
@@ -1328,6 +1367,8 @@ export default class QueryBuilder {
               query,
             },
           },
+          weight: 1,
+          normalizer: this._normalizer,
         });
       }
 
@@ -1375,6 +1416,11 @@ export default class QueryBuilder {
     // Add aggregations if specified
     if (!isEmptyObject(this._aggs)) {
       body.aggs = this._aggs;
+    }
+
+    // Add rescore if specified
+    if (this._rescore && (Array.isArray(this._rescore) ? this._rescore.length > 0 : true)) {
+      body.rescore = this._rescore as any;
     }
 
     return this.nestedFieldsProcessor.process(body);
@@ -1461,7 +1507,7 @@ export default class QueryBuilder {
    * @return The options to send in the builder
    */
   getOptions() {
-    const options: Pick<SearchRequestShape, 'size' | 'from' | 'sort'> = {};
+    const options: Pick<SearchRequestShape, 'size' | 'from' | 'sort' | 'min_score'> = {};
     if (this._limit !== null) {
       options.size = this._limit;
       if (this._page > 1) {
@@ -1470,6 +1516,9 @@ export default class QueryBuilder {
     }
     if (this._sorts.length > 0) {
       options.sort = this._sorts;
+    }
+    if (typeof this._minScore === 'number') {
+      options.min_score = this._minScore as any;
     }
     return this.nestedFieldsProcessor.process(options);
   }
@@ -1516,6 +1565,82 @@ export default class QueryBuilder {
    */
   toString() {
     return JSON.stringify(this.getQuery(), null, 2);
+  }
+
+  /**
+   * Add a KNN retriever (Approximate Nearest Neighbor search)
+   * @see https://www.elastic.co/guide/en/elasticsearch/reference/9.x/knn-search.html
+   */
+  knn(field: string, vector: number[], k: number, numCandidates?: number, weight: number = 1) {
+    const knnDef: any = {
+      field,
+      query_vector: vector,
+      k,
+    };
+    if (typeof numCandidates === 'number') {
+      knnDef.num_candidates = numCandidates;
+    }
+
+    this._retrievers.push({
+      retriever: {
+        knn: knnDef,
+      } as any,
+      weight,
+      normalizer: this._normalizer,
+    });
+    return this;
+  }
+
+  /**
+   * Add a rescore phase for the query. Multiple calls will append additional rescore entries.
+   * @see https://www.elastic.co/guide/en/elasticsearch/reference/9.x/filter-search-results.html#rescore
+   */
+  rescore(windowSize: number, rescoreQuery: estypes.QueryDslQueryContainer) {
+    const entry: any = {
+      window_size: windowSize,
+      query: {
+        rescore_query: rescoreQuery,
+      },
+    };
+    if (Array.isArray(this._rescore)) {
+      this._rescore = [...this._rescore, entry] as any;
+    } else if (this._rescore) {
+      this._rescore = [this._rescore as any, entry] as any;
+    } else {
+      this._rescore = [entry] as any;
+    }
+    return this;
+  }
+
+  /**
+   * Set a minimum score threshold for hits
+   */
+  minScore(score: number) {
+    this._minScore = score;
+    return this;
+  }
+
+  /**
+   * Add a terms_set query to must filters
+   * @see https://www.elastic.co/guide/en/elasticsearch/reference/9.x/query-dsl-terms-set-query.html
+   */
+  termsSet(
+    field: string,
+    terms: (string | number)[],
+    minimumShouldMatchScript?: string
+  ) {
+    const clause: any = {
+      terms_set: {
+        [field]: {
+          terms,
+          ...(minimumShouldMatchScript
+            ? { minimum_should_match_script: { source: minimumShouldMatchScript } }
+            : {}),
+        },
+      },
+    };
+    this._must.push(clause);
+    return this;
   }
 
   /**

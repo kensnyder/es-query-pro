@@ -568,3 +568,123 @@ describe('QueryBuilder', () => {
     });
   });
 });
+
+
+// Added tests for highlightField()
+describe('QueryBuilder highlighting', () => {
+  it('highlightField() should add styled FVH highlighting for a single field', () => {
+    const qb = new QueryBuilder();
+    qb.highlightField('content_*.fulltext', 100, 3);
+    const body: any = qb.getBody();
+
+    expect(body.highlight).toBeDefined();
+    expect(body.highlight.tags_schema).toBe('styled');
+    expect(body.highlight.fields).toEqual({
+      'content_*.fulltext': {
+        type: 'fvh',
+        fragment_size: 100,
+        number_of_fragments: 3,
+      },
+    });
+  });
+
+  it('highlightField() should support multiple fields and merge with existing highlighter', () => {
+    const qb = new QueryBuilder();
+
+    // Start with a custom highlighter option to ensure it is preserved
+    qb.useHighlighter({ order: 'score', fields: { title: { type: 'fvh', fragment_size: 50, number_of_fragments: 1 } }, tags_schema: 'styled' } as any);
+
+    qb.highlightField(['body', 'summary'], 120, 5);
+
+    const body: any = qb.getBody();
+    expect(body.highlight.tags_schema).toBe('styled');
+    expect(body.highlight.order).toBe('score');
+
+    // Existing field should remain and new fields should be added with requested settings
+    expect(body.highlight.fields).toEqual({
+      title: { type: 'fvh', fragment_size: 50, number_of_fragments: 1 },
+      body: { type: 'fvh', fragment_size: 120, number_of_fragments: 5 },
+      summary: { type: 'fvh', fragment_size: 120, number_of_fragments: 5 },
+    });
+  });
+
+  it('highlightField() should override fragment settings for an existing field when called again', () => {
+    const qb = new QueryBuilder();
+    qb.highlightField('body', 80, 2);
+
+    // Call again with different values (should update the field config)
+    qb.highlightField('body', 200, 10);
+
+    const body: any = qb.getBody();
+    expect(body.highlight.fields).toEqual({
+      body: { type: 'fvh', fragment_size: 200, number_of_fragments: 10 },
+    });
+  });
+});
+
+
+// Added tests for knn(), rescore(), minScore(), termsSet()
+describe('QueryBuilder advanced features', () => {
+  it('knn() should add a KNN retriever with weight and parameters', () => {
+    const qb = new QueryBuilder();
+    qb.knn('embedding', [0.1, 0.2, 0.3], 10, 100, 2);
+    const body: any = qb.getBody();
+
+    expect(body).toHaveProperty('retriever.linear');
+    const linear: any = body.retriever.linear;
+    expect(linear.normalizer).toBe('minmax');
+    expect(linear.retrievers.length).toBe(1);
+
+    const entry = linear.retrievers[0];
+    expect(entry.weight).toBe(2);
+    expect(entry.normalizer).toBe('minmax');
+    expect(entry.retriever).toEqual({
+      knn: {
+        field: 'embedding',
+        query_vector: [0.1, 0.2, 0.3],
+        k: 10,
+        num_candidates: 100,
+      },
+    });
+  });
+
+  it('rescore() should set a rescore phase on the request', () => {
+    const qb = new QueryBuilder();
+    qb.match('title', 'harry');
+    qb.rescore(50, { match_phrase: { title: { query: 'harry potter', slop: 1 } } } as any);
+
+    const full: any = qb.getQuery();
+    expect(full.rescore).toEqual([
+      {
+        window_size: 50,
+        query: {
+          rescore_query: {
+            match_phrase: { title: { query: 'harry potter', slop: 1 } },
+          },
+        },
+      },
+    ]);
+  });
+
+  it('minScore() should set top-level min_score', () => {
+    const qb = new QueryBuilder();
+    qb.minScore(0.7);
+    const full: any = qb.getQuery();
+    expect(full.min_score).toBe(0.7);
+  });
+
+  it('termsSet() should add a terms_set must clause with optional script', () => {
+    const qb = new QueryBuilder();
+    qb.termsSet('tags', ['a', 'b', 'c'], 'Math.min(params.num_terms, 2)');
+
+    const body: any = qb.getBody();
+    expect(body.retriever.standard.query).toEqual({
+      terms_set: {
+        tags: {
+          terms: ['a', 'b', 'c'],
+          minimum_should_match_script: { source: 'Math.min(params.num_terms, 2)' },
+        },
+      },
+    });
+  });
+});
