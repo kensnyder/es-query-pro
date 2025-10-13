@@ -30,6 +30,9 @@ jobs:
       - name: ⬇️ Install dependencies
         run: bun install
 
+      - name: 🔎 Biome lint and format check
+        run: bunx biome ci .
+
       - name: 🏃 Run tests
         run: bun run coverage-lcov
 

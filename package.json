@@ -38,6 +38,10 @@
     "test-watch": "bun test --watch",
     "coverage": "bun test --coverage",
     "coverage-lcov": "bun test --coverage --coverage-reporter=lcov",
+    "lint": "biome lint .",
+    "format": "biome format .",
+    "format:write": "biome format --write .",
+    "check": "biome check .",
     "build": "bun run build:clean && bun run build:dts && bun run build:esm && bun run build:cjs",
     "build:clean": "rm -Rf dist/ && mkdir dist && touch dist/.gitkeep",
     "build:dts": "yes | bunx dts-bundle-generator --project tsconfig.bundle-generator.json -o dist/index.d.ts ./index.ts",
@@ -55,9 +59,8 @@
   },
   "homepage": "https://github.com/kensnyder/es-query-pro#readme",
   "devDependencies": {
+    "@biomejs/biome": "2.2.6",
     "bun-types": "1.2.20",
-    "prettier": "3.6.2",
-    "prettier-plugin-organize-imports": "4.2.0",
     "type-fest": "4.41.0",
     "typescript": "5.9.2"
   },

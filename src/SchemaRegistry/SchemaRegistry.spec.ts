@@ -1,14 +1,14 @@
-import { describe, expect, it } from 'bun:test';
-import SchemaRegistry from './SchemaRegistry';
+import { describe, expect, it } from "bun:test";
+import SchemaRegistry from "./SchemaRegistry";
 
-describe('SchemaRegistry', () => {
-  it('should properly chunkify', () => {
+describe("SchemaRegistry", () => {
+  it("should properly chunkify", () => {
     const registry = new SchemaRegistry();
     const input = [1, 2, 3, 4, 5, 6, 7];
     const chunks = registry.chunkify(input, 3);
     expect(chunks).toEqual([[1, 2, 3], [4, 5, 6], [7]]);
   });
-  it('should properly migrate indexes', async () => {
+  it("should properly migrate indexes", async () => {
     class MockIndex {
       constructor(public id: number) {
         this.id = id;
@@ -17,7 +17,7 @@ describe('SchemaRegistry', () => {
         return `index${this.id}`;
       }
       migrateIfNeeded = async () => {
-        return { id: this.id, code: 'MIGRATED' as const };
+        return { id: this.id, code: "MIGRATED" as const };
       };
     }
     const i1 = new MockIndex(1);
@@ -27,7 +27,9 @@ describe('SchemaRegistry', () => {
     //   reg.migrateIfNeeded();
     // };
     // expect(thrower).toThrow(/No indexes/);
+    // @ts-expect-error Just for unit testing
     reg.register(i1);
+    // @ts-expect-error Just for unit testing
     reg.register(i2);
     const res = await reg.migrateIfNeeded(2);
     expect(res.success).toBe(true);
@@ -35,17 +37,17 @@ describe('SchemaRegistry', () => {
       {
         // @ts-expect-error  Just testing
         id: 1,
-        code: 'MIGRATED',
+        code: "MIGRATED",
       },
       {
         // @ts-expect-error  Just testing
         id: 2,
-        code: 'MIGRATED',
+        code: "MIGRATED",
       },
     ]);
     expect(res.summary).toEqual({
-      index1: 'MIGRATED',
-      index2: 'MIGRATED',
+      index1: "MIGRATED",
+      index2: "MIGRATED",
     });
   });
 });
