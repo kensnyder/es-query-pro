@@ -128,3 +128,4 @@ export type MoreLikeThisLikeParams = Prettify<
   estypes.QueryDslMoreLikeThisQuery['like']
 >;
 export type RetrieverBase = Prettify<estypes.RetrieverBase>;
+export type RetrieverContainer = Prettify<estypes.RetrieverContainer>;

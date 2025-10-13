@@ -17,7 +17,7 @@ import {
   Prettify,
   QueryShape,
   RangeShape,
-  RetrieverBase,
+  RetrieverContainer,
   SearchRequestShape,
   SortShape,
 } from '../types';
@@ -25,7 +25,7 @@ import {
 export type QueryBuilderBody = QueryBuilder['getBody'];
 
 /**
- * Build ElasticSearch builder
+ * Build ElasticSearch builder (ElasticSearch 9 only)
  */
 export default class QueryBuilder {
   public textProcessor: TextProcessor;
@@ -85,13 +85,20 @@ export default class QueryBuilder {
   private _sorts: SortShape[] = [];
 
   /** Retrievers to use */
-  private _retrievers: estypes.InnerRetriever[] = [];
+  private _retrievers: Array<{
+    retriever: RetrieverContainer;
+    weight?: number;
+    normalizer?: 'minmax' | 'l2_norm' | 'none';
+  }> = [];
 
   /** type of normalizer for retrievers */
   private _normalizer: 'minmax' | 'l2_norm' | 'none' = 'minmax';
 
+  /** The number of results to find before ranking */
   private _rankWindowSize = 50;
-  private _rankConstant = 60;
+
+  /** How much to consider lower ranking content, on a scale of 0-100 */
+  private _rankConstant = 20;
 
   /**
    * If true, use "random_score" for a function score
@@ -128,6 +135,24 @@ export default class QueryBuilder {
    */
   fields(fields: string[]) {
     this._fields = fields;
+    return this;
+  }
+
+  /**
+   * Set rank_window_size
+   * @param size
+   */
+  rankWindowSize(size: number) {
+    this._rankWindowSize = size;
+    return this;
+  }
+
+  /**
+   * Set rank_constant
+   * @param constant
+   */
+  rankConstant(constant: number) {
+    this._rankConstant = constant;
     return this;
   }
 
@@ -595,21 +620,62 @@ export default class QueryBuilder {
     return this;
   }
 
-  semantic(field: string, phrase: string) {
+  rrf({
+    semanticField,
+    standardField,
+    phrase,
+    weight,
+  }: {
+    semanticField: string;
+    standardField: string;
+    phrase: string;
+    weight: number;
+  }): this {
     const query = this.textProcessor.processText(phrase);
-    this._must.push({
-      semantic: {
-        field,
-        query,
-      },
-    });
-  }
 
-  rrf(field: string, phrase: string, weight: number = 1) {
-    const query = this.textProcessor.processText(phrase);
     this._retrievers.push({
       retriever: {
         rrf: {
+          retrievers: [
+            // Lexical (standard) retriever on the standardField
+            {
+              standard: {
+                query: {
+                  match: {
+                    [standardField]: query,
+                  },
+                },
+              },
+            },
+            // Semantic retriever on the semanticField
+            {
+              standard: {
+                query: {
+                  semantic: {
+                    field: semanticField,
+                    query,
+                  },
+                },
+              },
+            },
+          ],
+          rank_window_size: this._rankWindowSize,
+          rank_constant: this._rankConstant,
+        },
+      },
+      weight,
+      normalizer: this._normalizer,
+    });
+
+    return this; // Enable chaining
+  }
+
+  semantic(field: string, phrase: string, weight: number = 1): this {
+    const query = this.textProcessor.processText(phrase);
+
+    this._retrievers.push({
+      retriever: {
+        standard: {
           query: {
             semantic: {
               field,
@@ -617,12 +683,12 @@ export default class QueryBuilder {
             },
           },
         },
-        rank_window_size: this._rankWindowSize,
-        rank_constant: this._rankConstant,
       },
       weight,
       normalizer: this._normalizer,
     });
+
+    return this;
   }
 
   /**
@@ -1065,7 +1131,7 @@ export default class QueryBuilder {
 
   /**
    * Add a decay function score builder
-   * @see https://www.elastic.co/guide/en/elasticsearch/reference/7.17/query-dsl-function-score-query.html#function-decay
+   * @see https://www.elastic.co/guide/en/elasticsearch/reference/9.x/query-dsl-function-score-query.html#function-decay
    * @chainable
    */
   decayFunctionScore(functionScore: FunctionScoreShape) {
@@ -1202,8 +1268,8 @@ export default class QueryBuilder {
    * @param value  The value of the "highlight" option
    * @return {QueryBuilder}
    * @chainable
-   * @see https://www.elastic.co/guide/en/elasticsearch/reference/7.17/highlighting.html
-   * @see https://www.elastic.co/guide/en/elasticsearch/reference/7.17/term-vector.html
+   * @see https://www.elastic.co/guide/en/elasticsearch/reference/9.x/highlighting.html
+   * @see https://www.elastic.co/guide/en/elasticsearch/reference/9.x/term-vector.html
    * @example
    * {
    *   order: 'score',
@@ -1248,11 +1314,27 @@ export default class QueryBuilder {
     // Build the retriever
     if (hasLinearRetrievers) {
       // LINEAR RETRIEVER PATH
+      const retrievers = [...this._retrievers];
+
+      // Include a simple retriever for must/must_not criteria if present
+      if (hasFilters) {
+        let query = this._buildBoolQuery();
+        if (this._shouldSortByRandom) {
+          query = this._wrapWithRandomScore(query);
+        }
+        retrievers.push({
+          retriever: {
+            standard: {
+              query,
+            },
+          },
+        });
+      }
+
       body.retriever = {
         linear: {
-          retrievers: this._retrievers,
+          retrievers,
           normalizer: this._normalizer,
-          ...(hasFilters && { filter: this._buildFilterForRetriever() }),
         },
       };
     } else if (hasFilters) {
