@@ -9,7 +9,7 @@ import QueryBuilder from "./QueryBuilder";
 
 describe("QueryBuilder - Integration", () => {
   const client = getEsClient();
-  let index = `test_query_builder_${Date.now()}`;
+  const index = `test_query_builder_${Date.now()}`;
 
   beforeAll(async () => {
     await deleteBooksIndex(index);
@@ -50,7 +50,7 @@ describe("QueryBuilder - Integration", () => {
     expect(docIds).toEqual(["1", "2"]);
   });
 
-  it("should find documents by term query", async () => {
+  it("should find documents by match query", async () => {
     const qb = new QueryBuilder();
     qb.match({ field: "title", phrase: "Harry" });
     const result = await client.search({
@@ -65,15 +65,15 @@ describe("QueryBuilder - Integration", () => {
     expect(docIds).toEqual(["1", "2"]);
   });
 
-  it("should find documents by range query", async () => {
-    const qb = new QueryBuilder();
-    qb.nested({
+  it("should find documents by nested range query", async () => {
+    const query = new QueryBuilder();
+    query.nested({
       path: "publishing",
       withBuilder: (qb) => qb.range("publishing.year", "gte", 1999),
     });
     const result = await client.search({
       index,
-      ...qb.getQuery(),
+      ...query.getQuery(),
       _source: true,
       fields: ["id"],
       size: 10,
@@ -81,6 +81,25 @@ describe("QueryBuilder - Integration", () => {
 
     const docIds = result.hits.hits.map((hit: any) => hit._id).sort();
     expect(docIds).toEqual(["2", "3"]);
+  });
+
+  it("should handle matchPhrase nested with slop", async () => {
+    const query = new QueryBuilder();
+    query.index(index);
+    query.nested({
+      path: "publishing",
+      withBuilder: (qb) => {
+        qb.matchPhrase({
+          field: "publishing.series",
+          phrase: "harry series",
+          options: { slop: 3 },
+        });
+      },
+    });
+    const result = await client.search(query.getQuery());
+
+    const docIds = result.hits.hits.map((hit: any) => hit._id).sort();
+    expect(docIds).toEqual(["1", "2"]);
   });
 
   it("should find documents with both must and must_not", async () => {
@@ -100,7 +119,7 @@ describe("QueryBuilder - Integration", () => {
     expect(docIds).toEqual(["2"]);
   });
 
-  it("should find documents with multi_match", async () => {
+  it("should find documents with AND concept", async () => {
     const qb = new QueryBuilder();
     qb.should({
       withBuilders: [
@@ -149,29 +168,27 @@ describe("QueryBuilder - Integration", () => {
     expect(years).toEqual([2018]);
   });
 
-  // it('should handle exists query', async () => {
-  //   const qb = new QueryBuilder();
-  //   qb.index(index);
-  //   qb.fields(['*']);
-  //   qb.exists('publishing/movieYear');
-  //   const result = await client.search(qb.getQuery());
-  //
-  //   const docIds = result.hits.hits.map((hit: any) => hit._id).sort();
-  //   expect(docIds).toEqual(['1', '2']);
-  // });
+  it("should handle exists query", async () => {
+    const qb = new QueryBuilder();
+    qb.index(index);
+    qb.exists({ field: "extra" });
+    const result = await client.search(qb.getQuery());
 
-  // it('should handle notExists query', async () => {
-  //   const qb = new QueryBuilder();
-  //   qb.index(index);
-  //   qb.fields(['*']);
-  //   qb.term('categories/id', 101);
-  //   qb.notExists('publishing/movieYear');
-  //   // console.log('matchPhrase', JSON.stringify(qb.getQuery(), null, 2));
-  //   const result = await client.search(qb.getQuery());
-  //
-  //   const docIds = result.hits.hits.map((hit: any) => hit._id).sort();
-  //   expect(docIds).toEqual(['3']);
-  // });
+    const docIds = result.hits.hits.map((hit: any) => hit._id).sort();
+    expect(docIds).toEqual(["3"]);
+  });
+
+  it("should handle notExists query", async () => {
+    const qb = new QueryBuilder();
+    qb.index(index);
+    qb.mustNot((qb) => {
+      qb.exists({ field: "extra" });
+    });
+    const result = await client.search(qb.getQuery());
+
+    const docIds = result.hits.hits.map((hit: any) => hit._id).sort();
+    expect(docIds).toEqual(["1", "2"]);
+  });
 
   it("should handle matchPhrase query", async () => {
     const qb = new QueryBuilder();
@@ -182,25 +199,4 @@ describe("QueryBuilder - Integration", () => {
     const docIds = result.hits.hits.map((hit: any) => hit._id).sort();
     expect(docIds).toEqual(["1", "2"]);
   });
-
-  // it('should handle matchPhrase nested query', async () => {
-  //   const qb = new QueryBuilder();
-  //   qb.index(index);
-  //   qb.matchPhrase('publishing/organization', 'publish');
-  //   // console.log('matchPhrase', JSON.stringify(qb.getQuery(), null, 2));
-  //   const result = await client.search(qb.getQuery());
-  //   const docIds = result.hits.hits.map((hit: any) => hit._id).sort();
-  //   expect(docIds).toEqual(['1', '2']);
-  // });
-
-  // it('should handle matchPhrase nested with slop', async () => {
-  //   const qb = new QueryBuilder();
-  //   qb.index(index);
-  //   qb.matchPhrase('publishing/series', 'harry series', { slop: 3 });
-  //   // console.log('matchPhrase', JSON.stringify(qb.getQuery(), null, 2));
-  //   const result = await client.search(qb.getQuery());
-  //
-  //   const docIds = result.hits.hits.map((hit: any) => hit._id).sort();
-  //   expect(docIds).toEqual(['1', '2']);
-  // });
 });
