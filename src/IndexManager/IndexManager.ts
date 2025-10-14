@@ -1,15 +1,14 @@
 import IndexNameManager, {
   IndexNameAttributes,
-} from '../IndexNameManager/IndexNameManager';
-import QueryBuilder from '../QueryBuilder/QueryBuilder';
-import getEsClient from '../getEsClient/getEsClient';
-import { Client, estypes, errors } from '@elastic/elasticsearch';
-import {
+} from "../IndexNameManager/IndexNameManager";
+import type QueryBuilder from "../QueryBuilder/QueryBuilder";
+import getEsClient from "../getEsClient/getEsClient";
+import { type Client, type estypes, errors } from "@elastic/elasticsearch";
+import type {
   AliasCreateParams,
   AliasDeleteParams,
   AliasExistParams,
   AliasMetadataParams,
-  BoostType,
   BulkRequestParams,
   DeleteRequestShape,
   ElasticsearchRecord,
@@ -22,51 +21,51 @@ import {
   MappingProperties,
   PatchRequestParams,
   SchemaShape,
-} from '../types';
-import TextProcessor from '../TextProcessor/TextProcessor';
-import QueryRunner from '../QueryRunner/QueryRunner';
-import SchemaManager from '../SchemaManager/SchemaManager';
+} from "../types";
+import TextProcessor from "../TextProcessor/TextProcessor";
+import QueryRunner from "../QueryRunner/QueryRunner";
+import SchemaManager from "../SchemaManager/SchemaManager";
 
-export type IndexErrorShape = IndexManager['_formatError'];
-export type IndexExistsShape = Awaited<ReturnType<IndexManager['exists']>>;
-export type AliasExistsShape = Awaited<ReturnType<IndexManager['aliasExists']>>;
+export type IndexErrorShape = IndexManager["_formatError"];
+export type IndexExistsShape = Awaited<ReturnType<IndexManager["exists"]>>;
+export type AliasExistsShape = Awaited<ReturnType<IndexManager["aliasExists"]>>;
 export type IndexMetadataShape = Awaited<
-  ReturnType<IndexManager['getIndexMetadata']>
+  ReturnType<IndexManager["getIndexMetadata"]>
 >;
 export type AliasMetadataShape = Awaited<
-  ReturnType<IndexManager['getAliasMetadata']>
+  ReturnType<IndexManager["getAliasMetadata"]>
 >;
-export type IndexFlushResult = Awaited<ReturnType<IndexManager['flush']>>;
-export type IndexCreateResult = Awaited<ReturnType<IndexManager['create']>>;
-export type IndexDropResult = Awaited<ReturnType<IndexManager['drop']>>;
+export type IndexFlushResult = Awaited<ReturnType<IndexManager["flush"]>>;
+export type IndexCreateResult = Awaited<ReturnType<IndexManager["create"]>>;
+export type IndexDropResult = Awaited<ReturnType<IndexManager["drop"]>>;
 export type IndexCreateAliasResult = Awaited<
-  ReturnType<IndexManager['createAlias']>
+  ReturnType<IndexManager["createAlias"]>
 >;
 export type IndexDropAliasResult = Awaited<
-  ReturnType<IndexManager['dropAlias']>
+  ReturnType<IndexManager["dropAlias"]>
 >;
 export type IndexCreateIfNeededResult = Awaited<
-  ReturnType<IndexManager['createIfNeeded']>
+  ReturnType<IndexManager["createIfNeeded"]>
 >;
 export type IndexCreateAliasIfNeededResult = Awaited<
-  ReturnType<IndexManager['createAliasIfNeeded']>
+  ReturnType<IndexManager["createAliasIfNeeded"]>
 >;
-export type IndexPutResult = Awaited<ReturnType<IndexManager['put']>>;
-export type IndexPutBulkResult = Awaited<ReturnType<IndexManager['putBulk']>>;
-export type IndexPatchResult = Awaited<ReturnType<IndexManager['patch']>>;
-export type IndexDeleteResult = Awaited<ReturnType<IndexManager['deleteById']>>;
-export type IndexStatusReport = Awaited<ReturnType<IndexManager['getStatus']>>;
-export type IndexRecreateResult = Awaited<ReturnType<IndexManager['recreate']>>;
+export type IndexPutResult = Awaited<ReturnType<IndexManager["put"]>>;
+export type IndexPutBulkResult = Awaited<ReturnType<IndexManager["putBulk"]>>;
+export type IndexPatchResult = Awaited<ReturnType<IndexManager["patch"]>>;
+export type IndexDeleteResult = Awaited<ReturnType<IndexManager["deleteById"]>>;
+export type IndexStatusReport = Awaited<ReturnType<IndexManager["getStatus"]>>;
+export type IndexRecreateResult = Awaited<ReturnType<IndexManager["recreate"]>>;
 export type IndexMigrationReport = Awaited<
-  ReturnType<IndexManager['migrateIfNeeded']>
+  ReturnType<IndexManager["migrateIfNeeded"]>
 >;
-export type IndexMigrationReportCode = IndexMigrationReport['code'];
+export type IndexMigrationReportCode = IndexMigrationReport["code"];
 
 export type IndexInferSchema<T extends IndexManager<any>> =
   T extends IndexManager<infer S> ? S : never;
 export type IndexInferRecordShape<T extends IndexManager<any>> =
   ElasticsearchRecord<IndexInferSchema<T>>;
-export type IndexRunShape<T extends IndexManager> = ReturnType<T['run']>;
+export type IndexRunShape<T extends IndexManager> = ReturnType<T["run"]>;
 
 /**
  * ElasticSearch index manager for creating, searching and saving data
@@ -116,10 +115,10 @@ export default class IndexManager<
     schema = {} as ThisSchema,
     settings = {} as IndexSettings,
     textProcessor = new TextProcessor(),
-    analyzer = 'english',
+    analyzer = "english",
     properties = {} as MappingProperties,
     client = getEsClient(),
-    nestedSeparator = '/',
+    nestedSeparator = "/",
   }: {
     client?: Client;
     index: IndexNameAttributes;
@@ -135,7 +134,7 @@ export default class IndexManager<
     this.nestedSeparator = nestedSeparator;
     this.textProcessor = textProcessor;
     this.textProcessor.registerSchema(schema);
-    this.analyzer = analyzer || 'english';
+    this.analyzer = analyzer || "english";
     this.index = new IndexNameManager(index);
     this.schema = new SchemaManager({
       schema,
@@ -151,35 +150,35 @@ export default class IndexManager<
       // Handle Elasticsearch response errors
       return {
         error: e,
-        errorKind: 'response',
+        errorKind: "response",
         response: e.meta || null,
       };
     }
     if (e instanceof errors.ConnectionError) {
       return {
         error: e,
-        errorKind: 'connection',
+        errorKind: "connection",
         response: null,
       };
     }
     if (e instanceof errors.TimeoutError) {
       return {
         error: e,
-        errorKind: 'timeout',
+        errorKind: "timeout",
         response: null,
       };
     }
     if (e instanceof errors.NoLivingConnectionsError) {
       return {
         error: e,
-        errorKind: 'disconnected',
+        errorKind: "disconnected",
         response: null,
       };
     }
     // Handle other types of errors
     return {
       error: e as Error,
-      errorKind: 'javascript',
+      errorKind: "javascript",
       response: null,
     };
   }
@@ -198,7 +197,7 @@ export default class IndexManager<
   async exists(more?: Partial<IndexExistParams>) {
     const start = Date.now();
     const request = {
-      method: 'HEAD',
+      method: "HEAD",
       endpoint: `/${this.getFullName()}`,
       body: {
         index: this.getFullName(),
@@ -237,7 +236,7 @@ export default class IndexManager<
   async aliasExists(more?: Partial<AliasExistParams>) {
     const start = Date.now();
     const request = {
-      method: 'HEAD',
+      method: "HEAD",
       endpoint: `/_alias/${this.getAliasName()}`,
       body: {
         name: this.getAliasName(),
@@ -277,7 +276,7 @@ export default class IndexManager<
   async getIndexMetadata(more?: Partial<IndexMetadataParams>) {
     const start = Date.now();
     const request = {
-      method: 'GET',
+      method: "GET",
       endpoint: `/${this.getFullName()}`,
       body: {
         index: this.getFullName(),
@@ -310,7 +309,7 @@ export default class IndexManager<
   async getAliasMetadata(more?: Partial<AliasMetadataParams>) {
     const start = Date.now();
     const request = {
-      method: 'GET',
+      method: "GET",
       endpoint: `/_alias/${this.getAliasName()}`,
       body: {
         name: this.getAliasName(),
@@ -343,7 +342,7 @@ export default class IndexManager<
   async flush(more?: Partial<FlushRequestParams>) {
     const start = Date.now();
     const request = {
-      method: 'POST',
+      method: "POST",
       endpoint: `/${this.getAliasName()}/_flush`,
       body: {
         index: this.getAliasName(),
@@ -371,7 +370,7 @@ export default class IndexManager<
   getCreateRequest(more?: Partial<IndexCreateParams>) {
     const sm = new SchemaManager(this.schema);
     return {
-      method: 'PUT',
+      method: "PUT",
       endpoint: `/${this.getFullName()}`,
       body: {
         index: this.getFullName(),
@@ -412,7 +411,7 @@ export default class IndexManager<
   async drop(more?: Partial<DeleteRequestShape>) {
     const start = Date.now();
     const request = {
-      method: 'DELETE',
+      method: "DELETE",
       endpoint: `/${this.getFullName()}`,
       body: {
         index: this.getFullName(),
@@ -462,7 +461,7 @@ export default class IndexManager<
   async createAlias(more?: Partial<AliasCreateParams>) {
     const start = Date.now();
     const request = {
-      method: 'PUT',
+      method: "PUT",
       endpoint: `/${this.getFullName()}/_alias/${this.getAliasName()}`,
       body: {
         name: this.getAliasName(),
@@ -494,7 +493,7 @@ export default class IndexManager<
   async dropAlias(more?: Partial<AliasDeleteParams>) {
     const start = Date.now();
     const request = {
-      method: 'DELETE',
+      method: "DELETE",
       endpoint: `/${this.getFullName()}/_alias/${this.getAliasName()}`,
       body: {
         name: this.getAliasName(),
@@ -531,7 +530,7 @@ export default class IndexManager<
         success: true,
         took: Date.now() - start,
         request: res.request,
-        code: 'ALREADY_EXISTS',
+        code: "ALREADY_EXISTS",
         error: null,
         errorKind: null,
       };
@@ -540,7 +539,7 @@ export default class IndexManager<
         success: false,
         took: Date.now() - start,
         request: res.request,
-        code: 'ERROR',
+        code: "ERROR",
         error: res.error,
         errorKind: res.errorKind,
       };
@@ -551,14 +550,14 @@ export default class IndexManager<
           success: false,
           took: Date.now() - start,
           request: res.request,
-          code: 'ERROR',
+          code: "ERROR",
           error: res.error,
           errorKind: res.errorKind,
         };
       } else {
         return {
           success: true,
-          code: 'CREATED',
+          code: "CREATED",
           request: res.request,
           took: Date.now() - start,
           error: null,
@@ -580,7 +579,7 @@ export default class IndexManager<
         success: true,
         took: Date.now() - start,
         request: res.request,
-        code: 'ALREADY_EXISTS',
+        code: "ALREADY_EXISTS",
         error: null,
         errorKind: null,
       };
@@ -589,7 +588,7 @@ export default class IndexManager<
         success: false,
         took: Date.now() - start,
         request: res.request,
-        code: 'ERROR',
+        code: "ERROR",
         error: res.error,
         errorKind: res.errorKind,
       };
@@ -600,7 +599,7 @@ export default class IndexManager<
           success: false,
           took: Date.now() - start,
           request: res.request,
-          code: 'ERROR',
+          code: "ERROR",
           error: res.error,
           errorKind: res.errorKind,
         };
@@ -608,7 +607,7 @@ export default class IndexManager<
         return {
           success: true,
           request: res.request,
-          code: 'CREATED',
+          code: "CREATED",
           error: null,
           errorKind: null,
         };
@@ -624,7 +623,7 @@ export default class IndexManager<
   async findById(id: string, more?: Partial<GetRequestParams>) {
     const start = Date.now();
     const request = {
-      method: 'GET',
+      method: "GET",
       endpoint: `/${this.getAliasName()}/_doc/${id}`,
       body: {
         index: this.getAliasName(),
@@ -649,75 +648,75 @@ export default class IndexManager<
       };
     }
   }
-
-  /**
-   * Find records that have content_* columns matching the given term or phrase
-   * @param searchFields  specify a subset of fields to search
-   * @param fetchFields  specify a subset of fields to fetch
-   * @param phrase  A word or phrase to search for
-   * @param boosts  boost options (defaults to { boosts: [1, 3, 5] })
-   * @param where  Field-value pairs of fields to match
-   * @param [more]  Additional body params such as size and from
-   */
-  async findByPhrase({
-    searchFields = this.fulltextFields,
-    fetchFields = ['*'],
-    phrase,
-    boosts = {},
-    where = {},
-    more = {},
-  }: {
-    searchFields?: string[];
-    fetchFields?: string[];
-    phrase: string;
-    more?: Partial<estypes.SearchRequest>;
-    where?: Record<string, any>;
-    boosts?: BoostType;
-  }) {
-    return this.run(runner => {
-      const builder = runner.builder;
-      builder.fields(fetchFields);
-      builder.matchBoostedPhrase(searchFields, phrase, boosts);
-      for (const [field, value] of Object.entries(where)) {
-        builder.match(field, value);
-      }
-      return runner.findMany(more);
-    });
-  }
-
-  /**
-   * Find records that have content_* columns matching the given term or phrase
-   * @param fetchFields  specify a subset of fields to fetch
-   * @param where  Field-value pairs of fields to match
-   * @param [more]  Additional body params such as size and from
-   */
-  async findByCriteria({
-    fetchFields = ['*'],
-    where = {},
-    more = {},
-  }: {
-    searchFields?: string[];
-    fetchFields?: string[];
-    more?: Partial<estypes.SearchRequest>;
-    where?: Record<string, any>;
-    boosts?: BoostType;
-  } = {}) {
-    return this.run(runner => {
-      const builder = runner.builder;
-      builder.fields(fetchFields);
-      for (const [field, value] of Object.entries(where)) {
-        builder.match(field, value);
-      }
-      return runner.findMany(more);
-    });
-  }
+  //
+  // /**
+  //  * Find records that have content_* columns matching the given term or phrase
+  //  * @param searchFields  specify a subset of fields to search
+  //  * @param fetchFields  specify a subset of fields to fetch
+  //  * @param phrase  A word or phrase to search for
+  //  * @param boosts  boost options (defaults to { boosts: [1, 3, 5] })
+  //  * @param where  Field-value pairs of fields to match
+  //  * @param [more]  Additional body params such as size and from
+  //  */
+  // async findByPhrase({
+  //   searchFields = this.fulltextFields,
+  //   fetchFields = ['*'],
+  //   phrase,
+  //   boosts = {},
+  //   where = {},
+  //   more = {},
+  // }: {
+  //   searchFields?: string[];
+  //   fetchFields?: string[];
+  //   phrase: string;
+  //   more?: Partial<estypes.SearchRequest>;
+  //   where?: Record<string, any>;
+  //   boosts?: BoostType;
+  // }) {
+  //   return this.run(runner => {
+  //     const builder = runner.builder;
+  //     builder.fields(fetchFields);
+  //     builder.matchBoostedPhrase(searchFields, phrase, boosts);
+  //     for (const [field, value] of Object.entries(where)) {
+  //       builder.match(field, value);
+  //     }
+  //     return runner.findMany(more);
+  //   });
+  // }
+  //
+  // /**
+  //  * Find records that have content_* columns matching the given term or phrase
+  //  * @param fetchFields  specify a subset of fields to fetch
+  //  * @param where  Field-value pairs of fields to match
+  //  * @param [more]  Additional body params such as size and from
+  //  */
+  // async findByCriteria({
+  //   fetchFields = ['*'],
+  //   where = {},
+  //   more = {},
+  // }: {
+  //   searchFields?: string[];
+  //   fetchFields?: string[];
+  //   more?: Partial<estypes.SearchRequest>;
+  //   where?: Record<string, any>;
+  //   boosts?: BoostType;
+  // } = {}) {
+  //   return this.run(runner => {
+  //     const builder = runner.builder;
+  //     builder.fields(fetchFields);
+  //     for (const [field, value] of Object.entries(where)) {
+  //       builder.match(field, value);
+  //     }
+  //     return runner.findMany(more);
+  //   });
+  // }
 
   run<T>(withQueryRunner: (runner: QueryRunner<ThisSchema>) => T) {
     return withQueryRunner(new QueryRunner(this));
   }
 
   findMany(withQueryBuilder: (builder: QueryBuilder) => void | Promise<void>) {
-    return this.run(async runner => {
+    return this.run(async (runner) => {
       const builder = runner.builder;
       await withQueryBuilder(builder);
       return runner.findMany();
@@ -725,7 +724,7 @@ export default class IndexManager<
   }
 
   findFirst(withQueryBuilder: (builder: QueryBuilder) => void | Promise<void>) {
-    return this.run(async runner => {
+    return this.run(async (runner) => {
       const builder = runner.builder;
       await withQueryBuilder(builder);
       return runner.findFirst();
@@ -741,7 +740,7 @@ export default class IndexManager<
     const start = Date.now();
     this.textProcessor.prepareInsertion(body);
     const request = {
-      method: 'PUT',
+      method: "PUT",
       endpoint: `/${this.getAliasName()}/_doc/${id}`,
       body: {
         index: this.getAliasName(),
@@ -774,20 +773,22 @@ export default class IndexManager<
    */
   async putBulk(
     records: ElasticsearchRecord<ThisSchema>[],
-    more?: Partial<BulkRequestParams>
+    more?: Partial<BulkRequestParams>,
   ) {
     const start = Date.now();
-    records.forEach(r => this.textProcessor.prepareInsertion(r));
+    records.forEach((r) => {
+      this.textProcessor.prepareInsertion(r);
+    });
     const index = this.getAliasName();
     const bulkBody: any[] = [];
     for (const record of records) {
       bulkBody.push(
         { index: { _index: index, _id: record.id || crypto.randomUUID() } },
-        record
+        record,
       );
     }
     const request = {
-      method: 'PUT',
+      method: "PUT",
       endpoint: `/_bulk`,
       body: {
         index,
@@ -822,11 +823,11 @@ export default class IndexManager<
   async patch(
     id: string,
     body: ElasticsearchRecord<ThisSchema>,
-    more?: Partial<PatchRequestParams>
+    more?: Partial<PatchRequestParams>,
   ) {
     const start = Date.now();
     const request = {
-      method: 'POST',
+      method: "POST",
       endpoint: `/${this.getAliasName()}/_update/${id}`,
       body: {
         index: this.getAliasName(),
@@ -840,7 +841,7 @@ export default class IndexManager<
       const response = await this.client.update(request.body);
       return {
         success: true,
-        result: 'updated',
+        result: "updated",
         request,
         took: Date.now() - start,
         ...this._formatNonError(response),
@@ -848,7 +849,7 @@ export default class IndexManager<
     } catch (e) {
       return {
         success: false,
-        result: 'error',
+        result: "error",
         request,
         took: Date.now() - start,
         ...this._formatError(e),
@@ -863,7 +864,7 @@ export default class IndexManager<
   async deleteById(id: string) {
     const start = Date.now();
     const request = {
-      method: 'DELETE',
+      method: "DELETE",
       endpoint: `/${this.getAliasName()}/_doc/${id}`,
       body: {
         index: this.getAliasName(),
@@ -894,7 +895,7 @@ export default class IndexManager<
   async deleteAll() {
     const start = Date.now();
     const request = {
-      method: 'DELETE',
+      method: "DELETE",
       endpoint: `/${this.getAliasName()}/delete_by_query/?conflicts=proceed`,
       body: {
         index: this.getAliasName(),
@@ -975,7 +976,7 @@ export default class IndexManager<
           return {
             success: false,
             took: Date.now() - start,
-            code: 'ERROR_CREATING_INDEX',
+            code: "ERROR_CREATING_INDEX",
             oldName: null,
             newName: currentIndexName,
             error: createResult.error,
@@ -994,7 +995,7 @@ export default class IndexManager<
           return {
             success: true,
             took: Date.now() - start,
-            code: 'CREATED_INDEX',
+            code: "CREATED_INDEX",
             oldName: null,
             newName: currentIndexName,
             ...this._formatNonError(createResult),
@@ -1013,14 +1014,14 @@ export default class IndexManager<
           wait_for_completion: true,
           source: { index: oldIndexName },
           dest: { index: currentIndexName },
-          conflicts: 'proceed',
+          conflicts: "proceed",
         });
 
         try {
           // Stop writes to old index
           await this.client.indices.putSettings({
             index: oldIndexName,
-            body: { 'index.blocks.write': true },
+            body: { "index.blocks.write": true },
           });
 
           // Update alias to point to the new index atomically
@@ -1062,7 +1063,7 @@ export default class IndexManager<
               for (const hit of changes.hits.hits) {
                 bulkBody.push(
                   { index: { _index: currentIndexName, _id: hit._id } },
-                  hit._source
+                  hit._source,
                 );
               }
               await this.client.bulk({
@@ -1083,7 +1084,7 @@ export default class IndexManager<
           // Allow writes to new index so we can delete
           await this.client.indices.putSettings({
             index: oldIndexName,
-            body: { 'index.blocks.write': null },
+            body: { "index.blocks.write": null },
           });
 
           // We should be good to delete
@@ -1092,7 +1093,7 @@ export default class IndexManager<
           return {
             success: true,
             took: Date.now() - start,
-            code: 'MIGRATED',
+            code: "MIGRATED",
             oldName: oldIndexName,
             newName: currentIndexName,
             ...this._formatNonError(indexExists),
@@ -1101,7 +1102,7 @@ export default class IndexManager<
           return {
             success: false,
             took: Date.now() - start,
-            code: 'MIGRATION_FAILED',
+            code: "MIGRATION_FAILED",
             oldName: oldIndexName,
             newName: currentIndexName,
             ...this._formatError(e),
@@ -1110,7 +1111,7 @@ export default class IndexManager<
           // Ensure we reinstate writes to old index upon error
           await this.client.indices.putSettings({
             index: oldIndexName,
-            body: { 'index.blocks.write': null },
+            body: { "index.blocks.write": null },
           });
         }
       }
@@ -1119,7 +1120,7 @@ export default class IndexManager<
       return {
         success: true,
         took: Date.now() - start,
-        code: 'NO_CHANGE',
+        code: "NO_CHANGE",
         oldName: currentIndexName,
         newName: currentIndexName,
         ...this._formatNonError(indexExists),
@@ -1128,7 +1129,7 @@ export default class IndexManager<
       return {
         success: false,
         took: Date.now() - start,
-        code: 'ERROR',
+        code: "ERROR",
         oldName: null,
         newName: null,
         ...this._formatError(e),
