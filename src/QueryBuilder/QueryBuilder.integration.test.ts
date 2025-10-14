@@ -157,7 +157,6 @@ describe("QueryBuilder - Integration", () => {
     qb.index(index);
     qb.limit(2);
     qb.page(2);
-    console.log("qb query=", JSON.stringify(qb.getQuery(), null, 2));
     const result = await client.search(qb.getQuery());
 
     const docIds = result.hits.hits.map((hit: any) => hit._id);
@@ -223,7 +222,11 @@ describe("QueryBuilder - Integration", () => {
     qb.moreLikeThis({
       field: "premise",
       like: "alien attack young pilot",
-      options: { min_term_freq: 1, min_doc_freq: 1, max_query_terms: 25 } as any,
+      options: {
+        min_term_freq: 1,
+        min_doc_freq: 1,
+        max_query_terms: 25,
+      } as any,
     });
     const result = await client.search(qb.getQuery());
     const ids = result.hits.hits.map((h: any) => h._id).sort();
@@ -251,10 +254,13 @@ describe("QueryBuilder - Integration", () => {
     const result: any = await client.search(qb.getQuery());
     const buckets = result.aggregations.country.buckets;
     const keys = buckets.map((b: any) => b.key).sort();
-    const counts = buckets.reduce((acc: Record<string, number>, b: any) => {
-      acc[b.key] = b.doc_count;
-      return acc;
-    }, {} as Record<string, number>);
+    const counts = buckets.reduce(
+      (acc: Record<string, number>, b: any) => {
+        acc[b.key] = b.doc_count;
+        return acc;
+      },
+      {} as Record<string, number>,
+    );
     expect(keys).toEqual(["United Kingdom", "United States of America"]);
     expect(counts["United Kingdom"]).toBe(2);
     expect(counts["United States of America"]).toBe(1);
@@ -272,17 +278,19 @@ describe("QueryBuilder - Integration", () => {
     expect(counts).toEqual([1, 1, 1]);
   });
 
-  it("should return highlights when useHighlighter is used (plain highlighter)", async () => {
+  // make sure field is indexed with term vector
+  it("should return highlights for given fields", async () => {
     const qb = new QueryBuilder();
     qb.index(index);
-    qb.match({ field: "title", phrase: "Harry" });
-    qb.useHighlighter({ fields: { title: {} } } as any);
+    qb.match({ field: "title.fvh", phrase: "Harry" });
+    qb.highlightField("title.fvh");
     const result: any = await client.search(qb.getQuery());
     const byId: Record<string, any> = {};
     for (const hit of result.hits.hits) {
       byId[hit._id] = hit;
     }
-    expect(byId["1"].highlight?.title?.length > 0).toBe(true);
-    expect(byId["2"].highlight?.title?.length > 0).toBe(true);
+    console.log("QueryBuilder.integration.test.ts for highlights byId", byId);
+    expect(byId["1"].highlight?.["title.fvh"]?.[0]).toContain("<em");
+    expect(byId["2"].highlight?.["title.fvh"]?.[0]).toContain("<em");
   });
 });

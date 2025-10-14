@@ -10,6 +10,12 @@ export function getBooksMappings(): estypes.MappingTypeMapping {
         type: "text",
         analyzer: "english",
         search_analyzer: "english",
+        fields: {
+          fvh: {
+            type: "text",
+            term_vector: "with_positions_offsets",
+          },
+        },
       },
       premise: {
         type: "text",

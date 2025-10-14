@@ -391,6 +391,7 @@ describe("QueryBuilder.dateHistogram()", () => {
           calendar_interval: "1M",
           time_zone: "+02:00",
           format: "yyyy-MM",
+          min_doc_count: 1,
         },
       },
     });
@@ -407,6 +408,7 @@ describe("QueryBuilder.dateHistogram()", () => {
           calendar_interval: "1M",
           time_zone: "+02:00",
           format: "yyyy-MM",
+          min_doc_count: 1,
         },
       },
     });
@@ -464,7 +466,7 @@ describe("QueryBuilder.clear()", () => {
       .sort("published_at")
       .term({ field: "status", value: "published" })
       .includeFacets(["category"], 10)
-      .useHighlighter({ fields: { title: { type: "fvh" } } } as any)
+      .highlightField("title")
       .decayFunctionScore({
         field_value_factor: { field: "popularity", factor: 1.2 },
       } as any);
@@ -601,33 +603,33 @@ describe("QueryBuilder.nested()", () => {
 // highlighting
 
 describe("QueryBuilder.useHighlighter()", () => {
-  it("should attach a highlight config to the body", () => {
+  it("should update highlighter config", () => {
     const qb = new QueryBuilder();
-    qb.useHighlighter({
-      fields: { body: { type: "fvh" } },
-      tags_schema: "styled",
-    } as any);
-    const body: any = qb.getBody();
-    expect(body.highlight).toEqual({
-      fields: { body: { type: "fvh" } },
-      tags_schema: "styled",
+    qb.setHighlighterOptions({
+      boundary_scanner_locale: "fr-FR",
     });
+    qb.highlightField("body");
+    const body: any = qb.getBody();
+    expect(body.highlight.boundary_scanner_locale).toEqual("fr-FR");
+    expect(body.highlight.fields).toEqual({ body: {} });
   });
 });
 
 describe("QueryBuilder.highlightField()", () => {
   it("should add FVH highlight entries and preserve top-level options", () => {
     const qb = new QueryBuilder();
-    qb.useHighlighter({ order: "score", fields: {} } as any);
-    qb.highlightField(["title", "body"], 100, 3);
+    qb.setHighlighterOptions({ type: "plain" });
+    qb.highlightField("title", {
+      type: "fvh",
+      fragment_size: 100,
+      number_of_fragments: 3,
+    });
+    qb.highlightField("body");
     const body: any = qb.getBody();
-    expect(body.highlight).toEqual({
-      order: "score",
-      tags_schema: "styled",
-      fields: {
-        title: { type: "fvh", fragment_size: 100, number_of_fragments: 3 },
-        body: { type: "fvh", fragment_size: 100, number_of_fragments: 3 },
-      },
+    expect(body.highlight.type).toEqual("plain");
+    expect(body.highlight.fields).toEqual({
+      title: { type: "fvh", fragment_size: 100, number_of_fragments: 3 },
+      body: {},
     });
   });
 });

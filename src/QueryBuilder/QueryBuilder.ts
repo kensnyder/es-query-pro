@@ -20,6 +20,15 @@ import isDefined from "../isDefined/isDefined";
 
 export type QueryBuilderBody = QueryBuilder["getBody"];
 
+export const getDefaultHighlighter = () =>
+  ({
+    type: "fvh",
+    number_of_fragments: 3,
+    fragment_size: 150,
+    tags_schema: "styled",
+    fields: {},
+  }) as SearchRequestShape["highlight"];
+
 /**
  * Build ElasticSearch builder (ElasticSearch 9 only)
  */
@@ -57,7 +66,8 @@ export default class QueryBuilder {
   /**
    * The highlight definition
    */
-  private _highlighter: SearchRequestShape["highlight"] = null;
+  private _highlighter: SearchRequestShape["highlight"] =
+    getDefaultHighlighter();
 
   /**
    * The max number of records to return
@@ -610,7 +620,10 @@ export default class QueryBuilder {
   ) {
     // see https://www.elastic.co/guide/en/elasticsearch/reference/current/mapping-date-format.html
     // Map human-friendly interval names to ES9 calendar/fixed intervals and output formats
-    const intervals: Record<IntervalType, { code: string; format: string; kind: "calendar" | "fixed" }> = {
+    const intervals: Record<
+      IntervalType,
+      { code: string; format: string; kind: "calendar" | "fixed" }
+    > = {
       year: { code: "1y", format: "yyyy", kind: "calendar" },
       quarter: { code: "1q", format: "yyyy-Q", kind: "calendar" },
       month: { code: "1M", format: "yyyy-MM", kind: "calendar" },
@@ -750,7 +763,7 @@ export default class QueryBuilder {
     } else if (field === "excludeFields") {
       this._excludeFields = [];
     } else if (field === "highlighter") {
-      this._highlighter = null;
+      this._highlighter = getDefaultHighlighter();
     } else if (field === "functionScores") {
       this._functionScores = [];
     }
@@ -877,7 +890,7 @@ export default class QueryBuilder {
 
   /**
    * Pass a highlight definition to use
-   * @param value  The value of the "highlight" option
+   * @param options  The global Highlighter options
    * @return {QueryBuilder}
    * @chainable
    * @see https://www.elastic.co/guide/en/elasticsearch/reference/9.x/highlighting.html
@@ -885,58 +898,32 @@ export default class QueryBuilder {
    * @example
    * {
    *   order: 'score',
-   *   fields: {
-   *     'content_*.fulltext': {
-   *       type: 'fvh',
-   *       fragment_size: 100,
-   *       number_of_fragments: 3,
-   *     },
-   *   },
    *   tags_schema: 'styled'
    * }
    */
-  useHighlighter(value: SearchRequestShape["highlight"]) {
-    this._highlighter = value;
+  setHighlighterOptions(
+    options: Omit<SearchRequestShape["highlight"], "fields">,
+  ) {
+    this._highlighter = {
+      ...options,
+      fields: this._highlighter.fields,
+    };
     return this;
   }
 
   /**
    * Convenience helper to add FVH highlighting for one or more fields.
-   * Ensures tags_schema: 'styled' at the top level and merges with any existing
-   * highlighter definition without removing custom options.
-   * @see https://www.elastic.co/guide/en/elasticsearch/reference/9.x/highlighting.html
+   *
+   * @param name  The name of the field to highlight
+   * @param overrideOptions  Options to override global highlight options
+   * @see https://www.elastic.co/docs/reference/elasticsearch/rest-apis/highlighting
+   * @see https://www.elastic.co/docs/reference/elasticsearch/rest-apis/highlighting-settings
    */
   highlightField(
-    fieldOrFields: string | string[],
-    fragmentSize: number,
-    numberOfFragments: number,
+    name: string,
+    overrideOptions: Omit<SearchRequestShape["highlight"], "fields"> = {},
   ) {
-    const fields = Array.isArray(fieldOrFields)
-      ? fieldOrFields
-      : [fieldOrFields];
-
-    // Initialize the highlighter if needed, preserving prior settings
-    const current: NonNullable<SearchRequestShape["highlight"]> =
-      (this._highlighter as any) ?? ({} as any);
-
-    // Ensure fields container exists
-    const currentFields: Record<string, any> = { ...(current.fields as any) };
-
-    // Apply/override per-field FVH configuration
-    for (const f of fields) {
-      currentFields[f] = {
-        type: "fvh",
-        fragment_size: fragmentSize,
-        number_of_fragments: numberOfFragments,
-      };
-    }
-
-    // Assemble the updated highlighter; preserve other options like 'order'
-    this._highlighter = {
-      ...(current as any),
-      tags_schema: "styled",
-      fields: currentFields as any,
-    } as SearchRequestShape["highlight"];
+    this._highlighter.fields[name] = overrideOptions;
 
     return this;
   }
@@ -1021,7 +1008,7 @@ export default class QueryBuilder {
     }
 
     // Add highlighting if specified
-    if (this._highlighter) {
+    if (!isEmptyObject(this._highlighter.fields)) {
       body.highlight = this._highlighter;
     }
 
