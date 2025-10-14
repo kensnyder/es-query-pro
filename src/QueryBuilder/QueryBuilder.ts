@@ -115,9 +115,16 @@ export default class QueryBuilder {
    * Set the index name (optional)
    * @param name
    */
-  index(name: string) {
+  index(name: string): this {
     this._index = name;
     return this;
+  }
+
+  /**
+   * Get the name of the index
+   */
+  getIndex() {
+    return this._index;
   }
 
   /**
@@ -125,7 +132,7 @@ export default class QueryBuilder {
    * @param fields  The fields to select
    * @return This instance
    */
-  fields(fields: string[]) {
+  fields(fields: string[]): this {
     this._fields = fields;
     return this;
   }
@@ -133,7 +140,7 @@ export default class QueryBuilder {
   /**
    * @alias fields
    */
-  sourceIncludes(fields: string[]) {
+  sourceIncludes(fields: string[]): this {
     this._fields = fields;
     return this;
   }
@@ -143,7 +150,7 @@ export default class QueryBuilder {
    * @param fields  The fields to exclude
    * @return This instance
    */
-  excludeFields(fields: string[]) {
+  excludeFields(fields: string[]): this {
     this._excludeFields = fields;
     return this;
   }
@@ -151,7 +158,7 @@ export default class QueryBuilder {
   /**
    * @alias excludeFields
    */
-  sourceExcludes(fields: string[]) {
+  sourceExcludes(fields: string[]): this {
     this._excludeFields = fields;
     return this;
   }
@@ -164,7 +171,7 @@ export default class QueryBuilder {
    * @see https://www.elastic.co/guide/en/elasticsearch/reference/9.x/highlighting.html
    * @see https://www.elastic.co/guide/en/elasticsearch/reference/9.x/term-vector.html
    */
-  highlighterOptions(options: Omit<SearchRequestShape['highlight'], 'fields'>) {
+  highlighterOptions(options: Omit<SearchRequestShape['highlight'], 'fields'>): this {
     this._highlighter = {
       ...options,
       fields: this._highlighter.fields,
@@ -188,7 +195,7 @@ export default class QueryBuilder {
   highlightField(
     name: string,
     overrideOptions: Omit<SearchRequestShape['highlight'], 'fields'> = {},
-  ) {
+  ): this {
     this._highlighter.fields[name] = overrideOptions;
     return this;
   }
@@ -226,7 +233,7 @@ export default class QueryBuilder {
    * Set rank_window_size
    * @param size
    */
-  rankWindowSize(size: number) {
+  rankWindowSize(size: number): this {
     this._rankWindowSize = size;
     return this;
   }
@@ -243,7 +250,7 @@ export default class QueryBuilder {
    * Set rank_constant
    * @param constant
    */
-  rankConstant(constant: number) {
+  rankConstant(constant: number): this {
     this._rankConstant = constant;
     return this;
   }
@@ -259,7 +266,7 @@ export default class QueryBuilder {
   /**
    * Set a minimum score threshold for hits
    */
-  minScore(score: number) {
+  minScore(score: number): this {
     this._minScore = score;
     return this;
   }
@@ -275,7 +282,7 @@ export default class QueryBuilder {
   /**
    * Use search_after for deep pagination
    */
-  searchAfter(values: SortResults) {
+  searchAfter(values: SortResults): this {
     this._searchAfter = values;
     return this;
   }
@@ -291,7 +298,7 @@ export default class QueryBuilder {
   /**
    * Control track_total_hits (boolean or number)
    */
-  trackTotalHits(value: boolean | number) {
+  trackTotalHits(value: boolean | number): this {
     this._trackTotalHits = value;
     return this;
   }
@@ -314,7 +321,7 @@ export default class QueryBuilder {
    * @param operator  One of the following: > < >= <= gt lt gte lte between
    * @param range  The limit(s) to search against
    */
-  range(field: string, operator: RangeOperator, range: RangeShape) {
+  range(field: string, operator: RangeOperator, range: RangeShape): this {
     const opMap: Record<string, string> = {
       '<': 'lt',
       lt: 'lt',
@@ -682,9 +689,9 @@ export default class QueryBuilder {
    *
    * @see https://www.elastic.co/docs/reference/query-languages/query-dsl/query-dsl-mlt-query
    *
-   * @param field
-   * @param like
-   * @param options
+   * @param field  The field name
+   * @param like  The like string or { _doc: '123' }
+   * @param options  Additional MorkLikeThisOptions
    */
   moreLikeThis({
     field,
@@ -706,8 +713,35 @@ export default class QueryBuilder {
     return this;
   }
 
-  rawCondition(query: QueryDslQueryContainer) {
+  /**
+   * Add an arbitrary condition
+   * @param query
+   */
+  rawCondition(query: QueryDslQueryContainer): this {
     this._must.push(query);
+    return this;
+  }
+
+  /**
+   * Add a terms_set query to must filters
+   * @see https://www.elastic.co/guide/en/elasticsearch/reference/9.x/query-dsl-terms-set-query.html
+   */
+  termsSet(field: string, terms: (string | number)[], minimumShouldMatchScript?: string): this {
+    const clause: QueryDslQueryContainer = {
+      terms_set: {
+        [field]: {
+          terms,
+          ...(minimumShouldMatchScript
+            ? {
+                minimum_should_match_script: {
+                  source: minimumShouldMatchScript,
+                },
+              }
+            : {}),
+        },
+      },
+    };
+    this._must.push(clause);
     return this;
   }
 
@@ -731,7 +765,7 @@ export default class QueryBuilder {
     weight: number;
     filter?: QueryDslQueryContainer | QueryDslQueryContainer[];
     similarity?: number | InferenceCohereSimilarityType;
-  }) {
+  }): this {
     const knnDef: Partial<
       Omit<KnnRetriever, 'similarity'> & {
         similarity?: number | InferenceCohereSimilarityType;
@@ -784,7 +818,7 @@ export default class QueryBuilder {
   }: {
     windowSize: number;
     withBuilder: (qb: QueryBuilder) => void;
-  }) {
+  }): this {
     const qb = new QueryBuilder();
     withBuilder(qb);
     const entry = {
@@ -869,7 +903,7 @@ export default class QueryBuilder {
     showTermDocCountError?: boolean;
     exclude?: any[];
     order?: any;
-  }) {
+  }): this {
     this._aggs[field] = {
       terms: {
         field: field,
@@ -881,6 +915,15 @@ export default class QueryBuilder {
     };
     // use limit to return no records, just counts
     this.limit(0);
+    return this;
+  }
+
+  /**
+   * Manually set the aggs array
+   * @param aggs
+   */
+  aggs(aggs: SearchRequestShape['aggs']): this {
+    this._aggs = aggs;
     return this;
   }
 
@@ -902,7 +945,7 @@ export default class QueryBuilder {
    * @returns This instance
    * @chainable
    */
-  dateHistogram(dateField: string, intervalName: IntervalType, timezone: string | number) {
+  dateHistogram(dateField: string, intervalName: IntervalType, timezone: string | number): this {
     // see https://www.elastic.co/guide/en/elasticsearch/reference/current/mapping-date-format.html
     // Map human-friendly interval names to ES9 calendar/fixed intervals and output formats
     const intervals: Record<
@@ -964,7 +1007,7 @@ export default class QueryBuilder {
    * @param limit  The max
    * @chainable
    */
-  limit(limit: number) {
+  limit(limit: number): this {
     this._limit = limit;
     return this;
   }
@@ -982,7 +1025,7 @@ export default class QueryBuilder {
    * @param page  Where 1 is the first page
    * @chainable
    */
-  page(page: number) {
+  page(page: number): this {
     this._page = page;
     return this;
   }
@@ -1008,7 +1051,7 @@ export default class QueryBuilder {
    *   qb.sort({ created_at: 'desc' });
    *   qb.sort([ { name: 'asc' }, { created_at: 'desc' } ]);
    */
-  sort(field: SortCombinations, maybeDirection?: SortDirection) {
+  sort(field: SortCombinations, maybeDirection?: SortDirection): this {
     // DESC string such as "-created_at"
     if (typeof field === 'string' && field.slice(0, 1) === '-') {
       this._sorts.push({ [field.slice(1)]: { order: 'desc' } });
@@ -1040,7 +1083,7 @@ export default class QueryBuilder {
    * Reset one or more properties of this instance to its initial value
    * @param field
    */
-  reset(field: FieldTypeOrTypes = null) {
+  reset(field: FieldTypeOrTypes = null): this {
     const all: FieldTypeOrTypes = [
       'fields',
       'excludeFields',
@@ -1100,6 +1143,25 @@ export default class QueryBuilder {
         this._limit = empty.getLimit();
       }
     }
+    return this;
+  }
+
+  /**
+   * Create a copy of this instance
+   */
+  clone(): QueryBuilder {
+    const copy = new QueryBuilder({ index: this._index });
+    copy.fields(this.getFields());
+    copy.excludeFields(this.getExcludeFields());
+    copy.must(this.getMust());
+    copy.aggs(this.getAggs());
+    // TODO implement these manual setting functions?
+    // copy.functionScores(this.getFunctionScores());
+    // copy.highlighter(this.getHighlighter());
+    // copy.sort(this.getSort());
+    // copy.retrievers(this.getRetrievers());
+    // copy.normalizer(this.getNormalizer());
+    return copy;
   }
 
   /**
@@ -1107,7 +1169,7 @@ export default class QueryBuilder {
    * @param trueOrFalse
    * @chainable
    */
-  sortByRandom(trueOrFalse: boolean = true) {
+  sortByRandom(trueOrFalse: boolean = true): this {
     this._shouldSortByRandom = trueOrFalse;
     return this;
   }
@@ -1124,7 +1186,7 @@ export default class QueryBuilder {
    * @see https://www.elastic.co/guide/en/elasticsearch/reference/9.x/query-dsl-function-score-query.html#function-decay
    * @chainable
    */
-  decayFunctionScore(functionScore: QueryDslDecayFunctionBase) {
+  decayFunctionScore(functionScore: QueryDslDecayFunctionBase): this {
     this._functionScores.push(functionScore);
     return this;
   }
@@ -1183,6 +1245,10 @@ export default class QueryBuilder {
     return this;
   }
 
+  /**
+   * Get a Query Builder to add a negative condition
+   * @param withBuilder  A function that takes a QueryBuilder to allow adding conditions
+   */
   mustNot(withBuilder: (qb: QueryBuilder) => void): this {
     const qb = new QueryBuilder();
     withBuilder(qb);
@@ -1190,6 +1256,14 @@ export default class QueryBuilder {
     return this;
   }
 
+  /**
+   * Add a nested condition
+   * @param withBuilder  A function that takes a QueryBuilder to allow adding conditions
+   * @param path  The path to this nesting layer
+   * @param scoreMode  score_mode=avg
+   * @param innerHits  inner_hits=undefined
+   * @param ignoreUnmapped  ignoreUnmapped=false
+   */
   nested({
     withBuilder,
     path,
@@ -1226,6 +1300,14 @@ export default class QueryBuilder {
    */
   getFunctionScores() {
     return this._functionScores;
+  }
+
+  /**
+   * Manually set the must condition array
+   */
+  must(must: QueryDslQueryContainer[]): this {
+    this._must = must;
+    return this;
   }
 
   /**
@@ -1433,29 +1515,6 @@ export default class QueryBuilder {
    */
   toString() {
     return JSON.stringify(this.getQuery(), null, 2);
-  }
-
-  /**
-   * Add a terms_set query to must filters
-   * @see https://www.elastic.co/guide/en/elasticsearch/reference/9.x/query-dsl-terms-set-query.html
-   */
-  termsSet(field: string, terms: (string | number)[], minimumShouldMatchScript?: string) {
-    const clause: QueryDslQueryContainer = {
-      terms_set: {
-        [field]: {
-          terms,
-          ...(minimumShouldMatchScript
-            ? {
-                minimum_should_match_script: {
-                  source: minimumShouldMatchScript,
-                },
-              }
-            : {}),
-        },
-      },
-    };
-    this._must.push(clause);
-    return this;
   }
 
   /**

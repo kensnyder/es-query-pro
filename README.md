@@ -143,7 +143,7 @@ schemaManager.createOrMigrate();
 ### Other functions
 
 | Function                                         | Purpose                                                                       |
-|--------------------------------------------------| ----------------------------------------------------------------------------- |
+| ------------------------------------------------ | ----------------------------------------------------------------------------- |
 | should({ withBuilders, minimumShouldMatch })     | Where subquery matches                                                        |
 | mustNot(withBuilder)                             | Where subquery matches                                                        |
 | nested({ withBuilder, path, scoreMode })         | Add conditions for a nested field                                             |
@@ -167,27 +167,7 @@ schemaManager.createOrMigrate();
 | getOptions()                                     | Get the size, from, sort                                                      |
 | getQuery()                                       | Return the fields, body and options to builder                                |
 
-## Examples
-
-```js
-const EsQueryBuilder = require("es-builder-pro");
-
-const builder = new QueryBuilder();
-builder.term("author", 15);
-builder.matchBoostedPhrase(["fulltext_*"], "Cold pressed juice");
-builder.range("created_at", ">=", "2021-01-01");
-builder.sort("created_at", "desc");
-builder.limit(25);
-builder.page(2);
-```
-
-```js
-const textProcessor = new TextProcessor();
-textProcessor.registerPattern(
-  { find: /([a-z])&([a-z0-9])/gi, replace: "$1ε$2" },
-  { find: /([a-z])ε([a-z0-9])/gi, replace: "$1&$2" },
-);
-```
+## Full documentation
 
 # Roadmap
 
