@@ -51,6 +51,7 @@ export function getBooksMappings(): estypes.MappingTypeMapping {
       },
       heroes: { type: "keyword" },
       price: { type: "integer" },
+      published_at: { type: "date" },
     },
   };
 }
@@ -107,6 +108,7 @@ export function getBooksData(): any {
       },
       heroes: ["Harry Potter", "Hermione Granger", "Ron Weasley"],
       price: 24.99,
+      published_at: "1998-06-26T00:00:00Z",
     },
     {
       id: "2",
@@ -133,6 +135,7 @@ export function getBooksData(): any {
       },
       heroes: ["Harry Potter", "Hermione Granger", "Ron Weasley"],
       price: 22.99,
+      published_at: "1999-07-02T00:00:00Z",
     },
     {
       id: "3",
@@ -162,6 +165,7 @@ export function getBooksData(): any {
       },
       heroes: ["Spensa"],
       price: 18.99,
+      published_at: "2018-11-06T00:00:00Z",
       extra: "data",
     },
   ];

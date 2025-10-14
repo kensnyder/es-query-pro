@@ -259,7 +259,7 @@ export default class QueryBuilder {
   }: {
     field: string;
     phrase: string;
-    options: { slop?: number };
+    options?: { slop?: number };
   }): this {
     const query = this.textProcessor.processText(phrase);
 
@@ -595,9 +595,10 @@ export default class QueryBuilder {
 
   /**
    * Add an "aggs" entry for date histogram aggregation. Similar to COUNT(*) over a timer period with GROUP BY
-   * @see https://www.elastic.co/guide/en/elasticsearch/reference/6.3/search-aggregations-bucket-datehistogram-aggregation.html
+   * ES 9 requires using calendar_interval or fixed_interval (interval is deprecated/removed).
+   * @see https://www.elastic.co/guide/en/elasticsearch/reference/current/search-aggregations-bucket-datehistogram-aggregation.html
    * @param dateField  The date field
-   * @param intervalName  Interval of year, quarter, month, week, day, hour minute, second
+   * @param intervalName  Interval of year, quarter, month, week, day, hour, minute, second
    * @param timezone  The timezone offset (e.g. 360 or "-06:00")
    * @returns This instance
    * @chainable
@@ -608,16 +609,18 @@ export default class QueryBuilder {
     timezone: string | number,
   ) {
     // see https://www.elastic.co/guide/en/elasticsearch/reference/current/mapping-date-format.html
-    const intervals = {
-      year: { code: "1y", format: "yyyy" },
-      quarter: { code: "1q", format: "yyyy-Q" },
-      month: { code: "1M", format: "yyyy-MM" },
-      week: { code: "1w", format: "xxxx-ww" },
-      day: { code: "1d", format: "yyyy-MM-dd" },
-      hour: { code: "1H", format: "yyyy-MM-ddTHH" },
-      minute: { code: "1m", format: "yyyy-MM-ddTHH:mm" },
-      second: { code: "1s", format: "yyyy-MM-ddTHH:mm:ss" },
-    };
+    // Map human-friendly interval names to ES9 calendar/fixed intervals and output formats
+    const intervals: Record<IntervalType, { code: string; format: string; kind: "calendar" | "fixed" }> = {
+      year: { code: "1y", format: "yyyy", kind: "calendar" },
+      quarter: { code: "1q", format: "yyyy-Q", kind: "calendar" },
+      month: { code: "1M", format: "yyyy-MM", kind: "calendar" },
+      week: { code: "1w", format: "xxxx-ww", kind: "calendar" },
+      day: { code: "1d", format: "yyyy-MM-dd", kind: "calendar" },
+      hour: { code: "1h", format: "yyyy-MM-dd'T'HH", kind: "fixed" },
+      minute: { code: "1m", format: "yyyy-MM-dd'T'HH:mm", kind: "fixed" },
+      second: { code: "1s", format: "yyyy-MM-dd'T'HH:mm:ss", kind: "fixed" },
+    } as const;
+
     const interval = intervals[intervalName];
     if (!interval) {
       const supported = Object.keys(intervals).join(", ");
@@ -625,24 +628,31 @@ export default class QueryBuilder {
         `QueryBuilder.dateHistogram(): intervalName not supported. Supported intervals are ${supported}.`,
       );
     }
+
     const timezoneString =
       typeof timezone === "number" ? offsetIntToString(timezone) : timezone;
+
     if (!/^[+-]\d\d:\d\d$/.test(timezoneString)) {
       throw new Error(
         `QueryBuilder.dateHistogram(): timezone must be a numeric offset in minutes OR a string in the form "+02:00".  Received ${JSON.stringify(timezone)}`,
       );
     }
 
-    this._aggs[dateField] = {
-      date_histogram: {
-        field: dateField,
-        interval: interval.code,
-        // TODO: get timezone working?
-        // Error: Field [published_by] of type [integer] does not support custom time zones
-        time_zone: timezoneString,
-        format: interval.format,
-      },
+    const dateHistogram: any = {
+      field: dateField,
+      time_zone: timezoneString,
+      format: interval.format,
+      min_doc_count: 1,
     };
+
+    if (interval.kind === "calendar") {
+      dateHistogram.calendar_interval = interval.code;
+    } else {
+      dateHistogram.fixed_interval = interval.code;
+    }
+
+    this._aggs[dateField] = { date_histogram: dateHistogram };
+
     // don't return any records; just the histogram
     this.limit(0);
     return this;

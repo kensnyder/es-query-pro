@@ -1,10 +1,10 @@
 # es-builder-pro
 
-[![NPM Link](https://badgen.net/npm/v/es-query-pro?v=2.0.0)](https://npmjs.com/package/es-query-pro)
-[![Language](https://badgen.net/static/language/TS?v=2.0.0)](https://github.com/search?q=repo:kensnyder/es-query-pro++language:TypeScript&type=code)
-[![Code Coverage](https://codecov.io/gh/kensnyder/es-query-pro/branch/main/graph/badge.svg?v=2.0.0)](https://codecov.io/gh/kensnyder/es-query-pro)
+[![NPM Link](https://badgen.net/npm/v/es-query-pro?v=3.0.0)](https://npmjs.com/package/es-query-pro)
+[![Language](https://badgen.net/static/language/TS?v=3.0.0)](https://github.com/search?q=repo:kensnyder/es-query-pro++language:TypeScript&type=code)
+[![Code Coverage](https://codecov.io/gh/kensnyder/es-query-pro/branch/main/graph/badge.svg?v=3.0.0)](https://codecov.io/gh/kensnyder/es-query-pro)
 ![GzippedSize](https://badgen.net/static/size/55kb?v=2.0.1)
-[![ISC License](https://badgen.net/static/license/ISC/green?v=2.0.0)](https://opensource.org/licenses/ISC)
+[![ISC License](https://badgen.net/static/license/ISC/green?v=3.0.0)](https://opensource.org/licenses/ISC)
 
 Simple and powerful ElasticSearch query builder and Index Manager
 
@@ -17,13 +17,13 @@ Simple and powerful ElasticSearch query builder and Index Manager
 Query Builder
 
 ```ts
-import { QueryBuilder } from 'es-builder-pro';
+import { QueryBuilder } from "es-builder-pro";
 
 const builder = new QueryBuilder();
-builder.term('author', 15);
-builder.matchBoostedPhrase('description', 'Mobile phone app');
-builder.range('created_at', '>=', '2021-01-01');
-builder.sort('created_at', 'desc');
+builder.term("author", 15);
+builder.matchBoostedPhrase("description", "Mobile phone app");
+builder.range("created_at", ">=", "2021-01-01");
+builder.sort("created_at", "desc");
 builder.limit(10);
 builder.page(2);
 ```
@@ -196,13 +196,13 @@ boostedPhrase??
 ## Examples
 
 ```js
-const EsQueryBuilder = require('es-builder-pro');
+const EsQueryBuilder = require("es-builder-pro");
 
 const builder = new QueryBuilder();
-builder.term('author', 15);
-builder.matchBoostedPhrase(['fulltext_*'], 'Cold pressed juice');
-builder.range('created_at', '>=', '2021-01-01');
-builder.sort('created_at', 'desc');
+builder.term("author", 15);
+builder.matchBoostedPhrase(["fulltext_*"], "Cold pressed juice");
+builder.range("created_at", ">=", "2021-01-01");
+builder.sort("created_at", "desc");
 builder.limit(25);
 builder.page(2);
 ```
@@ -210,8 +210,8 @@ builder.page(2);
 ```js
 const textProcessor = new TextProcessor();
 textProcessor.registerPattern(
-  { find: /([a-z])&([a-z0-9])/gi, replace: '$1ε$2' },
-  { find: /([a-z])ε([a-z0-9])/gi, replace: '$1&$2' }
+  { find: /([a-z])&([a-z0-9])/gi, replace: "$1ε$2" },
+  { find: /([a-z])ε([a-z0-9])/gi, replace: "$1&$2" },
 );
 ```
 

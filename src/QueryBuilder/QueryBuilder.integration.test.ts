@@ -195,8 +195,94 @@ describe("QueryBuilder - Integration", () => {
     qb.index(index);
     qb.matchPhrase({ field: "title", phrase: "Harry Potter" });
     const result = await client.search(qb.getQuery());
-    // console.log('matchPhrase', JSON.stringify(qb.getQuery(), null, 2));
     const docIds = result.hits.hits.map((hit: any) => hit._id).sort();
     expect(docIds).toEqual(["1", "2"]);
+  });
+
+  it("should handle matchPhrasePrefix query", async () => {
+    const qb = new QueryBuilder();
+    qb.index(index);
+    qb.matchPhrasePrefix({ field: "title", phrase: "Harry Pot" });
+    const result = await client.search(qb.getQuery());
+    const docIds = result.hits.hits.map((hit: any) => hit._id).sort();
+    expect(docIds).toEqual(["1", "2"]);
+  });
+
+  it("should handle queryString query", async () => {
+    const qb = new QueryBuilder();
+    qb.index(index);
+    qb.queryString({ field: "premise", queryString: "myster* AND NOT alien" });
+    const result = await client.search(qb.getQuery());
+    const ids = result.hits.hits.map((h: any) => h._id).sort();
+    expect(ids).toEqual(["1", "2"]);
+  });
+
+  it("should handle moreLikeThis query with like text", async () => {
+    const qb = new QueryBuilder();
+    qb.index(index);
+    qb.moreLikeThis({
+      field: "premise",
+      like: "alien attack young pilot",
+      options: { min_term_freq: 1, min_doc_freq: 1, max_query_terms: 25 } as any,
+    });
+    const result = await client.search(qb.getQuery());
+    const ids = result.hits.hits.map((h: any) => h._id).sort();
+    expect(ids.includes("3")).toBe(true);
+  });
+
+  it("should include facets for country", async () => {
+    const qb = new QueryBuilder();
+    qb.index(index);
+    qb.includeFacets(["country"], 10);
+    const result: any = await client.search(qb.getQuery());
+    const buckets = result.aggregations.country.buckets;
+    const map: Record<string, number> = {};
+    for (const b of buckets) {
+      map[b.key] = b.doc_count;
+    }
+    expect(map["United Kingdom"]).toBe(2);
+    expect(map["United States of America"]).toBe(1);
+  });
+
+  it("should aggregate countries with aggregateTerm", async () => {
+    const qb = new QueryBuilder();
+    qb.index(index);
+    qb.aggregateTerm("country", 10);
+    const result: any = await client.search(qb.getQuery());
+    const buckets = result.aggregations.country.buckets;
+    const keys = buckets.map((b: any) => b.key).sort();
+    const counts = buckets.reduce((acc: Record<string, number>, b: any) => {
+      acc[b.key] = b.doc_count;
+      return acc;
+    }, {} as Record<string, number>);
+    expect(keys).toEqual(["United Kingdom", "United States of America"]);
+    expect(counts["United Kingdom"]).toBe(2);
+    expect(counts["United States of America"]).toBe(1);
+  });
+
+  it("should build a date histogram over published_at by year (ES9 calendar_interval)", async () => {
+    const qb = new QueryBuilder();
+    qb.index(index);
+    qb.dateHistogram("published_at", "year", "+00:00");
+    const result: any = await client.search(qb.getQuery());
+    const buckets = result.aggregations.published_at.buckets;
+    const keys = buckets.map((b: any) => b.key_as_string);
+    const counts = buckets.map((b: any) => b.doc_count);
+    expect(keys).toEqual(["1998", "1999", "2018"]);
+    expect(counts).toEqual([1, 1, 1]);
+  });
+
+  it("should return highlights when useHighlighter is used (plain highlighter)", async () => {
+    const qb = new QueryBuilder();
+    qb.index(index);
+    qb.match({ field: "title", phrase: "Harry" });
+    qb.useHighlighter({ fields: { title: {} } } as any);
+    const result: any = await client.search(qb.getQuery());
+    const byId: Record<string, any> = {};
+    for (const hit of result.hits.hits) {
+      byId[hit._id] = hit;
+    }
+    expect(byId["1"].highlight?.title?.length > 0).toBe(true);
+    expect(byId["2"].highlight?.title?.length > 0).toBe(true);
   });
 });

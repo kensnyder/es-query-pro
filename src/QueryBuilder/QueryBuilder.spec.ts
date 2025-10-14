@@ -388,7 +388,7 @@ describe("QueryBuilder.dateHistogram()", () => {
       published_at: {
         date_histogram: {
           field: "published_at",
-          interval: "1M",
+          calendar_interval: "1M",
           time_zone: "+02:00",
           format: "yyyy-MM",
         },
@@ -404,7 +404,7 @@ describe("QueryBuilder.dateHistogram()", () => {
       published_at: {
         date_histogram: {
           field: "published_at",
-          interval: "1M",
+          calendar_interval: "1M",
           time_zone: "+02:00",
           format: "yyyy-MM",
         },
