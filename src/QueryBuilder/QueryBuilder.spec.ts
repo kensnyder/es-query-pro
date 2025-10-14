@@ -432,7 +432,7 @@ describe('QueryBuilder', () => {
 
     it('should handle nested exists queries', () => {
       const query = new QueryBuilder();
-      query.exists({ field: 'author/name' });
+      query.exists('author/name');
       const body = query.getBody();
       expect(body.retriever.standard.query).toEqual({
         nested: {
@@ -474,7 +474,7 @@ describe('QueryBuilder', () => {
       const query = new QueryBuilder({
         nestedSeparator: '->',
       });
-      query.exists({ field: 'metadata->tags', matchType: 'not' });
+      query.notExists('metadata->tags');
       const body = query.getBody();
       expect(body.retriever.standard.query).toEqual({
         bool: {
@@ -684,211 +684,6 @@ describe('QueryBuilder advanced features', () => {
           terms: ['a', 'b', 'c'],
           minimum_should_match_script: { source: 'Math.min(params.num_terms, 2)' },
         },
-      },
-    });
-  });
-});
-
-
-// New exists() API tests
-describe('QueryBuilder.exists() refactor', () => {
-  it("should throw when neither 'field' nor 'fields' is provided", () => {
-    const qb = new QueryBuilder();
-    const thrower = () => qb.exists({} as any);
-    expect(thrower).toThrow(/QueryBuilder\.exists\(\) requires one of 'field' or 'fields'/);
-  });
-
-  it('should throw when both field and fields are provided', () => {
-    const qb = new QueryBuilder();
-    const thrower = () => qb.exists({ field: 'a', fields: ['b'] } as any);
-    expect(thrower).toThrow(/both 'field' and 'fields' cannot be used together/i);
-  });
-
-  it("should throw when 'field' is not a string", () => {
-    const qb = new QueryBuilder();
-    const thrower = () => qb.exists({ field: 123 as any });
-    expect(thrower).toThrow(/expected 'field' to be a string/i);
-  });
-
-  it("should throw when 'field' is an empty string after trimming", () => {
-    const qb = new QueryBuilder();
-    const thrower = () => qb.exists({ field: '   ' });
-    expect(thrower).toThrow(/expected 'field' to be a string/i);
-  });
-
-  it("should throw when 'fields' is not an array", () => {
-    const qb = new QueryBuilder();
-    const thrower = () => qb.exists({ fields: 'title' as any });
-    expect(thrower).toThrow(/expected 'fields' to be an array of strings/i);
-  });
-
-  it("should throw when 'fields' is an empty array", () => {
-    const qb = new QueryBuilder();
-    const thrower = () => qb.exists({ fields: [] });
-    expect(thrower).toThrow(/expected 'fields' to be an array of strings/i);
-  });
-
-  it("should throw when 'fields' contains a non-string", () => {
-    const qb = new QueryBuilder();
-    const thrower = () => qb.exists({ fields: ['title', 123 as any] });
-    expect(thrower).toThrow(/expected 'fields' to be an array of strings/i);
-  });
-
-  it("should throw when 'fields' contains an empty string", () => {
-    const qb = new QueryBuilder();
-    const thrower = () => qb.exists({ fields: ['title', '   '] });
-    expect(thrower).toThrow(/expected 'fields' to be an array of strings/i);
-  });
-
-  it("should throw on invalid matchType", () => {
-    const qb = new QueryBuilder();
-    const thrower = () => qb.exists({ fields: ['a'], matchType: 'nope' as any });
-    expect(thrower).toThrow(/invalid 'matchType'/i);
-  });
-
-  it("should throw when field + matchType is not 'every' or 'not'", () => {
-    const qb = new QueryBuilder();
-    const thrower = () => qb.exists({ field: 'a', matchType: 'any' });
-    expect(thrower).toThrow(/when 'field' is provided, 'matchType' must be every or not/i);
-  });
-
-  it("should throw when fields + matchType is 'not'", () => {
-    const qb = new QueryBuilder();
-    const thrower = () => qb.exists({ fields: ['a', 'b'], matchType: 'not' });
-    expect(thrower).toThrow(/when 'fields' is provided, 'matchType' cannot be not/i);
-  });
-
-  it('should accept case-insensitive matchType for fields', () => {
-    const qb = new QueryBuilder();
-    qb.exists({ fields: ['title', 'description'], matchType: 'AnY' as any });
-    const body = qb.getBody();
-    expect(body.retriever.standard.query).toEqual({
-      bool: {
-        should: [
-          { exists: { field: 'title' } },
-          { exists: { field: 'description' } },
-        ],
-        minimum_should_match: 1,
-      },
-    });
-  });
-
-  it('should build field+every (exists)', () => {
-    const qb = new QueryBuilder();
-    qb.exists({ field: 'author/name', matchType: 'every' });
-    const body = qb.getBody();
-    expect(body.retriever.standard.query).toEqual({
-      nested: {
-        path: 'author',
-        ignore_unmapped: true,
-        query: { exists: { field: 'author.name' } },
-      },
-    });
-  });
-
-  it('should build field+not (not exists)', () => {
-    const qb = new QueryBuilder({ nestedSeparator: '->' });
-    qb.exists({ field: 'metadata->tags', matchType: 'not' });
-    const body = qb.getBody();
-    expect(body.retriever.standard.query).toEqual({
-      bool: {
-        must_not: [
-          {
-            nested: {
-              path: 'metadata',
-              ignore_unmapped: true,
-              query: { exists: { field: 'metadata.tags' } },
-            },
-          },
-        ],
-      },
-    });
-  });
-
-  it('should build fields+every (all must exist)', () => {
-    const qb = new QueryBuilder();
-    qb.exists({ fields: ['title', 'author/name'], matchType: 'every' });
-    const body = qb.getBody();
-    expect(body.retriever.standard.query).toEqual({
-      bool: {
-        must: [
-          { exists: { field: 'title' } },
-          {
-            nested: {
-              path: 'author',
-              ignore_unmapped: true,
-              query: { exists: { field: 'author.name' } },
-            },
-          },
-        ],
-      },
-    });
-  });
-
-  it('should build fields+any (at least one exists)', () => {
-    const qb = new QueryBuilder();
-    qb.exists({ fields: ['title', 'author/name'], matchType: 'any' });
-    const body = qb.getBody();
-    expect(body.retriever.standard.query).toEqual({
-      bool: {
-        should: [
-          { exists: { field: 'title' } },
-          {
-            nested: {
-              path: 'author',
-              ignore_unmapped: true,
-              query: { exists: { field: 'author.name' } },
-            },
-          },
-        ],
-        minimum_should_match: 1,
-      },
-    });
-  });
-
-  it('should build fields+notAny (none exist)', () => {
-    const qb = new QueryBuilder();
-    qb.exists({ fields: ['title', 'author/name'], matchType: 'notAny' });
-    const body = qb.getBody();
-    expect(body.retriever.standard.query).toEqual({
-      bool: {
-        must_not: [
-          { exists: { field: 'title' } },
-          {
-            nested: {
-              path: 'author',
-              ignore_unmapped: true,
-              query: { exists: { field: 'author.name' } },
-            },
-          },
-        ],
-      },
-    });
-  });
-
-  it('should build fields+notEvery (at least one missing)', () => {
-    const qb = new QueryBuilder();
-    qb.exists({ fields: ['title', 'author/name'], matchType: 'notEvery' });
-    const body = qb.getBody();
-    expect(body.retriever.standard.query).toEqual({
-      bool: {
-        should: [
-          { bool: { must_not: [{ exists: { field: 'title' } }] } },
-          {
-            bool: {
-              must_not: [
-                {
-                  nested: {
-                    path: 'author',
-                    ignore_unmapped: true,
-                    query: { exists: { field: 'author.name' } },
-                  },
-                },
-              ],
-            },
-          },
-        ],
-        minimum_should_match: 1,
       },
     });
   });

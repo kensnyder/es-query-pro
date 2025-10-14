@@ -143,7 +143,7 @@ describe('QueryBuilder - Integration', () => {
     const qb = new QueryBuilder();
     qb.index(index);
     qb.fields(['*']);
-    qb.exists({ field: 'publishing/movieYear' });
+    qb.exists('publishing/movieYear');
     const result = await client.search(qb.getQuery());
 
     const docIds = result.hits.hits.map((hit: any) => hit._id).sort();
@@ -155,7 +155,7 @@ describe('QueryBuilder - Integration', () => {
     qb.index(index);
     qb.fields(['*']);
     qb.term('categories/id', 101);
-    qb.exists({ field: 'publishing/movieYear', matchType: 'not' });
+    qb.notExists('publishing/movieYear');
     // console.log('matchPhrase', JSON.stringify(qb.getQuery(), null, 2));
     const result = await client.search(qb.getQuery());
 

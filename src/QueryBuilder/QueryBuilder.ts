@@ -756,7 +756,7 @@ export default class QueryBuilder {
    */
   term(field: string, valueOrValues: any | any[], type: AnyAllType = 'ANY') {
     if (valueOrValues === null) {
-      this.exists({ field, matchType: 'not' });
+      this.notExists(field);
     } else if (type.toUpperCase() === 'ALL') {
       this.addFilterAll(this._must, 'term', field, valueOrValues);
     } else {
@@ -766,61 +766,35 @@ export default class QueryBuilder {
   }
 
   /**
-   * Require that the given field(s) exist or not exist based on matchType.
-   * Breaking change: accepts an object parameter.
+   * Require that the given field or fields contain values (i.e. non-missing, non-null)
+   * @param fieldOrFields  The name or names of the fields (can use nested separator for nested fields)
+   * @returns {QueryBuilder}
    */
-  exists({
-    field,
-    fields,
-    matchType = 'every',
-  }: {
-    field?: string;
-    fields?: string[];
-    matchType?: 'any' | 'every' | 'notAny' | 'notEvery' | 'not' | string;
-  }) {
-    // Validate args and normalize
-    const normalized = this._ensureExistsArgs({ field, fields, matchType });
-    const mt = normalized.matchType; // canonical lowercase: any|every|notany|notevery|not
+  exists(fieldOrFields: string | string[]) {
+    const fields = Array.isArray(fieldOrFields)
+      ? fieldOrFields
+      : [fieldOrFields];
 
-    if (normalized.mode === 'single') {
-      // field present
-      const clause = { exists: { field: normalized.field! } } as const;
-      if (mt === 'not') {
-        this._mustNot.push(clause as any);
-      } else {
-        // 'every' or default
-        this._must.push(clause as any);
-      }
-      return this;
+    for (const field of fields) {
+      this._must.push({ exists: { field } });
     }
+    return this;
+  }
 
-    // fields present
-    const flds = normalized.fields!;
-    switch (mt) {
-      case 'every': {
-        for (const f of flds) this._must.push({ exists: { field: f } });
-        return this;
-      }
-      case 'any': {
-        const should = flds.map((f) => ({ exists: { field: f } }));
-        this._must.push({ bool: { should, minimum_should_match: 1 } } as any);
-        return this;
-      }
-      case 'notany': {
-        for (const f of flds) this._mustNot.push({ exists: { field: f } });
-        return this;
-      }
-      case 'notevery': {
-        // At least one field must NOT exist
-        const should = flds.map((f) => ({ bool: { must_not: [{ exists: { field: f } }] } }));
-        this._must.push({ bool: { should, minimum_should_match: 1 } } as any);
-        return this;
-      }
-      default: {
-        // should never happen due to validation
-        return this;
-      }
+  /**
+   * Require that the given field or fields contain no values (i.e. missing or null)
+   * @param fieldOrFields  The name or names of the fields (can use nested separator for nested fields)
+   * @returns {QueryBuilder}
+   */
+  notExists(fieldOrFields: string | string[]) {
+    const fields = Array.isArray(fieldOrFields)
+      ? fieldOrFields
+      : [fieldOrFields];
+
+    for (const field of fields) {
+      this._mustNot.push({ exists: { field } });
     }
+    return this;
   }
 
   /**
@@ -1526,78 +1500,6 @@ export default class QueryBuilder {
         boost_mode: 'replace',
       },
     };
-  }
-
-  // Helper: normalize and validate matchType
-  private _normalizeAndValidateMatchType(mt: any): 'any' | 'every' | 'notany' | 'notevery' | 'not' {
-    const allowed = new Set(['any', 'every', 'notany', 'notevery', 'not']);
-    const value = String(mt ?? 'every').toLowerCase();
-    if (!allowed.has(value)) {
-      throw new TypeError(
-        "QueryBuilder.exists(): invalid 'matchType' — expected one of any|every|notAny|notEvery|not"
-      );
-    }
-    return value as any;
-  }
-
-  // Helper: validate args and return normalized shape
-  private _ensureExistsArgs(args: {
-    field?: any;
-    fields?: any;
-    matchType?: any;
-  }): { mode: 'single' | 'multi'; field?: string; fields?: string[]; matchType: 'any' | 'every' | 'notany' | 'notevery' | 'not' } {
-    const { field, fields } = args;
-
-    if (typeof field === 'undefined' && typeof fields === 'undefined') {
-      throw new TypeError("QueryBuilder.exists() requires one of 'field' or 'fields'");
-    }
-
-    if (typeof field !== 'undefined' && typeof fields !== 'undefined') {
-      throw new TypeError("QueryBuilder.exists(): both 'field' and 'fields' cannot be used together");
-    }
-
-    const matchType = this._normalizeAndValidateMatchType(args.matchType);
-
-    // Single field mode
-    if (typeof field !== 'undefined') {
-      if (typeof field !== 'string' || field.trim().length === 0) {
-        throw new TypeError("QueryBuilder.exists(): expected 'field' to be a string");
-      }
-      // When field is provided, only 'every' or 'not' are allowed
-      if (matchType !== 'every' && matchType !== 'not') {
-        throw new TypeError(
-          "QueryBuilder.exists(): when 'field' is provided, 'matchType' must be every or not"
-        );
-      }
-      return { mode: 'single', field: field.trim(), matchType };
-    }
-
-    // Fields array mode
-    if (!Array.isArray(fields)) {
-      throw new TypeError("QueryBuilder.exists(): expected 'fields' to be an array of strings");
-    }
-    if (fields.length === 0) {
-      throw new TypeError("QueryBuilder.exists(): expected 'fields' to be an array of strings");
-    }
-    const cleaned: string[] = [];
-    for (const f of fields) {
-      if (typeof f !== 'string') {
-        throw new TypeError("QueryBuilder.exists(): expected 'fields' to be an array of strings");
-      }
-      const t = f.trim();
-      if (t.length === 0) {
-        throw new TypeError("QueryBuilder.exists(): expected 'fields' to be an array of strings");
-      }
-      cleaned.push(t);
-    }
-
-    if (matchType === 'not') {
-      throw new TypeError(
-        "QueryBuilder.exists(): when 'fields' is provided, 'matchType' cannot be not"
-      );
-    }
-
-    return { mode: 'multi', fields: cleaned, matchType };
   }
 
   /**
