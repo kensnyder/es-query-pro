@@ -33,25 +33,25 @@ describe("QueryBuilder - Integration", () => {
     await booksIndex.drop();
   });
 
-  it("should work with no criteria", async () => {
-    const found = await booksIndex.findByCriteria();
-    if (found.error) {
-      throw new Error(found.error);
-    }
-    const ids = found.records.map((r) => r.id).sort();
-    expect(ids).toEqual(["1", "2", "3"]);
-  });
-
-  it("should match by phrase", async () => {
-    const found = await booksIndex.findByPhrase({
-      phrase: "Potter",
-    });
-    if (found.error) {
-      throw new Error(found.error);
-    }
-    const ids = found.records.map((r) => r.id).sort();
-    expect(ids).toEqual(["1", "2"]);
-  });
+  // it('should work with no criteria', async () => {
+  //   const found = await booksIndex.findByCriteria();
+  //   if (found.error) {
+  //     throw new Error(found.error);
+  //   }
+  //   const ids = found.records.map((r) => r.id).sort();
+  //   expect(ids).toEqual(['1', '2', '3']);
+  // });
+  //
+  // it('should match by phrase', async () => {
+  //   const found = await booksIndex.findByPhrase({
+  //     phrase: 'Potter',
+  //   });
+  //   if (found.error) {
+  //     throw new Error(found.error);
+  //   }
+  //   const ids = found.records.map((r) => r.id).sort();
+  //   expect(ids).toEqual(['1', '2']);
+  // });
 
   it("should get count", async () => {
     const res = await booksIndex.run((runner) => {

@@ -16,12 +16,7 @@ const englishplus = {
       englishplus: {
         type: 'custom',
         tokenizer: 'standard',
-        filter: [
-          'lowercase',
-          'english_stop',
-          'english_stemmer',
-          'asciifolding',
-        ],
+        filter: ['lowercase', 'english_stop', 'english_stemmer', 'asciifolding'],
       },
     },
   },

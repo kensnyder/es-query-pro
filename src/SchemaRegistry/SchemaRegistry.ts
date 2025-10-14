@@ -7,15 +7,9 @@ import IndexManager, {
   IndexStatusReport,
 } from '../IndexManager/IndexManager';
 
-export type SchemaMigrationResultShape = Awaited<
-  ReturnType<SchemaRegistry['migrateIfNeeded']>
->;
-export type SchemaStatusResultShape = Awaited<
-  ReturnType<SchemaRegistry['getStatus']>
->;
-export type SchemaDropResultShape = Awaited<
-  ReturnType<SchemaRegistry['dropAll']>
->;
+export type SchemaMigrationResultShape = Awaited<ReturnType<SchemaRegistry['migrateIfNeeded']>>;
+export type SchemaStatusResultShape = Awaited<ReturnType<SchemaRegistry['getStatus']>>;
+export type SchemaDropResultShape = Awaited<ReturnType<SchemaRegistry['dropAll']>>;
 
 export default class SchemaRegistry {
   // Yes, I know the proper term is "indices"
@@ -46,16 +40,14 @@ export default class SchemaRegistry {
   async migrateIfNeeded(concurrency = 2) {
     const start = Date.now();
     if (this.indexes.length === 0) {
-      throw new Error(
-        'No indexes registered in SchemaRegistry; cannot migrateIfNeeded'
-      );
+      throw new Error('No indexes registered in SchemaRegistry; cannot migrateIfNeeded');
     }
     const report: IndexMigrationReport[] = [];
     const summary: Record<string, IndexMigrationReportCode> = {};
     try {
       const groups = this.chunkify(this.indexes, concurrency);
       await Promise.all(
-        groups.map(group => {
+        groups.map((group) => {
           return (async () => {
             for (const index of group) {
               try {
@@ -67,7 +59,7 @@ export default class SchemaRegistry {
               }
             }
           })();
-        })
+        }),
       );
       return {
         success: true,
@@ -91,16 +83,14 @@ export default class SchemaRegistry {
   async recreateAll(concurrency = 2) {
     const start = Date.now();
     if (this.indexes.length === 0) {
-      throw new Error(
-        'No indexes registered in SchemaRegistry; cannot recreateAll'
-      );
+      throw new Error('No indexes registered in SchemaRegistry; cannot recreateAll');
     }
     const report: IndexRecreateResult[] = [];
     const summary: Record<string, string> = {};
     try {
       const groups = this.chunkify(this.indexes, concurrency);
       await Promise.all(
-        groups.map(group => {
+        groups.map((group) => {
           return (async () => {
             for (const index of group) {
               try {
@@ -112,7 +102,7 @@ export default class SchemaRegistry {
               }
             }
           })();
-        })
+        }),
       );
       return {
         success: true,
@@ -134,7 +124,7 @@ export default class SchemaRegistry {
   }
 
   listIndexes() {
-    return this.indexes.map(index => ({
+    return this.indexes.map((index) => ({
       alias: index.getAliasName(),
       name: index.getFullName(),
       version: index.schema.schema.version,
@@ -152,14 +142,11 @@ export default class SchemaRegistry {
   async getStatus(concurrency = 2) {
     const start = Date.now();
     const report: IndexStatusReport[] = [];
-    const summary: Record<
-      string,
-      'needsCreation' | 'current' | 'needsMigration'
-    > = {};
+    const summary: Record<string, 'needsCreation' | 'current' | 'needsMigration'> = {};
     try {
       const groups = this.chunkify(this.indexes, concurrency);
       await Promise.all(
-        groups.map(async group => {
+        groups.map(async (group) => {
           return (async () => {
             for (const index of group) {
               const status = await index.getStatus();
@@ -171,7 +158,7 @@ export default class SchemaRegistry {
                   : 'current';
             }
           })();
-        })
+        }),
       );
       return {
         success: true,
@@ -197,11 +184,11 @@ export default class SchemaRegistry {
     try {
       const groups = this.chunkify(this.indexes, concurrency);
       await Promise.all(
-        groups.map(async group => {
+        groups.map(async (group) => {
           for (const index of group) {
             results.push(await index.drop());
           }
-        })
+        }),
       );
       return {
         success: true,

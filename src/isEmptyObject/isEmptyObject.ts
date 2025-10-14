@@ -1,5 +1,5 @@
 export default function isEmptyObject(obj: any) {
-  if (!obj || typeof obj !== "object") {
+  if (!obj || typeof obj !== 'object') {
     // not an object
     return false;
   }

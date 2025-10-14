@@ -1,178 +1,177 @@
-import { estypes } from "@elastic/elasticsearch";
-import getEsClient from "../getEsClient/getEsClient";
-import { PutRequestParams, SchemaShape } from "../types";
+import { estypes } from '@elastic/elasticsearch';
+import getEsClient from '../getEsClient/getEsClient';
+import { PutRequestParams, SchemaShape } from '../types';
 
 export function getBooksMappings(): estypes.MappingTypeMapping {
   return {
     properties: {
-      id: { type: "keyword" },
+      id: { type: 'keyword' },
       title: {
-        type: "text",
-        analyzer: "english",
-        search_analyzer: "english",
+        type: 'text',
+        analyzer: 'english',
+        search_analyzer: 'english',
         fields: {
           fvh: {
-            type: "text",
-            term_vector: "with_positions_offsets",
+            type: 'text',
+            term_vector: 'with_positions_offsets',
           },
         },
       },
       premise: {
-        type: "text",
-        analyzer: "english",
-        search_analyzer: "english",
+        type: 'text',
+        analyzer: 'english',
+        search_analyzer: 'english',
       },
-      country: { type: "keyword" },
+      country: { type: 'keyword' },
       categories: {
-        type: "nested",
+        type: 'nested',
         properties: {
-          id: { type: "integer" },
+          id: { type: 'integer' },
           name: {
-            type: "text",
-            analyzer: "english",
-            search_analyzer: "english",
+            type: 'text',
+            analyzer: 'english',
+            search_analyzer: 'english',
           },
         },
       },
       author: {
-        type: "keyword",
+        type: 'keyword',
       },
       publishing: {
-        type: "nested",
+        type: 'nested',
         properties: {
-          author: { type: "keyword" },
+          author: { type: 'keyword' },
           organization: {
-            type: "text",
-            analyzer: "english",
-            search_analyzer: "english",
+            type: 'text',
+            analyzer: 'english',
+            search_analyzer: 'english',
           },
           series: {
-            type: "text",
-            analyzer: "english",
-            search_analyzer: "english",
+            type: 'text',
+            analyzer: 'english',
+            search_analyzer: 'english',
           },
-          year: { type: "integer" },
-          movieYear: { type: "integer" },
+          year: { type: 'integer' },
+          movieYear: { type: 'integer' },
         },
       },
-      heroes: { type: "keyword" },
-      price: { type: "integer" },
-      published_at: { type: "date" },
+      heroes: { type: 'keyword' },
+      price: { type: 'integer' },
+      published_at: { type: 'date' },
     },
   };
 }
 export function getBooksSchema(): SchemaShape {
   return {
-    id: "integer",
-    title: "text",
-    premise: "text",
-    country: "keyword",
+    id: 'integer',
+    title: 'text',
+    premise: 'text',
+    country: 'keyword',
     categories: {
-      id: "integer",
-      name: "text",
+      id: 'integer',
+      name: 'text',
     },
-    author: "keyword",
+    author: 'keyword',
     publishing: {
-      author: "keyword",
-      series: "text",
-      organization: "text",
-      year: "integer",
-      movieYear: "integer",
+      author: 'keyword',
+      series: 'text',
+      organization: 'text',
+      year: 'integer',
+      movieYear: 'integer',
     },
-    heroes: "keyword",
-    price: "integer",
+    heroes: 'keyword',
+    price: 'integer',
   };
 }
 export function getBooksData(): any {
   return [
     {
-      id: "1",
+      id: '1',
       title: "Harry Potter and the Sorcerer's Stone",
       premise:
-        "A young boy discovers he’s a wizard and must confront a dark sorcerer while uncovering the truth about his own mysterious past.",
-      country: "United Kingdom",
+        'A young boy discovers he’s a wizard and must confront a dark sorcerer while uncovering the truth about his own mysterious past.',
+      country: 'United Kingdom',
       categories: [
         {
           id: 101,
-          name: "Fantasy",
+          name: 'Fantasy',
         },
         {
           id: 102,
-          name: "Coming of Age",
+          name: 'Coming of Age',
         },
         {
           id: 104,
-          name: "Uncovering mystery",
+          name: 'Uncovering mystery',
         },
       ],
       publishing: {
-        author: "JK Rowling",
-        series: "First book of the Harry Potter series",
-        organization: "Bloomsbury Publishing",
+        author: 'JK Rowling',
+        series: 'First book of the Harry Potter series',
+        organization: 'Bloomsbury Publishing',
         year: 1998,
         movieYear: 2001,
       },
-      heroes: ["Harry Potter", "Hermione Granger", "Ron Weasley"],
+      heroes: ['Harry Potter', 'Hermione Granger', 'Ron Weasley'],
       price: 24.99,
-      published_at: "1998-06-26T00:00:00Z",
+      published_at: '1998-06-26T00:00:00Z',
     },
     {
-      id: "2",
-      title: "Harry Potter and the Chamber of Secrets",
-      premise:
-        "At Hogwarts, Harry uncovers the mystery behind a mysterious hidden chamber",
-      country: "United Kingdom",
+      id: '2',
+      title: 'Harry Potter and the Chamber of Secrets',
+      premise: 'At Hogwarts, Harry uncovers the mystery behind a mysterious hidden chamber',
+      country: 'United Kingdom',
       categories: [
         {
           id: 101,
-          name: "Fantasy",
+          name: 'Fantasy',
         },
         {
           id: 102,
-          name: "Coming of Age",
+          name: 'Coming of Age',
         },
       ],
       publishing: {
-        author: "JK Rowling",
-        series: "Second book of the Harry Potter series",
-        organization: "Bloomsbury Publishing",
+        author: 'JK Rowling',
+        series: 'Second book of the Harry Potter series',
+        organization: 'Bloomsbury Publishing',
         year: 1999,
         movieYear: 2002,
       },
-      heroes: ["Harry Potter", "Hermione Granger", "Ron Weasley"],
+      heroes: ['Harry Potter', 'Hermione Granger', 'Ron Weasley'],
       price: 22.99,
-      published_at: "1999-07-02T00:00:00Z",
+      published_at: '1999-07-02T00:00:00Z',
     },
     {
-      id: "3",
-      title: "Skyward",
+      id: '3',
+      title: 'Skyward',
       premise:
-        "A determined young pilot-in-training fights to prove herself worthy in a world under constant alien attack",
-      country: "United States of America",
+        'A determined young pilot-in-training fights to prove herself worthy in a world under constant alien attack',
+      country: 'United States of America',
       categories: [
         {
           id: 101,
-          name: "Fantasy",
+          name: 'Fantasy',
         },
         {
           id: 103,
-          name: "Military",
+          name: 'Military',
         },
         {
           id: 104,
-          name: "Uncovering mystery",
+          name: 'Uncovering mystery',
         },
       ],
       publishing: {
-        author: "Brandon Sanderson",
-        series: "First book of the Skyward series",
-        organization: "Delacorte Press",
+        author: 'Brandon Sanderson',
+        series: 'First book of the Skyward series',
+        organization: 'Delacorte Press',
         year: 2018,
       },
-      heroes: ["Spensa"],
+      heroes: ['Spensa'],
       price: 18.99,
-      published_at: "2018-11-06T00:00:00Z",
-      extra: "data",
+      published_at: '2018-11-06T00:00:00Z',
+      extra: 'data',
     },
   ];
 }
@@ -194,7 +193,7 @@ export async function insertBooksData(index: string) {
 
   await client.bulk({
     body: operations,
-    refresh: "wait_for",
+    refresh: 'wait_for',
   });
 }
 export async function deleteBooksIndex(index: string) {

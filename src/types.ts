@@ -5,9 +5,7 @@ export type Prettify<T> = {
   [K in keyof T]: T[K];
 } & {};
 
-export type ColumnType =
-  | ElasticsearchType
-  | Record<ColumnName, ElasticsearchType>;
+export type ColumnType = ElasticsearchType | Record<ColumnName, ElasticsearchType>;
 
 export type SchemaShape = Record<ColumnName, ColumnType>;
 
@@ -39,20 +37,19 @@ export type ElasticsearchType =
   | 'semantic_text'
   | 'token_count';
 
-export type ElasticsearchRecord<T> =
-  T extends Record<string, any>
-    ? {
-        [K in keyof T]: ElasticsearchRecord<T[K]> | ElasticsearchRecord<T[K]>[];
-      }
-    : T extends ElasticsearchType
-      ? T extends 'integer'
-        ? number | null | number[]
-        : T extends 'boolean'
-          ? boolean | null | boolean[]
-          : T extends 'date'
-            ? Date | string | null | Date[] | string[]
-            : string | null | string[]
-      : any;
+export type ElasticsearchRecord<T> = T extends Record<string, any>
+  ? {
+      [K in keyof T]: ElasticsearchRecord<T[K]> | ElasticsearchRecord<T[K]>[];
+    }
+  : T extends ElasticsearchType
+    ? T extends 'integer'
+      ? number | null | number[]
+      : T extends 'boolean'
+        ? boolean | null | boolean[]
+        : T extends 'date'
+          ? Date | string | null | Date[] | string[]
+          : string | null | string[]
+    : any;
 
 export type BoostType = {
   expand?: boolean;
@@ -63,16 +60,7 @@ export type AnyAllType = 'ANY' | 'ALL' | 'any' | 'all';
 
 export type MatchType = 'match' | 'term';
 
-export type OperatorType =
-  | '>'
-  | 'gt'
-  | '<'
-  | 'lt'
-  | '>='
-  | 'gte'
-  | '<='
-  | 'lte'
-  | 'between';
+export type OperatorType = '>' | 'gt' | '<' | 'lt' | '>=' | 'gte' | '<=' | 'lte' | 'between';
 
 export type IntervalType =
   | 'year'
@@ -124,8 +112,6 @@ export type FlushRequestParams = Prettify<estypes.IndicesFlushRequest>;
 export type MoreLikeThisOptions = Prettify<
   Omit<estypes.QueryDslMoreLikeThisQuery, 'fields' | 'like'>
 >;
-export type MoreLikeThisLikeParams = Prettify<
-  estypes.QueryDslMoreLikeThisQuery['like']
->;
+export type MoreLikeThisLikeParams = Prettify<estypes.QueryDslMoreLikeThisQuery['like']>;
 export type RetrieverBase = Prettify<estypes.RetrieverBase>;
 export type RetrieverContainer = Prettify<estypes.RetrieverContainer>;

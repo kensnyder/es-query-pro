@@ -14,10 +14,7 @@ describe('IndexNameManager', () => {
     expect(index.getAliasName()).toBe('staging~english~wild_animals');
   });
   it('should parse from an index name', () => {
-    const index = IndexNameManager.parseByName(
-      'staging~english~wild_animals~v5',
-      '~'
-    );
+    const index = IndexNameManager.parseByName('staging~english~wild_animals~v5', '~');
     expect(index.getFullName()).toBe('staging~english~wild_animals~v5');
   });
   it('should parse index with no prefix', () => {

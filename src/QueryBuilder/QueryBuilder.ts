@@ -1,6 +1,6 @@
-import type { estypes } from "@elastic/elasticsearch"; // TypeScript needs this even if we don't use it
-import isEmptyObject from "../isEmptyObject/isEmptyObject";
-import TextProcessor from "../TextProcessor/TextProcessor";
+import type { estypes } from '@elastic/elasticsearch'; // TypeScript needs this even if we don't use it
+import isEmptyObject from '../isEmptyObject/isEmptyObject';
+import TextProcessor from '../TextProcessor/TextProcessor';
 import type {
   FieldTypeOrTypes,
   FunctionScoreShape,
@@ -14,20 +14,20 @@ import type {
   RangeShape,
   SearchRequestShape,
   SortShape,
-} from "../types";
-import offsetIntToString from "../offsetIntToString/offsetIntToString";
-import isDefined from "../isDefined/isDefined";
+} from '../types';
+import offsetIntToString from '../offsetIntToString/offsetIntToString';
+import isDefined from '../isDefined/isDefined';
 
-export type QueryBuilderBody = QueryBuilder["getBody"];
+export type QueryBuilderBody = QueryBuilder['getBody'];
 
 export const getDefaultHighlighter = () =>
   ({
-    type: "fvh",
+    type: 'fvh',
     number_of_fragments: 3,
     fragment_size: 150,
-    tags_schema: "styled",
+    tags_schema: 'styled',
     fields: {},
-  }) as SearchRequestShape["highlight"];
+  }) as SearchRequestShape['highlight'];
 
 /**
  * Build ElasticSearch builder (ElasticSearch 9 only)
@@ -41,7 +41,7 @@ export default class QueryBuilder {
   /**
    * The fields to fetch
    */
-  private _fields: string[] = ["*"];
+  private _fields: string[] = ['*'];
 
   /**
    * Fields to exclude from list
@@ -56,7 +56,7 @@ export default class QueryBuilder {
   /**
    * The "aggs" to add to the builder
    */
-  private _aggs: SearchRequestShape["aggs"] = {};
+  private _aggs: SearchRequestShape['aggs'] = {};
 
   /**
    * The function score builder
@@ -66,8 +66,7 @@ export default class QueryBuilder {
   /**
    * The highlight definition
    */
-  private _highlighter: SearchRequestShape["highlight"] =
-    getDefaultHighlighter();
+  private _highlighter: SearchRequestShape['highlight'] = getDefaultHighlighter();
 
   /**
    * The max number of records to return
@@ -85,10 +84,10 @@ export default class QueryBuilder {
   private _sorts: SortShape[] = [];
 
   /** Retrievers to use */
-  private _retrievers: estypes.LinearRetriever["retrievers"] = [];
+  private _retrievers: estypes.LinearRetriever['retrievers'] = [];
 
   /** type of normalizer for retrievers */
-  private _normalizer: "minmax" | "l2_norm" | "none" = "minmax";
+  private _normalizer: 'minmax' | 'l2_norm' | 'none' = 'minmax';
 
   /** The number of results to find before ranking */
   private _rankWindowSize = 50;
@@ -97,7 +96,7 @@ export default class QueryBuilder {
   private _rankConstant = 20;
 
   /** Optional rescore phase */
-  private _rescore: SearchRequestShape["rescore"] = undefined;
+  private _rescore: SearchRequestShape['rescore'] = undefined;
 
   /** Optional minimum score */
   private _minScore: number = undefined;
@@ -174,33 +173,33 @@ export default class QueryBuilder {
   range(field: string, operator: OperatorType, range: RangeShape) {
     // Map operator aliases to their canonical form
     const opMap: Record<string, string> = {
-      "<": "lt",
-      lt: "lt",
-      "<=": "lte",
-      lte: "lte",
-      ">": "gt",
-      gt: "gt",
-      ">=": "gte",
-      gte: "gte",
-      between: "between",
+      '<': 'lt',
+      lt: 'lt',
+      '<=': 'lte',
+      lte: 'lte',
+      '>': 'gt',
+      gt: 'gt',
+      '>=': 'gte',
+      gte: 'gte',
+      between: 'between',
     };
 
     const normalizedOp = operator.toLowerCase();
     let opName = opMap[normalizedOp] || normalizedOp;
-    if (opName === "between" && Array.isArray(range)) {
+    if (opName === 'between' && Array.isArray(range)) {
       if (!isDefined(range[0]) && !isDefined(range[1])) {
         return this;
       }
       if (!isDefined(range[0])) {
-        opName = "lt";
+        opName = 'lt';
         range = range[1];
       }
       if (!isDefined(range[1])) {
-        opName = "gt";
+        opName = 'gt';
         range = range[0];
       }
     }
-    if (opName === "between" && Array.isArray(range)) {
+    if (opName === 'between' && Array.isArray(range)) {
       // Handle 'between' operator with array of [min, max]
       this._must.push({
         range: {
@@ -359,7 +358,7 @@ export default class QueryBuilder {
   }: {
     field: string;
     phrase: string;
-    options?: Prettify<Omit<MultiMatchQueryShape, "query" | "fields">>;
+    options?: Prettify<Omit<MultiMatchQueryShape, 'query' | 'fields'>>;
   }): this {
     const query = this.textProcessor.processText(phrase);
     this._must.push({
@@ -423,15 +422,7 @@ export default class QueryBuilder {
     return this; // Enable chaining
   }
 
-  semantic({
-    field,
-    value,
-    weight = 1,
-  }: {
-    field: string;
-    value: string;
-    weight: number;
-  }): this {
+  semantic({ field, value, weight = 1 }: { field: string; value: string; weight: number }): this {
     const query = this.textProcessor.processText(value);
 
     this._retrievers.push({
@@ -486,13 +477,7 @@ export default class QueryBuilder {
    * @return {QueryBuilder}
    * @chainable
    */
-  queryString({
-    field,
-    queryString,
-  }: {
-    field: string;
-    queryString: string;
-  }): this {
+  queryString({ field, queryString }: { field: string; queryString: string }): this {
     const query = this.textProcessor.processText(queryString);
     this._must.push({
       query_string: {
@@ -519,16 +504,14 @@ export default class QueryBuilder {
 
     if (Array.isArray(like)) {
       processedLike = (like as any[]).map((item) => {
-        if (typeof item === "string") {
+        if (typeof item === 'string') {
           return this.textProcessor.processText(item);
         } else {
           return item;
         }
       }) as unknown as MoreLikeThisLikeParams;
-    } else if (typeof like === "string") {
-      processedLike = this.textProcessor.processText(
-        like,
-      ) as unknown as MoreLikeThisLikeParams;
+    } else if (typeof like === 'string') {
+      processedLike = this.textProcessor.processText(like) as unknown as MoreLikeThisLikeParams;
     } else {
       processedLike = like;
     }
@@ -556,10 +539,7 @@ export default class QueryBuilder {
    * @return {QueryBuilder}
    * @chainable
    */
-  includeFacets(
-    forFields: string[] | Record<string, string>,
-    limit: number = 25,
-  ) {
+  includeFacets(forFields: string[] | Record<string, string>, limit: number = 25) {
     let entries: string[][];
     if (Array.isArray(forFields)) {
       entries = forFields.map((field) => [field, field]);
@@ -572,7 +552,7 @@ export default class QueryBuilder {
           field,
           size: limit,
           show_term_doc_count_error: true,
-          order: { _count: "desc" },
+          order: { _count: 'desc' },
         },
       };
     }
@@ -594,7 +574,7 @@ export default class QueryBuilder {
         field: field,
         size: limit,
         show_term_doc_count_error: true,
-        order: { _count: "desc" },
+        order: { _count: 'desc' },
         exclude: exclusions,
       },
     };
@@ -613,37 +593,32 @@ export default class QueryBuilder {
    * @returns This instance
    * @chainable
    */
-  dateHistogram(
-    dateField: string,
-    intervalName: IntervalType,
-    timezone: string | number,
-  ) {
+  dateHistogram(dateField: string, intervalName: IntervalType, timezone: string | number) {
     // see https://www.elastic.co/guide/en/elasticsearch/reference/current/mapping-date-format.html
     // Map human-friendly interval names to ES9 calendar/fixed intervals and output formats
     const intervals: Record<
       IntervalType,
-      { code: string; format: string; kind: "calendar" | "fixed" }
+      { code: string; format: string; kind: 'calendar' | 'fixed' }
     > = {
-      year: { code: "1y", format: "yyyy", kind: "calendar" },
-      quarter: { code: "1q", format: "yyyy-Q", kind: "calendar" },
-      month: { code: "1M", format: "yyyy-MM", kind: "calendar" },
-      week: { code: "1w", format: "xxxx-ww", kind: "calendar" },
-      day: { code: "1d", format: "yyyy-MM-dd", kind: "calendar" },
-      hour: { code: "1h", format: "yyyy-MM-dd'T'HH", kind: "fixed" },
-      minute: { code: "1m", format: "yyyy-MM-dd'T'HH:mm", kind: "fixed" },
-      second: { code: "1s", format: "yyyy-MM-dd'T'HH:mm:ss", kind: "fixed" },
+      year: { code: '1y', format: 'yyyy', kind: 'calendar' },
+      quarter: { code: '1q', format: 'yyyy-Q', kind: 'calendar' },
+      month: { code: '1M', format: 'yyyy-MM', kind: 'calendar' },
+      week: { code: '1w', format: 'xxxx-ww', kind: 'calendar' },
+      day: { code: '1d', format: 'yyyy-MM-dd', kind: 'calendar' },
+      hour: { code: '1h', format: "yyyy-MM-dd'T'HH", kind: 'fixed' },
+      minute: { code: '1m', format: "yyyy-MM-dd'T'HH:mm", kind: 'fixed' },
+      second: { code: '1s', format: "yyyy-MM-dd'T'HH:mm:ss", kind: 'fixed' },
     } as const;
 
     const interval = intervals[intervalName];
     if (!interval) {
-      const supported = Object.keys(intervals).join(", ");
+      const supported = Object.keys(intervals).join(', ');
       throw new Error(
         `QueryBuilder.dateHistogram(): intervalName not supported. Supported intervals are ${supported}.`,
       );
     }
 
-    const timezoneString =
-      typeof timezone === "number" ? offsetIntToString(timezone) : timezone;
+    const timezoneString = typeof timezone === 'number' ? offsetIntToString(timezone) : timezone;
 
     if (!/^[+-]\d\d:\d\d$/.test(timezoneString)) {
       throw new Error(
@@ -658,7 +633,7 @@ export default class QueryBuilder {
       min_doc_count: 1,
     };
 
-    if (interval.kind === "calendar") {
+    if (interval.kind === 'calendar') {
       dateHistogram.calendar_interval = interval.code;
     } else {
       dateHistogram.fixed_interval = interval.code;
@@ -704,12 +679,12 @@ export default class QueryBuilder {
    *   qb.sort({ created_at: 'desc' });
    *   qb.sort([ { name: 'asc' }, { created_at: 'desc' } ]);
    */
-  sort(field: SortShape, maybeDirection?: "asc" | "desc") {
+  sort(field: SortShape, maybeDirection?: 'asc' | 'desc') {
     // DESC string such as "-created_at"
-    if (typeof field === "string" && field.slice(0, 1) === "-") {
-      this._sorts.push({ [field.slice(1)]: { order: "desc" } });
-    } else if (typeof field === "string") {
-      this._sorts.push({ [field]: { order: maybeDirection || "asc" } });
+    if (typeof field === 'string' && field.slice(0, 1) === '-') {
+      this._sorts.push({ [field.slice(1)]: { order: 'desc' } });
+    } else if (typeof field === 'string') {
+      this._sorts.push({ [field]: { order: maybeDirection || 'asc' } });
     } else if (Array.isArray(field)) {
       field.forEach((f) => {
         const field = Object.keys(f)[0];
@@ -730,15 +705,15 @@ export default class QueryBuilder {
    */
   clear(field: FieldTypeOrTypes = null) {
     const all: FieldTypeOrTypes = [
-      "sort",
-      "page",
-      "limit",
-      "must",
-      "aggs",
-      "fields",
-      "excludeFields",
-      "highlighter",
-      "functionScores",
+      'sort',
+      'page',
+      'limit',
+      'must',
+      'aggs',
+      'fields',
+      'excludeFields',
+      'highlighter',
+      'functionScores',
     ];
     if (field === null) {
       field = all;
@@ -747,24 +722,24 @@ export default class QueryBuilder {
       field.forEach((name) => {
         this.clear(name);
       });
-    } else if (field === "sort") {
+    } else if (field === 'sort') {
       this._sorts = [];
       this._shouldSortByRandom = false;
-    } else if (field === "page") {
+    } else if (field === 'page') {
       this._page = 1;
-    } else if (field === "limit") {
+    } else if (field === 'limit') {
       this._limit = null;
-    } else if (field === "must") {
+    } else if (field === 'must') {
       this._must = [];
-    } else if (field === "aggs") {
+    } else if (field === 'aggs') {
       this._aggs = {};
-    } else if (field === "fields") {
+    } else if (field === 'fields') {
       this._fields = [];
-    } else if (field === "excludeFields") {
+    } else if (field === 'excludeFields') {
       this._excludeFields = [];
-    } else if (field === "highlighter") {
+    } else if (field === 'highlighter') {
       this._highlighter = getDefaultHighlighter();
-    } else if (field === "functionScores") {
+    } else if (field === 'functionScores') {
       this._functionScores = [];
     }
   }
@@ -864,7 +839,7 @@ export default class QueryBuilder {
   nested({
     withBuilder,
     path,
-    scoreMode = "avg",
+    scoreMode = 'avg',
     innerHits = undefined,
     ignoreUnmapped = false,
   }: {
@@ -901,9 +876,7 @@ export default class QueryBuilder {
    *   tags_schema: 'styled'
    * }
    */
-  setHighlighterOptions(
-    options: Omit<SearchRequestShape["highlight"], "fields">,
-  ) {
+  setHighlighterOptions(options: Omit<SearchRequestShape['highlight'], 'fields'>) {
     this._highlighter = {
       ...options,
       fields: this._highlighter.fields,
@@ -921,7 +894,7 @@ export default class QueryBuilder {
    */
   highlightField(
     name: string,
-    overrideOptions: Omit<SearchRequestShape["highlight"], "fields"> = {},
+    overrideOptions: Omit<SearchRequestShape['highlight'], 'fields'> = {},
   ) {
     this._highlighter.fields[name] = overrideOptions;
 
@@ -940,10 +913,7 @@ export default class QueryBuilder {
    * Return the builder body
    */
   getBody() {
-    const body: Pick<
-      SearchRequestShape,
-      "retriever" | "highlight" | "aggs" | "rescore"
-    > = {};
+    const body: Pick<SearchRequestShape, 'retriever' | 'highlight' | 'aggs' | 'rescore'> = {};
 
     // Determine what we're working with
     const hasLinearRetrievers = this._retrievers.length > 0;
@@ -1018,10 +988,7 @@ export default class QueryBuilder {
     }
 
     // Add rescore if specified
-    if (
-      this._rescore &&
-      (Array.isArray(this._rescore) ? this._rescore.length > 0 : true)
-    ) {
+    if (this._rescore && (Array.isArray(this._rescore) ? this._rescore.length > 0 : true)) {
       body.rescore = this._rescore as any;
     }
 
@@ -1055,7 +1022,7 @@ export default class QueryBuilder {
             random_score: {},
           },
         ],
-        boost_mode: "replace",
+        boost_mode: 'replace',
       },
     };
   }
@@ -1065,10 +1032,7 @@ export default class QueryBuilder {
    * @return The options to send in the builder
    */
   getOptions() {
-    const options: Pick<
-      SearchRequestShape,
-      "size" | "from" | "sort" | "min_score"
-    > = {};
+    const options: Pick<SearchRequestShape, 'size' | 'from' | 'sort' | 'min_score'> = {};
     if (this._limit !== null) {
       options.size = this._limit;
       if (this._page > 1) {
@@ -1078,7 +1042,7 @@ export default class QueryBuilder {
     if (this._sorts.length > 0) {
       options.sort = this._sorts;
     }
-    if (typeof this._minScore === "number") {
+    if (typeof this._minScore === 'number') {
       options.min_score = this._minScore as any;
     }
     return options;
@@ -1090,7 +1054,7 @@ export default class QueryBuilder {
    * @return {Object}
    */
   getQuery(overrides: Partial<SearchRequestShape> = {}): SearchRequestShape {
-    const source: Pick<SearchRequestShape, "_source" | "_source_excludes"> = {};
+    const source: Pick<SearchRequestShape, '_source' | '_source_excludes'> = {};
     if (this._fields.length > 0) {
       source._source = this._fields;
     }
@@ -1150,7 +1114,7 @@ export default class QueryBuilder {
       query_vector: vector,
       k,
     };
-    if (typeof numCandidates === "number") {
+    if (typeof numCandidates === 'number') {
       knnDef.num_candidates = numCandidates;
     }
 
@@ -1205,11 +1169,7 @@ export default class QueryBuilder {
    * Add a terms_set query to must filters
    * @see https://www.elastic.co/guide/en/elasticsearch/reference/9.x/query-dsl-terms-set-query.html
    */
-  termsSet(
-    field: string,
-    terms: (string | number)[],
-    minimumShouldMatchScript?: string,
-  ) {
+  termsSet(field: string, terms: (string | number)[], minimumShouldMatchScript?: string) {
     const clause: any = {
       terms_set: {
         [field]: {

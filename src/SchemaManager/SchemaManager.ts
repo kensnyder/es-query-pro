@@ -6,10 +6,12 @@ import {
   SchemaShape,
 } from '../types';
 
-export type ManagerInferSchema<T extends SchemaManager<any>> =
-  T extends SchemaManager<infer S> ? S : never;
-export type ManagerInferRecordShape<T extends SchemaManager<any>> =
-  ElasticsearchRecord<ManagerInferSchema<T>>;
+export type ManagerInferSchema<T extends SchemaManager<any>> = T extends SchemaManager<infer S>
+  ? S
+  : never;
+export type ManagerInferRecordShape<T extends SchemaManager<any>> = ElasticsearchRecord<
+  ManagerInferSchema<T>
+>;
 
 export default class SchemaManager<Schema = SchemaShape> {
   public schema: Schema;
@@ -40,25 +42,16 @@ export default class SchemaManager<Schema = SchemaShape> {
     };
   }
 
-  private _schemaToMappings<T>(
-    schema: T,
-    analyzerName: string = 'english'
-  ): MappingProperties {
+  private _schemaToMappings<T>(schema: T, analyzerName: string = 'english'): MappingProperties {
     const properties: MappingProperties = {};
 
     for (const [field, typeOrObject] of Object.entries(schema)) {
       if (typeof typeOrObject === 'string') {
         // Simple field with type
-        properties[field] = this.getPropertyType(
-          typeOrObject as ElasticsearchType,
-          analyzerName
-        );
+        properties[field] = this.getPropertyType(typeOrObject as ElasticsearchType, analyzerName);
       } else if (typeof typeOrObject === 'object' && typeOrObject !== null) {
         // Nested object - don't wrap in properties for nested objects
-        const nestedMappings = this._schemaToNestedMappings(
-          typeOrObject,
-          analyzerName
-        );
+        const nestedMappings = this._schemaToNestedMappings(typeOrObject, analyzerName);
         properties[field] = {
           type: 'nested',
           ...nestedMappings,
@@ -70,17 +63,14 @@ export default class SchemaManager<Schema = SchemaShape> {
 
   private _schemaToNestedMappings<T>(
     schema: T,
-    analyzerName: string = 'english'
+    analyzerName: string = 'english',
   ): { properties: MappingProperties } {
     const properties: MappingProperties = {};
 
     for (const [field, typeOrObject] of Object.entries(schema)) {
       if (typeof typeOrObject === 'string') {
         // Simple field with type
-        properties[field] = this.getPropertyType(
-          typeOrObject as ElasticsearchType,
-          analyzerName
-        );
+        properties[field] = this.getPropertyType(typeOrObject as ElasticsearchType, analyzerName);
       } else if (typeof typeOrObject === 'object' && typeOrObject !== null) {
         // Recursively handle nested objects
         properties[field] = {
@@ -117,9 +107,7 @@ export default class SchemaManager<Schema = SchemaShape> {
       if (typeOrObject === 'text') {
         fulltextFields.push([..._path, field].join(this.nestedSeparator));
       } else if (typeof typeOrObject === 'object' && typeOrObject !== null) {
-        fulltextFields.push(
-          ...this.getFulltextFieldsFromSchema(typeOrObject, [..._path, field])
-        );
+        fulltextFields.push(...this.getFulltextFieldsFromSchema(typeOrObject, [..._path, field]));
       }
     }
     return fulltextFields;

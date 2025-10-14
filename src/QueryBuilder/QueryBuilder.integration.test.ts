@@ -289,7 +289,6 @@ describe("QueryBuilder - Integration", () => {
     for (const hit of result.hits.hits) {
       byId[hit._id] = hit;
     }
-    console.log("QueryBuilder.integration.test.ts for highlights byId", byId);
     expect(byId["1"].highlight?.["title.fvh"]?.[0]).toContain("<em");
     expect(byId["2"].highlight?.["title.fvh"]?.[0]).toContain("<em");
   });

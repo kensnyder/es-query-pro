@@ -51,7 +51,7 @@ export default class TextProcessor<Path = string[]> {
    * @param names Field names to process
    */
   registerFields(names: string[]) {
-    names.map(n => this.registerField(n));
+    names.map((n) => this.registerField(n));
     return this;
   }
 
@@ -72,7 +72,7 @@ export default class TextProcessor<Path = string[]> {
    */
   processText(text: string | string[]) {
     if (Array.isArray(text)) {
-      return text.map(item => this.processText(item));
+      return text.map((item) => this.processText(item));
     }
     if (typeof text !== 'string') {
       return text;
@@ -89,7 +89,7 @@ export default class TextProcessor<Path = string[]> {
    */
   unProcessText(text: string | string[]) {
     if (Array.isArray(text)) {
-      return text.map(item => this.unProcessText(item));
+      return text.map((item) => this.unProcessText(item));
     }
     if (typeof text !== 'string') {
       return text;
@@ -105,10 +105,7 @@ export default class TextProcessor<Path = string[]> {
    * @param record
    * @param _segments  Segments for recursive processing
    */
-  prepareInsertion<T extends Record<string, any>>(
-    record: T,
-    _segments: Path[] = []
-  ): T {
+  prepareInsertion<T extends Record<string, any>>(record: T, _segments: Path[] = []): T {
     if (!record || typeof record !== 'object') {
       return record;
     }
@@ -136,7 +133,7 @@ export default class TextProcessor<Path = string[]> {
    * @param records
    */
   prepareInsertions<T extends Record<string, any>>(records: T[]) {
-    return records.map(r => this.prepareInsertion(r));
+    return records.map((r) => this.prepareInsertion(r));
   }
 
   /**
@@ -144,10 +141,7 @@ export default class TextProcessor<Path = string[]> {
    * @param record
    * @param _segments  Segments for recursive processing
    */
-  prepareResult<T extends Record<string, any>>(
-    record: T,
-    _segments: Path[] = []
-  ): T {
+  prepareResult<T extends Record<string, any>>(record: T, _segments: Path[] = []): T {
     for (const path of this.paths) {
       if (!record[path[0] as unknown as keyof T]) {
         // record does not have this field
@@ -170,6 +164,6 @@ export default class TextProcessor<Path = string[]> {
    * @param records
    */
   prepareResults<T>(records: T[]) {
-    return records.map(r => this.prepareResult(r));
+    return records.map((r) => this.prepareResult(r));
   }
 }

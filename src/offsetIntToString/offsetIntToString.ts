@@ -1,6 +1,6 @@
 const pad2 = (n: number) => {
   n = Math.abs(n);
-  return `${n < 10 ? "0" : ""}${n}`;
+  return `${n < 10 ? '0' : ''}${n}`;
 };
 
 /**
@@ -13,7 +13,7 @@ const pad2 = (n: number) => {
  */
 export default function offsetIntToString(offset: number) {
   const timezone = offset * -1;
-  const sign = offset < 1 ? "-" : "+";
+  const sign = offset < 1 ? '-' : '+';
   const hour = Math.floor(timezone / 60);
   const min = timezone % 60;
   return `${sign}${pad2(hour)}:${pad2(min)}`;

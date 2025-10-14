@@ -1,16 +1,16 @@
-import { estypes } from '@elastic/elasticsearch';
-import IndexManager from '../IndexManager/IndexManager';
-import QueryBuilder from '../QueryBuilder/QueryBuilder';
-import { ElasticsearchRecord, SchemaShape } from '../types';
+import { estypes } from "@elastic/elasticsearch";
+import IndexManager from "../IndexManager/IndexManager";
+import QueryBuilder from "../QueryBuilder/QueryBuilder";
+import { ElasticsearchRecord, SchemaShape } from "../types";
 
 export type QueryFindManyResult<T extends QueryRunner<any>> = Awaited<
-  ReturnType<T['findMany']>
+  ReturnType<T["findMany"]>
 >;
 export type QueryFindFirstResult<T extends QueryRunner<any>> = Awaited<
-  ReturnType<T['findFirst']>
+  ReturnType<T["findFirst"]>
 >;
 export type QueryCountResult<T extends QueryRunner<any>> = Awaited<
-  ReturnType<T['count']>
+  ReturnType<T["count"]>
 >;
 
 export default class QueryRunner<ThisSchema extends SchemaShape> {
@@ -31,7 +31,7 @@ export default class QueryRunner<ThisSchema extends SchemaShape> {
    * @private
    */
   formatResponse(
-    response: estypes.SearchResponse<ElasticsearchRecord<ThisSchema>>
+    response: estypes.SearchResponse<ElasticsearchRecord<ThisSchema>>,
   ) {
     if (response?.hits?.hits) {
       const records: ElasticsearchRecord<ThisSchema>[] = [];
@@ -41,7 +41,7 @@ export default class QueryRunner<ThisSchema extends SchemaShape> {
       return {
         records,
         total:
-          typeof response.hits.total === 'number'
+          typeof response.hits.total === "number"
             ? response.hits.total
             : response.hits.total?.value,
         took: response.took,
@@ -56,11 +56,11 @@ export default class QueryRunner<ThisSchema extends SchemaShape> {
       took: response?.took,
       aggregations: {},
       response,
-      error: new Error('response.hits.hits not found'),
+      error: new Error("response.hits.hits not found"),
     };
   }
 
-  mget(more: Omit<estypes.MgetRequest, 'index' | 'ids'> = {}) {
+  mget(more: Omit<estypes.MgetRequest, "index" | "ids"> = {}) {
     // const request = {
     //   index: this.index.getAliasName(),
     //   ...this.builder.getBody(),
@@ -78,7 +78,7 @@ export default class QueryRunner<ThisSchema extends SchemaShape> {
   /**
    * Run this builder and return results
    */
-  async findMany(more: Omit<estypes.SearchRequest, 'index' | 'query'> = {}) {
+  async findMany(more: Omit<estypes.SearchRequest, "index" | "query"> = {}) {
     const request = {
       ...this.builder.getQuery(),
       ...more,
@@ -103,7 +103,7 @@ export default class QueryRunner<ThisSchema extends SchemaShape> {
   /**
    * Run this builder and return result.hits.hits[0]
    */
-  async findFirst(more: Omit<estypes.SearchRequest, 'index' | 'query'> = {}) {
+  async findFirst(more: Omit<estypes.SearchRequest, "index" | "query"> = {}) {
     const { records, ...result } = await this.findMany(more);
     return { record: records[0], ...result };
   }
@@ -112,12 +112,12 @@ export default class QueryRunner<ThisSchema extends SchemaShape> {
    * Run this builder and return result.hits.hits[0]
    */
   async findFirstOrThrow(
-    more: Omit<estypes.SearchRequest, 'index' | 'query'> = {}
+    more: Omit<estypes.SearchRequest, "index" | "query"> = {},
   ) {
     const { records, ...result } = await this.findMany(more);
     if (records.length === 0) {
-      const error = new Error('No record found');
-      error.name = 'NotFoundError';
+      const error = new Error("No record found");
+      error.name = "NotFoundError";
       // @ts-ignore  Adding some metadata
       error.status = 404;
       // @ts-ignore  Adding some metadata
@@ -131,10 +131,12 @@ export default class QueryRunner<ThisSchema extends SchemaShape> {
    * Count the number of documents matching the current query
    * @returns The count of matching documents
    */
-  async count(more: Omit<estypes.CountRequest, 'index' | 'query'> = {}) {
+  async count(more: Omit<estypes.CountRequest, "index" | "query"> = {}) {
     const now = Date.now();
+    const { _source, retriever, ...other } = this.builder.getQuery();
     const request = {
-      ...this.builder.getQuery(),
+      ...other,
+      query: retriever.standard.query,
       ...more,
     };
     try {

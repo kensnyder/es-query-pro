@@ -53,7 +53,7 @@ export default class IndexNameManager {
     this.separator = separator;
     if (!this.isValidIndexName(name)) {
       throw new Error(
-        `Index name is too short, too long, or contains invalid characters: "${name}"`
+        `Index name is too short, too long, or contains invalid characters: "${name}"`,
       );
     }
   }
