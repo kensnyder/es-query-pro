@@ -48,5 +48,4 @@ export {
   type SchemaMigrationResultShape,
   type SchemaStatusResultShape,
 } from './src/SchemaRegistry/SchemaRegistry';
-export { default as TextProcessor } from './src/TextProcessor/TextProcessor';
 export * from './src/types';

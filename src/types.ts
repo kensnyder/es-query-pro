@@ -1,5 +1,5 @@
-import { estypes } from '@elastic/elasticsearch';
-import { ColumnName } from './IndexNameManager/IndexNameManager';
+import type { estypes } from '@elastic/elasticsearch';
+import type { ColumnName } from './IndexNameManager/IndexNameManager';
 
 export type Prettify<T> = {
   [K in keyof T]: T[K];

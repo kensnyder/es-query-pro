@@ -1,4 +1,4 @@
-import type { estypes } from '@elastic/elasticsearch'; // TypeScript needs this even if we don't use it
+import type { estypes } from '@elastic/elasticsearch'; // TypeScript needs estypes even if we don't use it
 import isDefined from '../isDefined/isDefined';
 import isEmptyObject from '../isEmptyObject/isEmptyObject';
 import offsetIntToString from '../offsetIntToString/offsetIntToString';
@@ -17,8 +17,6 @@ import type {
   SortShape,
 } from '../types';
 
-export type QueryBuilderBody = QueryBuilder['getBody'];
-
 export const getDefaultHighlighter = () =>
   ({
     type: 'fvh',
@@ -29,56 +27,37 @@ export const getDefaultHighlighter = () =>
   }) as SearchRequestShape['highlight'];
 
 /**
- * Build ElasticSearch builder (ElasticSearch 9 only)
+ * ElasticSearch query builder (ElasticSearch 9 only)
  */
 export default class QueryBuilder {
-  /**
-   * The index to query from
-   */
+  /** The index to query from - used by getQuery() */
   private _index: string;
-  /**
-   * The fields to fetch
-   */
+
+  /** The fields to fetch */
   private _fields: string[] = ['*'];
 
-  /**
-   * Fields to exclude from list
-   */
+  /** Fields to exclude from list */
   private _excludeFields: string[] = [];
 
-  /**
-   * The must filters
-   */
+  /** The must filters */
   private _must: QueryShape[] = [];
 
-  /**
-   * The "aggs" to add to the builder
-   */
+  /** The "aggs" to add to the builder */
   private _aggs: SearchRequestShape['aggs'] = {};
 
-  /**
-   * The function score builder
-   */
+  /** The function score builder */
   private _functionScores: FunctionScoreShape[] = [];
 
-  /**
-   * The highlight definition
-   */
+  /** The highlight definition */
   private _highlighter: SearchRequestShape['highlight'] = getDefaultHighlighter();
 
-  /**
-   * The max number of records to return
-   */
+  /** The max number of records to return */
   private _limit: number = null;
 
-  /**
-   * The page of records to fetch
-   */
+  /** The page of records to fetch */
   private _page: number = 1;
 
-  /**
-   * Fields to sort by
-   */
+  /** Fields to sort by */
   private _sorts: SortShape[] = [];
 
   /** Retrievers to use */
@@ -99,9 +78,13 @@ export default class QueryBuilder {
   /** Optional minimum score */
   private _minScore: number = undefined;
 
-  /**
-   * If true, use "random_score" for a function score
-   */
+  /** Optional search_after sort values for deep pagination */
+  private _searchAfter: estypes.SortResults = undefined;
+
+  /** Optional track_total_hits control */
+  private _trackTotalHits: boolean | number = undefined;
+
+  /** If true, use "random_score" for a function score */
   private _shouldSortByRandom: boolean = false;
 
   constructor({
@@ -255,6 +238,30 @@ export default class QueryBuilder {
 
   getMinScore() {
     return this._minScore;
+  }
+
+  /**
+   * Use search_after for deep pagination
+   */
+  searchAfter(values: estypes.SortResults) {
+    this._searchAfter = values;
+    return this;
+  }
+
+  getSearchAfter() {
+    return this._searchAfter;
+  }
+
+  /**
+   * Control track_total_hits (boolean or number)
+   */
+  trackTotalHits(value: boolean | number) {
+    this._trackTotalHits = value;
+    return this;
+  }
+
+  getTrackTotalHits() {
+    return this._trackTotalHits;
   }
 
   //
@@ -448,7 +455,7 @@ export default class QueryBuilder {
     operators?: Array<'exact' | 'and' | 'or'>;
     weights?: number[];
   }): this {
-    const should: estypes.QueryDslQueryContainer[] = [];
+    const should: QueryShape[] = [];
 
     for (let i = 0; i < operators.length; i++) {
       const op = operators[i];
@@ -647,9 +654,13 @@ export default class QueryBuilder {
     numCandidates?: number;
     weight: number;
     filter?: QueryShape | QueryShape[];
-    similarity?: estypes.InferenceCohereSimilarityType;
+    similarity?: number | estypes.InferenceCohereSimilarityType;
   }) {
-    const knnDef: any = {
+    const knnDef: Partial<
+      Omit<estypes.KnnRetriever, 'similarity'> & {
+        similarity?: number | estypes.InferenceCohereSimilarityType;
+      }
+    > = {
       field,
       query_vector: vector,
       k,
@@ -665,14 +676,14 @@ export default class QueryBuilder {
       knnDef.filter = filter;
     }
 
-    if (typeof similarity === 'string') {
-      knnDef.similarity = similarity;
+    if (typeof similarity === 'number' || typeof similarity === 'string') {
+      knnDef.similarity = similarity as unknown as number;
     }
 
     this._retrievers.push({
       retriever: {
         knn: knnDef,
-      } as any,
+      } as estypes.RetrieverContainer,
       weight,
       normalizer: this._normalizer,
     });
@@ -1157,9 +1168,18 @@ export default class QueryBuilder {
       body.aggs = this._aggs;
     }
 
-    // Add rescore if specified
+    // Add rescore if specified and supported (requires a standard query retriever)
     if (this._rescore && (Array.isArray(this._rescore) ? this._rescore.length > 0 : true)) {
-      body.rescore = this._rescore as any;
+      let canRescore = false;
+      if (body.retriever?.standard) {
+        canRescore = true;
+      } else if (body.retriever?.linear) {
+        const retrs = (body.retriever.linear.retrievers || []) as estypes.InnerRetriever[];
+        canRescore = Array.isArray(retrs) && retrs.some((r) => r?.retriever?.standard);
+      }
+      if (canRescore) {
+        body.rescore = this._rescore;
+      }
     }
 
     return body;
@@ -1168,7 +1188,7 @@ export default class QueryBuilder {
   /**
    * Build a bool query from must/must_not conditions
    */
-  private _buildBoolQuery(): estypes.QueryDslQueryContainer {
+  private _buildBoolQuery(): QueryShape {
     if (this._must.length === 0) {
       return { match_all: {} };
     } else if (this._must.length === 1) {
@@ -1181,9 +1201,7 @@ export default class QueryBuilder {
   /**
    * Wrap a query with random score function
    */
-  private _wrapWithRandomScore(
-    query: estypes.QueryDslQueryContainer,
-  ): estypes.QueryDslQueryContainer {
+  private _wrapWithRandomScore(query: QueryShape): QueryShape {
     return {
       function_score: {
         query,
@@ -1202,7 +1220,10 @@ export default class QueryBuilder {
    * @return The options to send in the builder
    */
   getOptions() {
-    const options: Pick<SearchRequestShape, 'size' | 'from' | 'sort' | 'min_score'> = {};
+    const options: Pick<
+      SearchRequestShape,
+      'size' | 'from' | 'sort' | 'min_score' | 'search_after' | 'track_total_hits'
+    > = {};
     if (this._limit !== null) {
       options.size = this._limit;
       if (this._page > 1) {
@@ -1213,7 +1234,13 @@ export default class QueryBuilder {
       options.sort = this._sorts;
     }
     if (typeof this._minScore === 'number') {
-      options.min_score = this._minScore as any;
+      options.min_score = this._minScore;
+    }
+    if (Array.isArray(this._searchAfter) && this._searchAfter.length > 0) {
+      options.search_after = this._searchAfter;
+    }
+    if (typeof this._trackTotalHits === 'boolean' || typeof this._trackTotalHits === 'number') {
+      options.track_total_hits = this._trackTotalHits;
     }
     return options;
   }
@@ -1267,7 +1294,7 @@ export default class QueryBuilder {
    * @see https://www.elastic.co/guide/en/elasticsearch/reference/9.x/query-dsl-terms-set-query.html
    */
   termsSet(field: string, terms: (string | number)[], minimumShouldMatchScript?: string) {
-    const clause: any = {
+    const clause: QueryShape = {
       terms_set: {
         [field]: {
           terms,

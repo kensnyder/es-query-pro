@@ -843,3 +843,55 @@ describe('QueryBuilder.range() "between" inclusivity', () => {
     expect(() => qb.range('price', 'invalid', 10)).toThrow(TypeError);
   });
 });
+
+
+// searchAfter and trackTotalHits
+
+describe('QueryBuilder deep pagination and total hits', () => {
+  it('should include search_after and track_total_hits in options', () => {
+    const qb = new QueryBuilder();
+    qb.searchAfter(['A', 10]);
+    qb.trackTotalHits(100000);
+    const full: any = qb.getQuery();
+    expect(full.search_after).toEqual(['A', 10]);
+    expect(full.track_total_hits).toBe(100000);
+  });
+
+  it('should allow boolean track_total_hits', () => {
+    const qb = new QueryBuilder();
+    qb.trackTotalHits(true);
+    const full: any = qb.getQuery();
+    expect(full.track_total_hits).toBe(true);
+  });
+});
+
+// rescore guardrails with retrievers
+
+describe('QueryBuilder rescore with retrievers', () => {
+  it('should omit rescore for pure knn-only retrieval', () => {
+    const qb = new QueryBuilder();
+    qb.knn({ field: 'vec', vector: [0.1, 0.2], k: 3, weight: 1 });
+    qb.rescore({
+      windowSize: 50,
+      withBuilder: (q) => {
+        q.match({ field: 'title', phrase: 'test', options: {} as any });
+      },
+    });
+    const body: any = qb.getBody();
+    expect(body.rescore).toBeUndefined();
+  });
+
+  it('should include rescore when a standard retriever is present in linear path', () => {
+    const qb = new QueryBuilder();
+    qb.term({ field: 'category', value: 'news' }); // ensures a standard retriever branch is added
+    qb.knn({ field: 'vec', vector: [0.1, 0.2], k: 3, weight: 1 });
+    qb.rescore({
+      windowSize: 25,
+      withBuilder: (q) => {
+        q.match({ field: 'title', phrase: 'potter', options: {} as any });
+      },
+    });
+    const body: any = qb.getBody();
+    expect(Array.isArray(body.rescore) ? body.rescore.length > 0 : !!body.rescore).toBe(true);
+  });
+});
