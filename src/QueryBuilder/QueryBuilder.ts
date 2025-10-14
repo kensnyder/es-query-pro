@@ -29,6 +29,10 @@ import type {
   SortResults,
 } from '../types';
 
+/**
+ * Get a default FVH highlighter configuration.
+ * @returns A highlight config suitable for use with QueryBuilder.
+ */
 export const getDefaultHighlighter = () =>
   ({
     type: 'fvh',
@@ -114,6 +118,8 @@ export default class QueryBuilder {
   /**
    * Set the index name (optional)
    * @param name
+   * @example
+   *   qb.index('my-index');
    */
   index(name: string): this {
     this._index = name;
@@ -122,6 +128,9 @@ export default class QueryBuilder {
 
   /**
    * Get the name of the index
+   * @example
+   *   const qb = new QueryBuilder({ index: 'products' });
+   *   const index = qb.getIndex();
    */
   getIndex() {
     return this._index;
@@ -131,6 +140,8 @@ export default class QueryBuilder {
    * Set the fields to fetch
    * @param fields  The fields to select
    * @return This instance
+   * @example
+   *   qb.fields(['id', 'name']);
    */
   fields(fields: string[]): this {
     this._fields = fields;
@@ -139,6 +150,8 @@ export default class QueryBuilder {
 
   /**
    * @alias fields
+   * @example
+   *   qb.sourceIncludes(['title', 'author']);
    */
   sourceIncludes(fields: string[]): this {
     this._fields = fields;
@@ -149,6 +162,8 @@ export default class QueryBuilder {
    * Set the fields to exclude
    * @param fields  The fields to exclude
    * @return This instance
+   * @example
+   *   qb.excludeFields(['internal.notes']);
    */
   excludeFields(fields: string[]): this {
     this._excludeFields = fields;
@@ -157,6 +172,8 @@ export default class QueryBuilder {
 
   /**
    * @alias excludeFields
+   * @example
+   *   qb.sourceExcludes(['private.*']);
    */
   sourceExcludes(fields: string[]): this {
     this._excludeFields = fields;
@@ -170,6 +187,8 @@ export default class QueryBuilder {
    * @chainable
    * @see https://www.elastic.co/guide/en/elasticsearch/reference/9.x/highlighting.html
    * @see https://www.elastic.co/guide/en/elasticsearch/reference/9.x/term-vector.html
+   * @example
+   *   qb.highlighterOptions({ type: 'fvh', number_of_fragments: 1, fragment_size: 100, fields: {} });
    */
   highlighterOptions(options: Omit<SearchRequestShape['highlight'], 'fields'>): this {
     this._highlighter = {
@@ -182,6 +201,9 @@ export default class QueryBuilder {
   /**
    * Get the current global highlighter configuration.
    * @returns The highlight options that will be applied to the query.
+   * @example
+   *   qb.highlightField('title');
+   *   const hl = qb.getHighlighter();
    */
   getHighlighter() {
     return this._highlighter;
@@ -191,6 +213,8 @@ export default class QueryBuilder {
    * Convenience helper to add FVH highlighting for one or more fields.
    * @param name  The name of the field to highlight
    * @param overrideOptions  Options to override global highlight options
+   * @example
+   *   qb.highlightField('content', { number_of_fragments: 1 });
    */
   highlightField(
     name: string,
@@ -202,6 +226,9 @@ export default class QueryBuilder {
 
   /**
    * Return the fields we will fetch
+   * @example
+   *   qb.fields(['id']);
+   *   const fields = qb.getFields();
    */
   getFields() {
     return this._fields;
@@ -210,6 +237,9 @@ export default class QueryBuilder {
   /**
    * Get the list of fields to exclude from _source in the response.
    * @returns An array of field paths to exclude.
+   * @example
+   *   qb.excludeFields(['secret']);
+   *   const excluded = qb.getExcludeFields();
    */
   getExcludeFields() {
     return this._excludeFields;
@@ -232,6 +262,8 @@ export default class QueryBuilder {
   /**
    * Set rank_window_size
    * @param size
+   * @example
+   *   qb.rankWindowSize(100);
    */
   rankWindowSize(size: number): this {
     this._rankWindowSize = size;
@@ -241,6 +273,9 @@ export default class QueryBuilder {
   /**
    * Get the reciprocal rank fusion window size used by the rank feature.
    * @returns The window size if set, otherwise undefined.
+   * @example
+   *   qb.rankWindowSize(75);
+   *   const size = qb.getRankWindowSize();
    */
   getRankWindowSize() {
     return this._rankWindowSize;
@@ -320,6 +355,8 @@ export default class QueryBuilder {
    * @param field  The name of the field to search
    * @param operator  One of the following: > < >= <= gt lt gte lte between
    * @param range  The limit(s) to search against
+   * @example
+   *   qb.range('price', 'between', [10, 20]);
    */
   range(field: string, operator: RangeOperator, range: RangeShape): this {
     const opMap: Record<string, string> = {
@@ -400,6 +437,8 @@ export default class QueryBuilder {
    * @param options  Options for phrase matching (e.g., slop for word proximity)
    * @return {QueryBuilder}
    * @chainable
+   * @example
+   *   qb.matchPhrase({ field: 'title', phrase: 'elasticsearch guide', options: { slop: 1 } });
    */
   matchPhrase({
     field,
@@ -428,6 +467,8 @@ export default class QueryBuilder {
    * @param options  Options for phrase matching (e.g., slop for word proximity)
    * @return {QueryBuilder}
    * @chainable
+   * @example
+   *   qb.matchPhrasePrefix({ field: 'title', phrase: 'elastic sea', options: { slop: 1 } });
    */
   matchPhrasePrefix({
     field,
@@ -457,6 +498,8 @@ export default class QueryBuilder {
    * @param phrase  The value to match on
    * @param options  Additional options, including `type`, `analyzer`, `boost`, `operator`, `minimum_should_match`, `fuzziness`, `lenient`, `prefix_length`, `max_expansions`, `fuzzy_rewrite`, `zero_terms_query`, `cutoff_frequency`, and `fuzzy_transpositions`
    * @chainable
+   * @example
+   *   qb.match({ field: 'title', phrase: 'elastic', options: { operator: 'and' } });
    */
   match({
     field,
@@ -490,6 +533,9 @@ export default class QueryBuilder {
    * @param operators  Operators to include (an array of "or", "and", "exact")
    * @return {QueryBuilder}
    * @chainable
+   * @example
+   *   const qb = new QueryBuilder();
+   *   qb.matchBoostedPhrase({ field: 'title', phrase: 'elastic search', operators: ['exact','and','or'], weights: [5,3,1] });
    */
   matchBoostedPhrase({
     field,
@@ -555,6 +601,9 @@ export default class QueryBuilder {
    * @param standardField  The name of the text field containing equivalent content
    * @param phrase  The phrase to search
    * @param weight  The weight of this retriever block
+   * @example
+   *   const qb = new QueryBuilder();
+   *   qb.rrf({ semanticField: 'content_semantic', standardField: 'content', phrase: 'neural search', weight: 2 });
    */
   rrf({
     semanticField,
@@ -611,6 +660,9 @@ export default class QueryBuilder {
    * @param field  The field to search on
    * @param phrase  The phrase to search on
    * @param weight  The weight of this retriever block
+   * @example
+   *   const qb = new QueryBuilder();
+   *   qb.semantic({ field: 'content_semantic', phrase: 'vector search', weight: 1 });
    */
   semantic({ field, phrase, weight = 1 }: { field: string; phrase: string; weight: number }): this {
     this._retrievers.push({
@@ -646,6 +698,9 @@ export default class QueryBuilder {
    * @param value  A string to match
    * @return {QueryBuilder}
    * @chainable
+   * @example
+   *   const qb = new QueryBuilder();
+   *   qb.term({ field: 'status', value: 'active' });
    */
   term({ field, value }: { field: string; value: string }): this {
     this._must.push({
@@ -660,6 +715,9 @@ export default class QueryBuilder {
    * Require that the given field or fields contain values (i.e. non-missing, non-null)
    * @param field  The name of the field
    * @returns {QueryBuilder}
+   * @example
+   *   const qb = new QueryBuilder();
+   *   qb.exists({ field: 'author' });
    */
   exists({ field }: { field: string }): this {
     this._must.push({ exists: { field } });
@@ -674,6 +732,9 @@ export default class QueryBuilder {
    * @param queryString  A string containing special operators such as AND, NOT, OR, ~, *
    * @return {QueryBuilder}
    * @chainable
+   * @example
+   *   const qb = new QueryBuilder();
+   *   qb.queryString({ field: 'title', queryString: 'quick AND fox' });
    */
   queryString({ field, queryString }: { field: string; queryString: string }): this {
     this._must.push({
@@ -692,6 +753,9 @@ export default class QueryBuilder {
    * @param field  The field name
    * @param like  The like string or { _doc: '123' }
    * @param options  Additional MorkLikeThisOptions
+   * @example
+   *   const qb = new QueryBuilder();
+   *   qb.moreLikeThis({ field: 'description', like: 'wireless headphones', options: { min_term_freq: 1, max_query_terms: 12 } });
    */
   moreLikeThis({
     field,
@@ -716,6 +780,9 @@ export default class QueryBuilder {
   /**
    * Add an arbitrary condition
    * @param query
+   * @example
+   *   const qb = new QueryBuilder();
+   *   qb.rawCondition({ range: { price: { gte: 10, lte: 50 } } });
    */
   rawCondition(query: QueryDslQueryContainer): this {
     this._must.push(query);
@@ -725,6 +792,9 @@ export default class QueryBuilder {
   /**
    * Add a terms_set query to must filters
    * @see https://www.elastic.co/guide/en/elasticsearch/reference/9.x/query-dsl-terms-set-query.html
+   * @example
+   *   const qb = new QueryBuilder();
+   *   qb.termsSet('tags', ['red','blue'], "Math.min(params.num_terms, 2)");
    */
   termsSet(field: string, terms: (string | number)[], minimumShouldMatchScript?: string): this {
     const clause: QueryDslQueryContainer = {
@@ -748,6 +818,9 @@ export default class QueryBuilder {
   /**
    * Add a KNN retriever (Approximate Nearest Neighbor search)
    * @see https://www.elastic.co/guide/en/elasticsearch/reference/9.x/knn-search.html
+   * @example
+   *   const qb = new QueryBuilder();
+   *   qb.knn({ field: 'embedding', vector: [0.1, 0.2, 0.3], k: 10, numCandidates: 100, weight: 2 });
    */
   knn({
     field,
@@ -811,6 +884,9 @@ export default class QueryBuilder {
   /**
    * Add a rescore phase for the query. Multiple calls will append additional rescore entries.
    * @see https://www.elastic.co/guide/en/elasticsearch/reference/9.x/filter-search-results.html#rescore
+   * @example
+   *   const qb = new QueryBuilder();
+   *   qb.rescore({ windowSize: 50, withBuilder: (q) => { q.match({ field: 'title', phrase: 'elasticsearch' }); } });
    */
   rescore({
     windowSize,
@@ -855,6 +931,9 @@ export default class QueryBuilder {
    * @param limit  The maximum number of buckets to return for each facet before an "other" option
    * @return {QueryBuilder}
    * @chainable
+   * @example
+   *   const qb = new QueryBuilder();
+   *   qb.includeFacets({ fields: ['category', 'brand'], limit: 10 });
    */
   includeFacets({
     fields,
@@ -890,6 +969,9 @@ export default class QueryBuilder {
    * @param exclusions  Values that should be excluded from the counts (default [])
    * @return {QueryBuilder}
    * @chainable
+   * @example
+   *   const qb = new QueryBuilder();
+   *   qb.aggregateTerm({ field: 'category', limit: 5, exclude: ['misc'] });
    */
   aggregateTerm({
     field,
@@ -944,6 +1026,8 @@ export default class QueryBuilder {
    * @param timezone  The timezone offset (e.g. 360 or "-06:00")
    * @returns This instance
    * @chainable
+   * @example
+   *   qb.dateHistogram('created_at', 'month', '+00:00');
    */
   dateHistogram(dateField: string, intervalName: IntervalType, timezone: string | number): this {
     // see https://www.elastic.co/guide/en/elasticsearch/reference/current/mapping-date-format.html
@@ -1006,6 +1090,8 @@ export default class QueryBuilder {
    * Set the max number of results to return
    * @param limit  The max
    * @chainable
+   * @example
+   *   qb.limit(25);
    */
   limit(limit: number): this {
     this._limit = limit;
@@ -1015,6 +1101,9 @@ export default class QueryBuilder {
   /**
    * Get the maximum number of results to return (size).
    * @returns The size/limit, or null to use Elasticsearch defaults.
+   * @example
+   *   qb.limit(10);
+   *   const size = qb.getLimit();
    */
   getLimit() {
     return this._limit;
@@ -1024,6 +1113,8 @@ export default class QueryBuilder {
    * Set the page of results to return
    * @param page  Where 1 is the first page
    * @chainable
+   * @example
+   *   qb.page(3);
    */
   page(page: number): this {
     this._page = page;
@@ -1033,6 +1124,9 @@ export default class QueryBuilder {
   /**
    * Get the page number to return (1-based).
    * @returns The page number, default is 1.
+   * @example
+   *   qb.page(2);
+   *   const page = qb.getPage();
    */
   getPage() {
     return this._page;
@@ -1074,6 +1168,9 @@ export default class QueryBuilder {
   /**
    * Get the sort clauses to apply to the search.
    * @returns An array of sort specifications in Elasticsearch format.
+   * @example
+   *   qb.sort('_score');
+   *   const sorts = qb.getSort();
    */
   getSort() {
     return this._sorts;
@@ -1082,6 +1179,9 @@ export default class QueryBuilder {
   /**
    * Reset one or more properties of this instance to its initial value
    * @param field
+   * @example
+   *   qb.fields(['a']).limit(5);
+   *   qb.reset('fields');
    */
   reset(field: FieldTypeOrTypes = null): this {
     const all: FieldTypeOrTypes = [
@@ -1185,6 +1285,13 @@ export default class QueryBuilder {
    * Add a decay function score builder
    * @see https://www.elastic.co/guide/en/elasticsearch/reference/9.x/query-dsl-function-score-query.html#function-decay
    * @chainable
+   * @example
+   *   const qb = new QueryBuilder();
+   *   qb.decayFunctionScore({
+   *     gauss: {
+   *       "created_at": { origin: "now", scale: "7d", decay: 0.5 }
+   *     }
+   *   });
    */
   decayFunctionScore(functionScore: QueryDslDecayFunctionBase): this {
     this._functionScores.push(functionScore);
@@ -1303,10 +1410,29 @@ export default class QueryBuilder {
   }
 
   /**
-   * Manually set the must condition array
+   * Provide an array of handlers, each adding some conditions
+   * @param withBuilders  Array of handlers receiving a fresh QueryBuilder instance
+   * @example
+   *   const qb = new QueryBuilder();
+   *   qb.must([
+   *     (q) => { q.term({ field: 'status', value: 'active' }); },
+   *     (q) => { q.range('price', 'between', [10, 50]); },
+   *   ]);
    */
-  must(must: QueryDslQueryContainer[]): this {
-    this._must = must;
+  must(withBuilders: Array<(qb: QueryBuilder, idx: number) => void>): this {
+    for (let i = 0; i < withBuilders.length; i++) {
+      const qb = new QueryBuilder();
+      withBuilders[i](qb, i);
+      const branch = qb.getMust();
+      if (branch.length === 0) {
+        continue;
+      }
+      if (branch.length === 1) {
+        this._must.push(branch[0]);
+      } else {
+        this._must.push(...branch);
+      }
+    }
     return this;
   }
 
