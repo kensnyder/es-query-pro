@@ -1,5 +1,7 @@
 import type { estypes } from '@elastic/elasticsearch'; // TypeScript needs this even if we don't use it
+import isDefined from '../isDefined/isDefined';
 import isEmptyObject from '../isEmptyObject/isEmptyObject';
+import offsetIntToString from '../offsetIntToString/offsetIntToString';
 import type {
   FieldTypeOrTypes,
   FunctionScoreShape,
@@ -14,8 +16,6 @@ import type {
   SearchRequestShape,
   SortShape,
 } from '../types';
-import offsetIntToString from '../offsetIntToString/offsetIntToString';
-import isDefined from '../isDefined/isDefined';
 
 export type QueryBuilderBody = QueryBuilder['getBody'];
 
@@ -112,6 +112,11 @@ export default class QueryBuilder {
     this._index = index;
   }
 
+
+  //
+  // Section 1/6: Set fields, instance options, and highlights
+  //
+
   /**
    * Set the index name (optional)
    * @param name
@@ -129,6 +134,52 @@ export default class QueryBuilder {
   fields(fields: string[]) {
     this._fields = fields;
     return this;
+  }
+
+  /**
+   * Set the fields to exclude
+   * @param fields  The fields to exclude
+   * @return This instance
+   */
+  excludeFields(fields: string[]) {
+    this._excludeFields = fields;
+    return this;
+  }
+
+  /**
+   * Pass a highlight definition to use
+   * @param options  The global Highlighter options
+   * @return {QueryBuilder}
+   * @chainable
+   * @see https://www.elastic.co/guide/en/elasticsearch/reference/9.x/highlighting.html
+   * @see https://www.elastic.co/guide/en/elasticsearch/reference/9.x/term-vector.html
+   */
+  setHighlighterOptions(options: Omit<SearchRequestShape['highlight'], 'fields'>) {
+    this._highlighter = {
+      ...options,
+      fields: this._highlighter.fields,
+    };
+    return this;
+  }
+
+  /**
+   * Convenience helper to add FVH highlighting for one or more fields.
+   * @param name  The name of the field to highlight
+   * @param overrideOptions  Options to override global highlight options
+   */
+  highlightField(
+    name: string,
+    overrideOptions: Omit<SearchRequestShape['highlight'], 'fields'> = {},
+  ) {
+    this._highlighter.fields[name] = overrideOptions;
+    return this;
+  }
+
+  /**
+   * Return the fields we will fetch
+   */
+  getFields() {
+    return this._fields;
   }
 
   /**
@@ -150,14 +201,16 @@ export default class QueryBuilder {
   }
 
   /**
-   * Set the fields to exclude
-   * @param fields  The fields to exclude
-   * @return This instance
+   * Set a minimum score threshold for hits
    */
-  excludeFields(fields: string[]) {
-    this._excludeFields = fields;
+  minScore(score: number) {
+    this._minScore = score;
     return this;
   }
+
+  //
+  // Section 2/6: Criteria builders plus rrf/knn/rescore
+  //
 
   /**
    * Append filters for the given range expression
@@ -508,6 +561,75 @@ export default class QueryBuilder {
   }
 
   /**
+   * Add a KNN retriever (Approximate Nearest Neighbor search)
+   * @see https://www.elastic.co/guide/en/elasticsearch/reference/9.x/knn-search.html
+   */
+  knn({
+    field,
+    vector,
+    k,
+    numCandidates,
+    weight = 1,
+  }: {
+    field: string;
+    vector: number[];
+    k: number;
+    numCandidates?: number;
+    weight: number;
+  }) {
+    const knnDef: any = {
+      field,
+      query_vector: vector,
+      k,
+    };
+    if (typeof numCandidates === 'number') {
+      knnDef.num_candidates = numCandidates;
+    }
+
+    this._retrievers.push({
+      retriever: {
+        knn: knnDef,
+      } as any,
+      weight,
+      normalizer: this._normalizer,
+    });
+    return this;
+  }
+
+  /**
+   * Add a rescore phase for the query. Multiple calls will append additional rescore entries.
+   * @see https://www.elastic.co/guide/en/elasticsearch/reference/9.x/filter-search-results.html#rescore
+   */
+  rescore({
+    windowSize,
+    withBuilder,
+  }: {
+    windowSize: number;
+    withBuilder: (qb: QueryBuilder) => void;
+  }) {
+    const qb = new QueryBuilder();
+    withBuilder(qb);
+    const entry: any = {
+      window_size: windowSize,
+      query: {
+        rescore_query: qb.getQuery(),
+      },
+    };
+    if (Array.isArray(this._rescore)) {
+      this._rescore = [...this._rescore, entry] as any;
+    } else if (this._rescore) {
+      this._rescore = [this._rescore as any, entry] as any;
+    } else {
+      this._rescore = [entry] as any;
+    }
+    return this;
+  }
+
+  //
+  // Section 4/6: Aggregation, facets and histograms
+  //
+
+  /**
    * Return faceted data using ElasticSearch's "aggregation" feature
    * @param forFields  The names of fields to aggregate into buckets. Can be a list of strings or an object of label-field pairs
    * @param limit  The maximum number of buckets to return for each facet before an "other" option
@@ -620,6 +742,10 @@ export default class QueryBuilder {
     this.limit(0);
     return this;
   }
+
+  //
+  // Section 5/6: Sort and paginate methods
+  //
 
   /**
    * Set the max number of results to return
@@ -739,20 +865,10 @@ export default class QueryBuilder {
     return this;
   }
 
-  /**
-   * Get the function score definition
-   */
-  getFunctionScores() {
-    return this._functionScores;
-  }
 
-  /**
-   * Get the current array of "must" filters
-   * @return The must filters
-   */
-  getMust(): QueryShape[] {
-    return this._must;
-  }
+  //
+  // Section 3/6: Logic including should, mustNot, nested
+  //
 
   /**
    * Build a boolean SHOULD clause from multiple subquery builders.
@@ -838,50 +954,24 @@ export default class QueryBuilder {
     return this;
   }
 
+
+  //
+  // Section 6/6: Builders including getMust/getBody/toJSON/valueOf/toString
+  //
+
   /**
-   * Pass a highlight definition to use
-   * @param options  The global Highlighter options
-   * @return {QueryBuilder}
-   * @chainable
-   * @see https://www.elastic.co/guide/en/elasticsearch/reference/9.x/highlighting.html
-   * @see https://www.elastic.co/guide/en/elasticsearch/reference/9.x/term-vector.html
-   * @example
-   * {
-   *   order: 'score',
-   *   tags_schema: 'styled'
-   * }
+   * Get the function score definition
    */
-  setHighlighterOptions(options: Omit<SearchRequestShape['highlight'], 'fields'>) {
-    this._highlighter = {
-      ...options,
-      fields: this._highlighter.fields,
-    };
-    return this;
+  getFunctionScores() {
+    return this._functionScores;
   }
 
   /**
-   * Convenience helper to add FVH highlighting for one or more fields.
-   *
-   * @param name  The name of the field to highlight
-   * @param overrideOptions  Options to override global highlight options
-   * @see https://www.elastic.co/docs/reference/elasticsearch/rest-apis/highlighting
-   * @see https://www.elastic.co/docs/reference/elasticsearch/rest-apis/highlighting-settings
+   * Get the current array of "must" filters
+   * @return The must filters
    */
-  highlightField(
-    name: string,
-    overrideOptions: Omit<SearchRequestShape['highlight'], 'fields'> = {},
-  ) {
-    this._highlighter.fields[name] = overrideOptions;
-
-    return this;
-  }
-
-  /**
-   * Return the fields we will fetch
-   * @return
-   */
-  getFields() {
-    return this._fields;
+  getMust(): QueryShape[] {
+    return this._must;
   }
 
   /**
@@ -1065,79 +1155,6 @@ export default class QueryBuilder {
    */
   toString() {
     return JSON.stringify(this.getQuery(), null, 2);
-  }
-
-  /**
-   * Add a KNN retriever (Approximate Nearest Neighbor search)
-   * @see https://www.elastic.co/guide/en/elasticsearch/reference/9.x/knn-search.html
-   */
-  knn({
-    field,
-    vector,
-    k,
-    numCandidates,
-    weight = 1,
-  }: {
-    field: string;
-    vector: number[];
-    k: number;
-    numCandidates?: number;
-    weight: number;
-  }) {
-    const knnDef: any = {
-      field,
-      query_vector: vector,
-      k,
-    };
-    if (typeof numCandidates === 'number') {
-      knnDef.num_candidates = numCandidates;
-    }
-
-    this._retrievers.push({
-      retriever: {
-        knn: knnDef,
-      } as any,
-      weight,
-      normalizer: this._normalizer,
-    });
-    return this;
-  }
-
-  /**
-   * Add a rescore phase for the query. Multiple calls will append additional rescore entries.
-   * @see https://www.elastic.co/guide/en/elasticsearch/reference/9.x/filter-search-results.html#rescore
-   */
-  rescore({
-    windowSize,
-    withBuilder,
-  }: {
-    windowSize: number;
-    withBuilder: (qb: QueryBuilder) => void;
-  }) {
-    const qb = new QueryBuilder();
-    withBuilder(qb);
-    const entry: any = {
-      window_size: windowSize,
-      query: {
-        rescore_query: qb.getQuery(),
-      },
-    };
-    if (Array.isArray(this._rescore)) {
-      this._rescore = [...this._rescore, entry] as any;
-    } else if (this._rescore) {
-      this._rescore = [this._rescore as any, entry] as any;
-    } else {
-      this._rescore = [entry] as any;
-    }
-    return this;
-  }
-
-  /**
-   * Set a minimum score threshold for hits
-   */
-  minScore(score: number) {
-    this._minScore = score;
-    return this;
   }
 
   /**
