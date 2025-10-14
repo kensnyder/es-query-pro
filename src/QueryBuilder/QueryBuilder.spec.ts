@@ -742,3 +742,51 @@ describe('QueryBuilder.toKibana()', () => {
     expect(kibana.includes('"category": "World"'));
   });
 });
+
+// matchBoostedPhrase()
+
+describe('QueryBuilder.matchBoostedPhrase()', () => {
+  it('should build bool.should with default operators exact and and with boosts', () => {
+    const qb = new QueryBuilder();
+    qb.matchBoostedPhrase({ field: 'title', phrase: 'Harry Potter' });
+    expect(qb.getMust()).toEqual([
+      {
+        bool: {
+          should: [
+            { match_phrase: { title: { query: 'Harry Potter', boost: 1 } } },
+            { match: { title: { query: 'Harry Potter', operator: 'and', boost: 3 } } },
+          ],
+          minimum_should_match: 1,
+        },
+      },
+    ]);
+  });
+
+  it('should respect custom operators order and weights, including or', () => {
+    const qb = new QueryBuilder();
+    qb.matchBoostedPhrase({
+      field: 'title',
+      phrase: 'Harry Potter',
+      operators: ['or', 'and', 'exact'],
+      weights: [2, 5, 7],
+    });
+    expect(qb.getMust()).toEqual([
+      {
+        bool: {
+          should: [
+            { match: { title: { query: 'Harry Potter', operator: 'or', boost: 2 } } },
+            { match: { title: { query: 'Harry Potter', operator: 'and', boost: 5 } } },
+            { match_phrase: { title: { query: 'Harry Potter', boost: 7 } } },
+          ],
+          minimum_should_match: 1,
+        },
+      },
+    ]);
+  });
+
+  it('should not add anything when operators is empty', () => {
+    const qb = new QueryBuilder();
+    qb.matchBoostedPhrase({ field: 'title', phrase: 'Harry Potter', operators: [], weights: [] });
+    expect(qb.getMust()).toEqual([]);
+  });
+});

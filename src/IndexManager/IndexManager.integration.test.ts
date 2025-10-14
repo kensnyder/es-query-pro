@@ -1,14 +1,14 @@
-import { afterAll, beforeAll, describe, expect, it } from "bun:test";
-import { getBooksData, getBooksSchema } from "../testFixtures/books";
-import IndexManager from "./IndexManager";
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { getBooksData, getBooksSchema } from '../testFixtures/books';
+import IndexManager from './IndexManager';
 
-describe("QueryBuilder - Integration", () => {
+describe('QueryBuilder - Integration', () => {
   const booksIndex = new IndexManager({
     index: {
       name: `books_${Date.now()}`,
       version: 1,
-      prefix: "test",
-      language: "english",
+      prefix: 'test',
+      language: 'english',
     },
     schema: getBooksSchema(),
   });
@@ -53,23 +53,23 @@ describe("QueryBuilder - Integration", () => {
   //   expect(ids).toEqual(['1', '2']);
   // });
 
-  it("should get count", async () => {
+  it('should get count', async () => {
     const res = await booksIndex.run((runner) => {
-      runner.builder.matchPhrase({ field: "title", phrase: "Chamber" });
+      runner.builder.matchPhrase({ field: 'title', phrase: 'Chamber' });
       return runner.count();
     });
-    expect(res.request).toHaveProperty("index");
-    expect(res.request).toHaveProperty("query");
+    expect(res.request).toHaveProperty('index');
+    expect(res.request).toHaveProperty('query');
     expect(res.total).toEqual(1);
   });
 
-  it("should migrate data", async () => {
+  it('should migrate data', async () => {
     booksIndex.index.version = 2;
-    expect(booksIndex.getFullName()).toEndWith("~v2");
+    expect(booksIndex.getFullName()).toEndWith('~v2');
     await booksIndex.migrateIfNeeded();
     await booksIndex.flush();
     const res = await booksIndex.run((runner) => {
-      runner.builder.matchPhrase({ field: "title", phrase: "Chamber" });
+      runner.builder.matchPhrase({ field: 'title', phrase: 'Chamber' });
       return runner.count();
     });
     expect(res.total).toEqual(1);

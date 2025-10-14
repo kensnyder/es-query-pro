@@ -4,12 +4,14 @@ import {
   MappingProperties,
   MappingProperty,
   SchemaShape,
-} from "../types";
+} from '../types';
 
-export type ManagerInferSchema<T extends SchemaManager<any>> =
-  T extends SchemaManager<infer S> ? S : never;
-export type ManagerInferRecordShape<T extends SchemaManager<any>> =
-  ElasticsearchRecord<ManagerInferSchema<T>>;
+export type ManagerInferSchema<T extends SchemaManager<any>> = T extends SchemaManager<infer S>
+  ? S
+  : never;
+export type ManagerInferRecordShape<T extends SchemaManager<any>> = ElasticsearchRecord<
+  ManagerInferSchema<T>
+>;
 
 export default class SchemaManager<Schema = SchemaShape> {
   public schema: Schema;
@@ -36,27 +38,18 @@ export default class SchemaManager<Schema = SchemaShape> {
     };
   }
 
-  private _schemaToMappings<T>(
-    schema: T,
-    analyzerName: string = "english",
-  ): MappingProperties {
+  private _schemaToMappings<T>(schema: T, analyzerName: string = 'english'): MappingProperties {
     const properties: MappingProperties = {};
 
     for (const [field, typeOrObject] of Object.entries(schema)) {
-      if (typeof typeOrObject === "string") {
+      if (typeof typeOrObject === 'string') {
         // Simple field with type
-        properties[field] = this.getPropertyType(
-          typeOrObject as ElasticsearchType,
-          analyzerName,
-        );
-      } else if (typeof typeOrObject === "object" && typeOrObject !== null) {
+        properties[field] = this.getPropertyType(typeOrObject as ElasticsearchType, analyzerName);
+      } else if (typeof typeOrObject === 'object' && typeOrObject !== null) {
         // Nested object - don't wrap in properties for nested objects
-        const nestedMappings = this._schemaToNestedMappings(
-          typeOrObject,
-          analyzerName,
-        );
+        const nestedMappings = this._schemaToNestedMappings(typeOrObject, analyzerName);
         properties[field] = {
-          type: "nested",
+          type: 'nested',
           ...nestedMappings,
         };
       }
@@ -66,21 +59,18 @@ export default class SchemaManager<Schema = SchemaShape> {
 
   private _schemaToNestedMappings<T>(
     schema: T,
-    analyzerName: string = "english",
+    analyzerName: string = 'english',
   ): { properties: MappingProperties } {
     const properties: MappingProperties = {};
 
     for (const [field, typeOrObject] of Object.entries(schema)) {
-      if (typeof typeOrObject === "string") {
+      if (typeof typeOrObject === 'string') {
         // Simple field with type
-        properties[field] = this.getPropertyType(
-          typeOrObject as ElasticsearchType,
-          analyzerName,
-        );
-      } else if (typeof typeOrObject === "object" && typeOrObject !== null) {
+        properties[field] = this.getPropertyType(typeOrObject as ElasticsearchType, analyzerName);
+      } else if (typeof typeOrObject === 'object' && typeOrObject !== null) {
         // Recursively handle nested objects
         properties[field] = {
-          type: "nested",
+          type: 'nested',
           ...this._schemaToNestedMappings(typeOrObject, analyzerName),
         };
       }
@@ -92,9 +82,9 @@ export default class SchemaManager<Schema = SchemaShape> {
   getAllFieldsFromSchema(data: Schema): string[] {
     const allFields: string[] = [];
     for (const [field, typeOrObject] of Object.entries(data)) {
-      if (typeof typeOrObject === "string") {
+      if (typeof typeOrObject === 'string') {
         allFields.push(field);
-      } else if (typeof typeOrObject === "object" && typeOrObject !== null) {
+      } else if (typeof typeOrObject === 'object' && typeOrObject !== null) {
         allFields.push(...this.getAllFieldsFromSchema(typeOrObject));
       }
     }
@@ -110,12 +100,10 @@ export default class SchemaManager<Schema = SchemaShape> {
   getFulltextFieldsFromSchema(data: Schema, _path: string[] = []) {
     const fulltextFields: string[] = [];
     for (const [field, typeOrObject] of Object.entries(data)) {
-      if (typeOrObject === "text") {
-        fulltextFields.push([..._path, field].join("."));
-      } else if (typeof typeOrObject === "object" && typeOrObject !== null) {
-        fulltextFields.push(
-          ...this.getFulltextFieldsFromSchema(typeOrObject, [..._path, field]),
-        );
+      if (typeOrObject === 'text') {
+        fulltextFields.push([..._path, field].join('.'));
+      } else if (typeof typeOrObject === 'object' && typeOrObject !== null) {
+        fulltextFields.push(...this.getFulltextFieldsFromSchema(typeOrObject, [..._path, field]));
       }
     }
     return fulltextFields;
@@ -124,12 +112,12 @@ export default class SchemaManager<Schema = SchemaShape> {
   getFulltextFields() {
     const fields = this.getFulltextFieldsFromSchema(this.schema);
     const textSearchTypes = [
-      "text",
-      "match_only_text",
-      "completion",
-      "search_as_you_type",
-      "semantic_text",
-      "token_count",
+      'text',
+      'match_only_text',
+      'completion',
+      'search_as_you_type',
+      'semantic_text',
+      'token_count',
     ];
     for (const [field, mapping] of Object.entries(this.properties)) {
       if (textSearchTypes.includes(mapping.type)) {
@@ -141,23 +129,23 @@ export default class SchemaManager<Schema = SchemaShape> {
 
   getPropertyType(type: string, analyzerName: string): MappingProperty {
     // Handle date format like 'date.epoch_second'
-    if (typeof type === "string" && type.startsWith("date.")) {
-      const [, format] = type.split(".");
-      return { type: "date", format };
+    if (typeof type === 'string' && type.startsWith('date.')) {
+      const [, format] = type.split('.');
+      return { type: 'date', format };
     }
 
     switch (type) {
-      case "text":
+      case 'text':
         return {
-          type: "text",
-          term_vector: "with_positions_offsets",
+          type: 'text',
+          term_vector: 'with_positions_offsets',
           fields: {
             exact: {
-              type: "text",
-              analyzer: "standard",
+              type: 'text',
+              analyzer: 'standard',
             },
             fulltext: {
-              type: "text",
+              type: 'text',
               analyzer: analyzerName,
             },
           },
