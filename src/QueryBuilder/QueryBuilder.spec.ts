@@ -68,11 +68,7 @@ describe("QueryBuilder.getQuery()", () => {
 describe("QueryBuilder.range()", () => {
   it("should build 'gt'", () => {
     const query = new QueryBuilder();
-    query.range({
-      field: "quantity",
-      operator: "gt",
-      range: 500,
-    });
+    query.range("quantity", "gt", 500);
     expect(query.getMust()[0]).toEqual({
       range: {
         quantity: { gt: 500 },
@@ -81,11 +77,7 @@ describe("QueryBuilder.range()", () => {
   });
   it("should build 'between'", () => {
     const query = new QueryBuilder();
-    query.range({
-      field: "quantity",
-      operator: "between",
-      range: [500, 600],
-    });
+    query.range("quantity", "between", [500, 600]);
     expect(query.getMust()[0]).toEqual({
       range: {
         quantity: { gte: 500, lte: 600 },
@@ -94,11 +86,7 @@ describe("QueryBuilder.range()", () => {
   });
   it("should treat 'between' like 'gt' if second value is empty", () => {
     const query = new QueryBuilder();
-    query.range({
-      field: "quantity",
-      operator: "between",
-      range: [500, null],
-    });
+    query.range("quantity", "between", [500, null]);
     expect(query.getMust()[0]).toEqual({
       range: {
         quantity: { gt: 500 },
@@ -107,11 +95,7 @@ describe("QueryBuilder.range()", () => {
   });
   it("should ignore 'between' when empty", () => {
     const query = new QueryBuilder();
-    query.range({
-      field: "quantity",
-      operator: "between",
-      range: [null, null],
-    });
+    query.range("quantity", "between", [null, null]);
     expect(query.getMust()).toEqual([]);
   });
 });
@@ -559,7 +543,7 @@ describe("QueryBuilder.should()", () => {
           q.term({ field: "status", value: "published" });
         },
         (q) => {
-          q.range({ field: "views", operator: ">=", range: 1000 });
+          q.range("views", ">=", 1000);
         },
       ],
       minimumShouldMatch: 1,

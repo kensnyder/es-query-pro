@@ -1,25 +1,16 @@
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
-import { getBooksData, getBooksSchema } from '../testFixtures/books';
-import IndexManager from './IndexManager';
+import { afterAll, beforeAll, describe, expect, it } from "bun:test";
+import { getBooksData, getBooksSchema } from "../testFixtures/books";
+import IndexManager from "./IndexManager";
 
-describe('QueryBuilder - Integration', () => {
+describe("QueryBuilder - Integration", () => {
   const booksIndex = new IndexManager({
     index: {
       name: `books_${Date.now()}`,
       version: 1,
-      prefix: 'test',
-      language: 'english',
+      prefix: "test",
+      language: "english",
     },
-    // analyzer: 'english',
     schema: getBooksSchema(),
-    // settings: {
-    //   // Specify fields (other than relevance) we might sort by to make sorting faster
-    //   // See https://www.elastic.co/blog/index-sorting-elasticsearch-6-0
-    //   index: {
-    //     'sort.field': ['price'],
-    //     'sort.order': ['asc'],
-    //   },
-    // },
   });
 
   beforeAll(async () => {
@@ -42,43 +33,43 @@ describe('QueryBuilder - Integration', () => {
     await booksIndex.drop();
   });
 
-  it('should work with no criteria', async () => {
+  it("should work with no criteria", async () => {
     const found = await booksIndex.findByCriteria();
     if (found.error) {
       throw new Error(found.error);
     }
-    const ids = found.records.map(r => r.id).sort();
-    expect(ids).toEqual(['1', '2', '3']);
+    const ids = found.records.map((r) => r.id).sort();
+    expect(ids).toEqual(["1", "2", "3"]);
   });
 
-  it('should match by phrase', async () => {
+  it("should match by phrase", async () => {
     const found = await booksIndex.findByPhrase({
-      phrase: 'Potter',
+      phrase: "Potter",
     });
     if (found.error) {
       throw new Error(found.error);
     }
-    const ids = found.records.map(r => r.id).sort();
-    expect(ids).toEqual(['1', '2']);
+    const ids = found.records.map((r) => r.id).sort();
+    expect(ids).toEqual(["1", "2"]);
   });
 
-  it('should get count', async () => {
-    const res = await booksIndex.run(runner => {
-      runner.builder.matchPhrase('title', 'Chamber');
+  it("should get count", async () => {
+    const res = await booksIndex.run((runner) => {
+      runner.builder.matchPhrase({ field: "title", phrase: "Chamber" });
       return runner.count();
     });
-    expect(res.request).toHaveProperty('index');
-    expect(res.request).toHaveProperty('query');
+    expect(res.request).toHaveProperty("index");
+    expect(res.request).toHaveProperty("query");
     expect(res.total).toEqual(1);
   });
 
-  it('should migrate data', async () => {
+  it("should migrate data", async () => {
     booksIndex.index.version = 2;
-    expect(booksIndex.getFullName()).toEndWith('~v2');
+    expect(booksIndex.getFullName()).toEndWith("~v2");
     await booksIndex.migrateIfNeeded();
     await booksIndex.flush();
-    const res = await booksIndex.run(runner => {
-      runner.builder.matchPhrase('title', 'Chamber');
+    const res = await booksIndex.run((runner) => {
+      runner.builder.matchPhrase({ field: "title", phrase: "Chamber" });
       return runner.count();
     });
     expect(res.total).toEqual(1);

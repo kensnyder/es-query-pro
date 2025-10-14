@@ -159,17 +159,9 @@ export default class QueryBuilder {
    * Append filters for the given range expression
    * @param field  The name of the field to search
    * @param operator  One of the following: > < >= <= gt lt gte lte between
-   * @param value  The limit(s) to search against
+   * @param range  The limit(s) to search against
    */
-  range({
-    field,
-    operator,
-    range,
-  }: {
-    field: string;
-    operator: OperatorType;
-    range: RangeShape;
-  }) {
+  range(field: string, operator: OperatorType, range: RangeShape) {
     // Map operator aliases to their canonical form
     const opMap: Record<string, string> = {
       "<": "lt",
@@ -357,7 +349,7 @@ export default class QueryBuilder {
   }: {
     field: string;
     phrase: string;
-    options: Prettify<Omit<MultiMatchQueryShape, "query" | "fields">>;
+    options?: Prettify<Omit<MultiMatchQueryShape, "query" | "fields">>;
   }): this {
     const query = this.textProcessor.processText(phrase);
     this._must.push({
@@ -819,7 +811,7 @@ export default class QueryBuilder {
     minimumShouldMatch = 1,
   }: {
     withBuilders: Array<(qb: QueryBuilder, idx: number) => void>;
-    minimumShouldMatch: number | string;
+    minimumShouldMatch?: number | string;
   }): this {
     const bool: any = { should: [], minimum_should_match: minimumShouldMatch };
     for (let i = 0; i < withBuilders.length; i++) {
@@ -850,14 +842,14 @@ export default class QueryBuilder {
     withBuilder,
     path,
     scoreMode = "avg",
-    innerHits,
+    innerHits = undefined,
     ignoreUnmapped = false,
   }: {
     withBuilder: (qb: QueryBuilder) => void;
     path: string;
     scoreMode?: estypes.QueryDslChildScoreMode;
-    innerHits: estypes.SearchInnerHits;
-    ignoreUnmapped: boolean;
+    innerHits?: estypes.SearchInnerHits;
+    ignoreUnmapped?: boolean;
   }): this {
     const qb = new QueryBuilder({ textProcessor: this.textProcessor });
     withBuilder(qb);
