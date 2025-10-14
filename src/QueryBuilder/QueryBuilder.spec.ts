@@ -89,7 +89,7 @@ describe('QueryBuilder.range()', () => {
     query.range('quantity', 'between', [500, null]);
     expect(query.getMust()[0]).toEqual({
       range: {
-        quantity: { gt: 500 },
+        quantity: { gte: 500 },
       },
     });
   });
@@ -599,7 +599,7 @@ describe('QueryBuilder.nested()', () => {
 describe('QueryBuilder.useHighlighter()', () => {
   it('should update highlighter config', () => {
     const qb = new QueryBuilder();
-    qb.setHighlighterOptions({
+    qb.highlighterOptions({
       boundary_scanner_locale: 'fr-FR',
     });
     qb.highlightField('body');
@@ -612,7 +612,7 @@ describe('QueryBuilder.useHighlighter()', () => {
 describe('QueryBuilder.highlightField()', () => {
   it('should add FVH highlight entries and preserve top-level options', () => {
     const qb = new QueryBuilder();
-    qb.setHighlighterOptions({ type: 'plain' });
+    qb.highlighterOptions({ type: 'plain' });
     qb.highlightField('title', {
       type: 'fvh',
       fragment_size: 100,
@@ -788,5 +788,58 @@ describe('QueryBuilder.matchBoostedPhrase()', () => {
     const qb = new QueryBuilder();
     qb.matchBoostedPhrase({ field: 'title', phrase: 'Harry Potter', operators: [], weights: [] });
     expect(qb.getMust()).toEqual([]);
+  });
+});
+
+// Added tests for knn similarity and filter, and range between inclusivity
+
+describe('QueryBuilder.knn() with similarity and filter', () => {
+  it('should pass similarity through when provided', () => {
+    const qb = new QueryBuilder();
+    qb.knn({
+      field: 'vec',
+      vector: [1, 0, 0],
+      k: 5,
+      weight: 1,
+      similarity: 'cosine',
+    });
+    const body: any = qb.getBody();
+    expect(body.retriever.linear.retrievers[0].retriever.knn.similarity).toBe('cosine');
+  });
+
+  it('should wrap multiple filters under bool.filter', () => {
+    const qb = new QueryBuilder();
+    qb.knn({
+      field: 'vec',
+      vector: [0.1, 0.2],
+      k: 3,
+      filter: [{ term: { status: 'active' } } as any, { range: { year: { gte: 2000 } } } as any],
+      weight: 1,
+    });
+    const knn = qb.getBody().retriever.linear.retrievers[0].retriever.knn;
+    expect(knn.filter).toEqual({
+      bool: { filter: [{ term: { status: 'active' } }, { range: { year: { gte: 2000 } } }] },
+    });
+  });
+
+  it('should attach a single filter directly', () => {
+    const qb = new QueryBuilder();
+    qb.knn({
+      field: 'vec',
+      vector: [0.3, 0.4],
+      k: 2,
+      filter: { term: { category: 'news' } },
+      weight: 1,
+    });
+    const knn = qb.getBody().retriever.linear.retrievers[0].retriever.knn;
+    expect(knn.filter).toEqual({ term: { category: 'news' } });
+  });
+});
+
+describe('QueryBuilder.range() "between" inclusivity', () => {
+  it('should throw TypeError on invalid operator', () => {
+    const qb = new QueryBuilder();
+    // @ts-expect-error  just testing
+    expect(() => qb.range('price', 'invalid', 10)).toThrow(TypeError);
   });
 });

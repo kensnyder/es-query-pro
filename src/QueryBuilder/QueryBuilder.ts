@@ -112,7 +112,6 @@ export default class QueryBuilder {
     this._index = index;
   }
 
-
   //
   // Section 1/6: Set fields, instance options, and highlights
   //
@@ -137,11 +136,27 @@ export default class QueryBuilder {
   }
 
   /**
+   * @alias fields
+   */
+  sourceIncludes(fields: string[]) {
+    this._fields = fields;
+    return this;
+  }
+
+  /**
    * Set the fields to exclude
    * @param fields  The fields to exclude
    * @return This instance
    */
   excludeFields(fields: string[]) {
+    this._excludeFields = fields;
+    return this;
+  }
+
+  /**
+   * @alias excludeFields
+   */
+  sourceExcludes(fields: string[]) {
     this._excludeFields = fields;
     return this;
   }
@@ -154,12 +169,16 @@ export default class QueryBuilder {
    * @see https://www.elastic.co/guide/en/elasticsearch/reference/9.x/highlighting.html
    * @see https://www.elastic.co/guide/en/elasticsearch/reference/9.x/term-vector.html
    */
-  setHighlighterOptions(options: Omit<SearchRequestShape['highlight'], 'fields'>) {
+  highlighterOptions(options: Omit<SearchRequestShape['highlight'], 'fields'>) {
     this._highlighter = {
       ...options,
       fields: this._highlighter.fields,
     };
     return this;
+  }
+
+  getHighlighter() {
+    return this._highlighter;
   }
 
   /**
@@ -182,6 +201,24 @@ export default class QueryBuilder {
     return this._fields;
   }
 
+  getExcludeFields() {
+    return this._excludeFields;
+  }
+
+  /**
+   * @alias getFields
+   */
+  getSourceIncludes() {
+    return this._fields;
+  }
+
+  /**
+   * @alias getExcludeFields
+   */
+  getSourceExcludes() {
+    return this._excludeFields;
+  }
+
   /**
    * Set rank_window_size
    * @param size
@@ -189,6 +226,10 @@ export default class QueryBuilder {
   rankWindowSize(size: number) {
     this._rankWindowSize = size;
     return this;
+  }
+
+  getRankWindowSize() {
+    return this._rankWindowSize;
   }
 
   /**
@@ -200,12 +241,20 @@ export default class QueryBuilder {
     return this;
   }
 
+  getRankConstant() {
+    return this._rankConstant;
+  }
+
   /**
    * Set a minimum score threshold for hits
    */
   minScore(score: number) {
     this._minScore = score;
     return this;
+  }
+
+  getMinScore() {
+    return this._minScore;
   }
 
   //
@@ -219,7 +268,6 @@ export default class QueryBuilder {
    * @param range  The limit(s) to search against
    */
   range(field: string, operator: OperatorType, range: RangeShape) {
-    // Map operator aliases to their canonical form
     const opMap: Record<string, string> = {
       '<': 'lt',
       lt: 'lt',
@@ -233,41 +281,61 @@ export default class QueryBuilder {
     };
 
     const normalizedOp = operator.toLowerCase();
-    let opName = opMap[normalizedOp] || normalizedOp;
-    if (opName === 'between' && Array.isArray(range)) {
-      if (!isDefined(range[0]) && !isDefined(range[1])) {
+    const opName = opMap[normalizedOp] || normalizedOp;
+
+    // Validate operator
+    if (!Object.values(opMap).includes(opName)) {
+      throw new TypeError(`Unsupported range operator: ${operator}`);
+    }
+
+    // Handle "between" specially
+    if (opName === 'between') {
+      if (!Array.isArray(range) || range.length !== 2) {
+        throw new TypeError('range(): "between" expects an array [min, max]');
+      }
+
+      const [min, max] = range;
+
+      if (!isDefined(min) && !isDefined(max)) {
         return this;
       }
-      if (!isDefined(range[0])) {
-        opName = 'lt';
-        range = range[1];
-      }
-      if (!isDefined(range[1])) {
-        opName = 'gt';
-        range = range[0];
-      }
-    }
-    if (opName === 'between' && Array.isArray(range)) {
-      // Handle 'between' operator with array of [min, max]
-      this._must.push({
-        range: {
-          [field]: {
-            gte: range[0],
-            lte: range[1],
+
+      if (isDefined(min) && isDefined(max)) {
+        this._must.push({
+          range: {
+            [field]: { gte: min, lte: max },
           },
-        },
-      });
-    } else if (opName in opMap) {
-      // Handle standard comparison operators
-      this._must.push({
-        range: {
-          [field]: { [opName]: range },
-        },
-      });
-    } else {
-      // Fallback for unknown operators
-      throw new Error(`Unsupported range operator: ${operator}`);
+        });
+        return this;
+      }
+
+      // Single-sided between
+      if (isDefined(min) && !isDefined(max)) {
+        this._must.push({
+          range: {
+            [field]: { gte: min },
+          },
+        });
+        return this;
+      }
+
+      if (!isDefined(min) && isDefined(max)) {
+        this._must.push({
+          range: {
+            [field]: { lte: max },
+          },
+        });
+        return this;
+      }
     }
+
+    // Standard comparison operators
+    this._must.push({
+      range: {
+        [field]: { [opName]: range },
+      },
+    });
+
     return this;
   }
 
@@ -570,20 +638,35 @@ export default class QueryBuilder {
     k,
     numCandidates,
     weight = 1,
+    filter,
+    similarity,
   }: {
     field: string;
     vector: number[];
     k: number;
     numCandidates?: number;
     weight: number;
+    filter?: QueryShape | QueryShape[];
+    similarity?: estypes.InferenceCohereSimilarityType;
   }) {
     const knnDef: any = {
       field,
       query_vector: vector,
       k,
     };
+
     if (typeof numCandidates === 'number') {
       knnDef.num_candidates = numCandidates;
+    }
+
+    if (Array.isArray(filter) && filter.length > 0) {
+      knnDef.filter = { bool: { filter } };
+    } else if (filter) {
+      knnDef.filter = filter;
+    }
+
+    if (typeof similarity === 'string') {
+      knnDef.similarity = similarity;
     }
 
     this._retrievers.push({
@@ -594,6 +677,10 @@ export default class QueryBuilder {
       normalizer: this._normalizer,
     });
     return this;
+  }
+
+  getRetrievers() {
+    return this._retrievers;
   }
 
   /**
@@ -609,20 +696,24 @@ export default class QueryBuilder {
   }) {
     const qb = new QueryBuilder();
     withBuilder(qb);
-    const entry: any = {
+    const entry = {
       window_size: windowSize,
       query: {
         rescore_query: qb.getQuery(),
       },
-    };
+    } as estypes.SearchRescore;
     if (Array.isArray(this._rescore)) {
-      this._rescore = [...this._rescore, entry] as any;
+      this._rescore = [...this._rescore, entry];
     } else if (this._rescore) {
-      this._rescore = [this._rescore as any, entry] as any;
+      this._rescore = [this._rescore, entry];
     } else {
-      this._rescore = [entry] as any;
+      this._rescore = [entry];
     }
     return this;
+  }
+
+  getRescore() {
+    return this._rescore;
   }
 
   //
@@ -678,6 +769,10 @@ export default class QueryBuilder {
     // use limit to return no records, just counts
     this.limit(0);
     return this;
+  }
+
+  getAggs() {
+    return this._aggs;
   }
 
   /**
@@ -757,6 +852,10 @@ export default class QueryBuilder {
     return this;
   }
 
+  getLimit() {
+    return this._limit;
+  }
+
   /**
    * Set the page of results to return
    * @param page  Where 1 is the first page
@@ -765,6 +864,10 @@ export default class QueryBuilder {
   page(page: number) {
     this._page = page;
     return this;
+  }
+
+  getPage() {
+    return this._page;
   }
 
   /**
@@ -798,6 +901,10 @@ export default class QueryBuilder {
       this._sorts.push(field);
     }
     return this;
+  }
+
+  getSort() {
+    return this._sorts;
   }
 
   /**
@@ -864,7 +971,6 @@ export default class QueryBuilder {
     this._functionScores.push(functionScore);
     return this;
   }
-
 
   //
   // Section 3/6: Logic including should, mustNot, nested
@@ -953,7 +1059,6 @@ export default class QueryBuilder {
     });
     return this;
   }
-
 
   //
   // Section 6/6: Builders including getMust/getBody/toJSON/valueOf/toString
