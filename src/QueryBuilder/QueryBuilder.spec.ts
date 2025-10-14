@@ -314,7 +314,7 @@ describe('QueryBuilder', () => {
   });
   it('should fulltext multi match with phrase using OR', () => {
     const query = new QueryBuilder();
-    query.term({ fields: ['category', 'tag'], value: 'Sports', matchType: 'any' });
+    query.multiTerm(['category', 'tag'], 'Sports');
     expect(query.getBody().retriever.standard.query).toEqual({
       bool: {
         should: [
@@ -375,28 +375,25 @@ describe('QueryBuilder', () => {
   });
   it('should exact match single value', () => {
     const query = new QueryBuilder();
-    query.term({ field: 'tag', value: 'News' });
+    query.term('tag', 'News');
     expect(query.getBody().retriever.standard.query).toEqual({
       term: {
         tag: 'News',
       },
     });
   });
-  it('should exact match multiple values ANDed (default every)', () => {
+  it('should exact match multiple values ANY', () => {
     const query = new QueryBuilder();
-    query.term({ field: 'tag', values: ['News', 'Entertainment'] });
+    query.term('tag', ['News', 'Entertainment']);
     expect(query.getBody().retriever.standard.query).toEqual({
-      bool: {
-        must: [
-          { term: { tag: 'News' } },
-          { term: { tag: 'Entertainment' } },
-        ],
+      terms: {
+        tag: ['News', 'Entertainment'],
       },
     });
   });
-  it('should exact match multiple values with EVERY (case-insensitive)', () => {
+  it('should exact match multiple values ALL', () => {
     const query = new QueryBuilder();
-    query.term({ field: 'tag', values: ['News', 'Entertainment'], matchType: 'EVERY' });
+    query.term('tag', ['News', 'Entertainment'], 'ALL');
     expect(query.getBody().retriever.standard.query).toEqual({
       bool: {
         must: [
@@ -418,7 +415,7 @@ describe('QueryBuilder', () => {
   describe('nested field support', () => {
     it('should handle nested term queries', () => {
       const query = new QueryBuilder();
-      query.term({ field: 'category/id', value: '123' });
+      query.term('category/id', '123');
       const body = query.getBody();
       expect(body.retriever.standard.query).toEqual({
         nested: {
@@ -452,7 +449,7 @@ describe('QueryBuilder', () => {
 
     it('should handle multiple levels of nesting', () => {
       const query = new QueryBuilder();
-      query.term({ field: 'author/contact/email', value: 'test@example.com' });
+      query.term('author/contact/email', 'test@example.com');
       const body = query.getBody();
       expect(body.retriever.standard.query).toEqual({
         nested: {
@@ -890,101 +887,6 @@ describe('QueryBuilder.exists() refactor', () => {
               ],
             },
           },
-        ],
-        minimum_should_match: 1,
-      },
-    });
-  });
-});
-
-
-// New tests for refactored term({ ... })
-describe('QueryBuilder.term() validation and matchType behavior', () => {
-  it("should throw if missing field/fields", () => {
-    const thrower = () => {
-      const q = new QueryBuilder();
-      q.term({ value: 'x' } as any);
-    };
-    expect(thrower).toThrow(/QueryBuilder\.term\(\) requires one of 'field' or 'fields'/);
-  });
-
-  it("should throw if both field and fields are provided", () => {
-    const thrower = () => {
-      const q = new QueryBuilder();
-      q.term({ field: 'a', fields: ['b'], value: 'x' } as any);
-    };
-    expect(thrower).toThrow(/QueryBuilder\.term\(\) accepts only one of 'field' or 'fields'/);
-  });
-
-  it("should throw if missing value/values", () => {
-    const thrower = () => {
-      const q = new QueryBuilder();
-      q.term({ field: 'a' } as any);
-    };
-    expect(thrower).toThrow(/QueryBuilder\.term\(\) requires one of 'value' or 'values'/);
-  });
-
-  it("should throw if both value and values are provided", () => {
-    const thrower = () => {
-      const q = new QueryBuilder();
-      q.term({ field: 'a', value: 'x', values: ['y'] } as any);
-    };
-    expect(thrower).toThrow(/QueryBuilder\.term\(\) accepts only one of 'value' or 'values'/);
-  });
-
-  it("should throw if field is not a string", () => {
-    const thrower = () => {
-      const q = new QueryBuilder();
-      q.term({ field: 123 as any, value: 'x' });
-    };
-    expect(thrower).toThrow(/QueryBuilder\.term\(\) expected 'field' to be a string/);
-  });
-
-  it("should throw if fields is not an array", () => {
-    const thrower = () => {
-      const q = new QueryBuilder();
-      q.term({ fields: 'a' as any, value: 'x' });
-    };
-    expect(thrower).toThrow(/QueryBuilder\.term\(\) expected 'fields' to be an array/);
-  });
-
-  it("should throw if field used with invalid matchType (any)", () => {
-    const thrower = () => {
-      const q = new QueryBuilder();
-      q.term({ field: 'a', value: 'x', matchType: 'any' });
-    };
-    expect(thrower).toThrow(/QueryBuilder\.term\(\) requires 'matchType' to be one of \['every','not'\] when 'field' is used/);
-  });
-
-  it("should throw if fields used with 'not' matchType", () => {
-    const thrower = () => {
-      const q = new QueryBuilder();
-      q.term({ fields: ['a','b'], value: 'x', matchType: 'not' });
-    };
-    expect(thrower).toThrow(/QueryBuilder\.term\(\) cannot use 'matchType'='not' with 'fields'/);
-  });
-
-  it('should support fields + notAny (case-insensitive)', () => {
-    const query = new QueryBuilder();
-    query.term({ fields: ['category', 'tag'], value: 'Sports', matchType: 'NoTaNy' as any });
-    expect(query.getBody().retriever.standard.query).toEqual({
-      bool: {
-        must_not: [
-          { term: { category: 'Sports' } },
-          { term: { tag: 'Sports' } },
-        ],
-      },
-    });
-  });
-
-  it('should support fields + notEvery', () => {
-    const query = new QueryBuilder();
-    query.term({ fields: ['category', 'tag'], value: 'Sports', matchType: 'notEvery' });
-    expect(query.getBody().retriever.standard.query).toEqual({
-      bool: {
-        should: [
-          { bool: { must_not: [{ term: { category: 'Sports' } }] } },
-          { bool: { must_not: [{ term: { tag: 'Sports' } }] } },
         ],
         minimum_should_match: 1,
       },

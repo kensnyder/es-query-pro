@@ -37,7 +37,7 @@ describe('QueryBuilder - Integration', () => {
 
   it('should find documents by term query', async () => {
     const qb = new QueryBuilder();
-    qb.term({ field: 'country', value: 'United Kingdom' });
+    qb.term('country', 'United Kingdom');
     const result = await client.search({
       index,
       ...qb.getQuery(),
@@ -82,7 +82,7 @@ describe('QueryBuilder - Integration', () => {
 
   it('should find documents with both must and must_not', async () => {
     const qb = new QueryBuilder();
-    qb.term({ field: 'country', value: 'United Kingdom' });
+    qb.term('country', 'United Kingdom');
     qb.notTerm('title', 'stone');
     const result = await client.search({
       index,
@@ -154,7 +154,7 @@ describe('QueryBuilder - Integration', () => {
     const qb = new QueryBuilder();
     qb.index(index);
     qb.fields(['*']);
-    qb.term({ field: 'categories/id', value: 101 });
+    qb.term('categories/id', 101);
     qb.exists({ field: 'publishing/movieYear', matchType: 'not' });
     // console.log('matchPhrase', JSON.stringify(qb.getQuery(), null, 2));
     const result = await client.search(qb.getQuery());
