@@ -47,61 +47,61 @@ export const getDefaultHighlighter = () =>
  */
 export default class QueryBuilder {
   /** The index to query from - used by getQuery() */
-  private _index: string;
+  public _index: string;
 
   /** The fields to fetch */
-  private _fields: string[] = ['*'];
+  public _fields: string[] = ['*'];
 
   /** Fields to exclude from list */
-  private _excludeFields: string[] = [];
+  public _excludeFields: string[] = [];
 
   /** The must filters */
-  private _must: QueryDslQueryContainer[] = [];
+  public _must: QueryDslQueryContainer[] = [];
 
   /** The "aggs" to add to the builder */
-  private _aggs: SearchRequestShape['aggs'] = {};
+  public _aggs: SearchRequestShape['aggs'] = {};
 
   /** The function score builder */
-  private _functionScores: QueryDslDecayFunctionBase[] = [];
+  public _functionScores: QueryDslDecayFunctionBase[] = [];
 
   /** The highlight definition */
-  private _highlighter: SearchRequestShape['highlight'] = getDefaultHighlighter();
+  public _highlighter: SearchRequestShape['highlight'] = getDefaultHighlighter();
 
   /** The max number of records to return */
-  private _limit: number = null;
+  public _limit: number = null;
 
   /** The page of records to fetch */
-  private _page: number = 1;
+  public _page: number = 1;
 
   /** Fields to sort by */
-  private _sorts: SortCombinations[] = [];
+  public _sorts: SortCombinations[] = [];
 
   /** Retrievers to use */
-  private _retrievers: InnerRetriever[] = [];
+  public _retrievers: InnerRetriever[] = [];
 
   /** type of normalizer for retrievers */
-  private _normalizer: ScoreNormalizer = 'minmax';
+  public _normalizer: ScoreNormalizer = 'minmax';
 
   /** The number of results to find before ranking */
-  private _rankWindowSize = 50;
+  public _rankWindowSize = 50;
 
   /** How much to consider lower ranking content, on a scale of 0-100 */
-  private _rankConstant = 20;
+  public _rankConstant = 20;
 
   /** Optional rescore phase */
-  private _rescore: SearchRescore[] = undefined;
+  public _rescore: SearchRescore[] = undefined;
 
   /** Optional minimum score */
-  private _minScore: number = undefined;
+  public _minScore: number = undefined;
 
   /** Optional search_after sort values for deep pagination */
-  private _searchAfter: SortResults = undefined;
+  public _searchAfter: SortResults = undefined;
 
   /** Optional track_total_hits control */
-  private _trackTotalHits: boolean | number = undefined;
+  public _trackTotalHits: boolean | number = undefined;
 
   /** If true, use "random_score" for a function score */
-  private _shouldSortByRandom: boolean = false;
+  public _shouldSortByRandom: boolean = false;
 
   constructor({
     index,
@@ -1251,16 +1251,21 @@ export default class QueryBuilder {
    */
   clone(): QueryBuilder {
     const copy = new QueryBuilder({ index: this._index });
-    copy.fields(this.getFields());
-    copy.excludeFields(this.getExcludeFields());
-    copy.must(this.getMust());
-    copy.aggs(this.getAggs());
-    // TODO implement these manual setting functions?
-    // copy.functionScores(this.getFunctionScores());
-    // copy.highlighter(this.getHighlighter());
-    // copy.sort(this.getSort());
-    // copy.retrievers(this.getRetrievers());
-    // copy.normalizer(this.getNormalizer());
+    copy._fields = this._fields;
+    copy._excludeFields = this._excludeFields;
+    copy._must = this._must;
+    copy._aggs = this._aggs;
+    copy._functionScores = this._functionScores;
+    copy._highlighter = this._highlighter;
+    copy._sorts = this._sorts;
+    copy._retrievers = this._retrievers;
+    copy._normalizer = this._normalizer;
+    copy._rankWindowSize = this._rankWindowSize;
+    copy._rankConstant = this._rankConstant;
+    copy._rescore = this._rescore;
+    copy._minScore = this._minScore;
+    copy._searchAfter = this._searchAfter;
+    copy._trackTotalHits = this._trackTotalHits;
     return copy;
   }
 
