@@ -747,22 +747,82 @@ export default class QueryBuilder {
   }
 
   /**
-   * Add an exact matching condition
-   * @param field  The name of the field to search (can use nested separator for nested fields)
-   * @param valueOrValues  A value or array of possible values
-   * @param type  Use "ALL" to require document to contain all values, otherwise match any value
-   * @return {QueryBuilder}
-   * @chainable
+   * Exact term matching with flexible field/fields and value/values.
+   * Breaking change: accepts an object parameter.
    */
-  term(field: string, valueOrValues: any | any[], type: AnyAllType = 'ANY') {
-    if (valueOrValues === null) {
-      this.exists({ field, matchType: 'not' });
-    } else if (type.toUpperCase() === 'ALL') {
-      this.addFilterAll(this._must, 'term', field, valueOrValues);
-    } else {
-      this.addFilterAny(this._must, 'term', field, valueOrValues);
+  term({
+    field,
+    fields,
+    value,
+    values,
+    matchType = 'every',
+  }: {
+    field?: string;
+    fields?: string[];
+    value?: any;
+    values?: any[];
+    matchType?: 'any' | 'every' | 'notAny' | 'notEvery' | 'not' | string;
+  }) {
+    const args = this._ensureTermArgs({ field, fields, value, values, matchType });
+
+    if (args.mode === 'single') {
+      const clauses = this._buildAndedTermClauses(args.field!, args.values);
+      if (args.matchType === 'not') {
+        // not(all values)
+        this._mustNot.push(clauses.length === 1 ? clauses[0] : ({ bool: { must: clauses } } as any));
+        return this;
+      }
+      // 'every' (default) for single field
+      if (clauses.length === 1) {
+        this._must.push(clauses[0] as any);
+      } else {
+        this._must.push({ bool: { must: clauses } } as any);
+      }
+      return this;
     }
-    return this;
+
+    // Multi-field mode
+    const perFieldClauses = args.fields!.map((f) => {
+      const list = this._buildAndedTermClauses(f, args.values);
+      return list.length === 1 ? list[0] : ({ bool: { must: list } } as any);
+    });
+
+    switch (args.matchType) {
+      case 'any': {
+        this._must.push({ bool: { should: perFieldClauses } } as any);
+        return this;
+      }
+      case 'every': {
+        for (const c of perFieldClauses) {
+          this._must.push(c as any);
+        }
+        return this;
+      }
+      case 'notany': {
+        for (const c of perFieldClauses) {
+          this._mustNot.push(c as any);
+        }
+        return this;
+      }
+      case 'notevery': {
+        const negatedPerField = args.fields!.map((f) => ({
+          bool: {
+            must_not: [
+              ((): any => {
+                const list = this._buildAndedTermClauses(f, args.values);
+                return list.length === 1 ? list[0] : { bool: { must: list } };
+              })(),
+            ],
+          },
+        }));
+        this._must.push({ bool: { should: negatedPerField, minimum_should_match: 1 } } as any);
+        return this;
+      }
+      default: {
+        // should not happen (validated)
+        return this;
+      }
+    }
   }
 
   /**
@@ -1528,7 +1588,7 @@ export default class QueryBuilder {
     };
   }
 
-  // Helper: normalize and validate matchType
+  // Helper: normalize and validate matchType for exists()
   private _normalizeAndValidateMatchType(mt: any): 'any' | 'every' | 'notany' | 'notevery' | 'not' {
     const allowed = new Set(['any', 'every', 'notany', 'notevery', 'not']);
     const value = String(mt ?? 'every').toLowerCase();
@@ -1540,7 +1600,7 @@ export default class QueryBuilder {
     return value as any;
   }
 
-  // Helper: validate args and return normalized shape
+  // Helper: validate args and return normalized shape for exists()
   private _ensureExistsArgs(args: {
     field?: any;
     fields?: any;
@@ -1598,6 +1658,108 @@ export default class QueryBuilder {
     }
 
     return { mode: 'multi', fields: cleaned, matchType };
+  }
+
+  // Helper: normalize and validate matchType for term()
+  private _normalizeAndValidateTermMatchType(mt: any): 'any' | 'every' | 'notany' | 'notevery' | 'not' {
+    const allowed = new Set(['any', 'every', 'notany', 'notevery', 'not']);
+    const value = String(mt ?? 'every').toLowerCase();
+    if (!allowed.has(value)) {
+      throw new TypeError(
+        "QueryBuilder.term(): invalid 'matchType' — expected one of any|every|notAny|notEvery|not"
+      );
+    }
+    return value as any;
+  }
+
+  // Helper: ensure and normalize args for term()
+  private _ensureTermArgs(args: {
+    field?: any;
+    fields?: any;
+    value?: any;
+    values?: any[];
+    matchType?: any;
+  }): {
+    mode: 'single' | 'multi';
+    field?: string;
+    fields?: string[];
+    values: any[];
+    matchType: 'any' | 'every' | 'notany' | 'notevery' | 'not';
+  } {
+    const { field, fields, value, values } = args;
+
+    const hasField = typeof field !== 'undefined';
+    const hasFields = typeof fields !== 'undefined';
+    if (!hasField && !hasFields) {
+      throw new TypeError("QueryBuilder.term() requires one of 'field' or 'fields'");
+    }
+    if (hasField && hasFields) {
+      throw new TypeError("QueryBuilder.term() accepts only one of 'field' or 'fields'");
+    }
+
+    const hasValue = typeof value !== 'undefined';
+    const hasValues = typeof values !== 'undefined';
+    if (!hasValue && !hasValues) {
+      throw new TypeError("QueryBuilder.term() requires one of 'value' or 'values'");
+    }
+    if (hasValue && hasValues) {
+      throw new TypeError("QueryBuilder.term() accepts only one of 'value' or 'values'");
+    }
+
+    const mt = this._normalizeAndValidateTermMatchType(args.matchType);
+
+    if (hasField) {
+      if (typeof field !== 'string' || field.trim().length === 0) {
+        throw new TypeError("QueryBuilder.term() expected 'field' to be a string");
+      }
+      if (mt !== 'every' && mt !== 'not') {
+        throw new TypeError(
+          "QueryBuilder.term() requires 'matchType' to be one of ['every','not'] when 'field' is used"
+        );
+      }
+      const vals = hasValue ? [value] : (values as any[]);
+      return {
+        mode: 'single',
+        field: field.trim(),
+        values: vals,
+        matchType: mt,
+      };
+    }
+
+    if (!Array.isArray(fields)) {
+      throw new TypeError("QueryBuilder.term() expected 'fields' to be an array of strings");
+    }
+    if (fields.length === 0) {
+      throw new TypeError("QueryBuilder.term() expected 'fields' to be an array of strings");
+    }
+    const cleaned: string[] = [];
+    for (const f of fields) {
+      if (typeof f !== 'string') {
+        throw new TypeError("QueryBuilder.term() expected 'fields' to be an array of strings");
+      }
+      const t = f.trim();
+      if (t.length === 0) {
+        throw new TypeError("QueryBuilder.term() expected 'fields' to be an array of strings");
+      }
+      cleaned.push(t);
+    }
+
+    if (mt === 'not') {
+      throw new TypeError("QueryBuilder.term() cannot use 'matchType'='not' with 'fields'");
+    }
+
+    const vals = hasValue ? [value] : (values as any[]);
+    return { mode: 'multi', fields: cleaned, values: vals, matchType: mt };
+  }
+
+  // Helper: build AND-of-values term clauses for a field
+  private _buildAndedTermClauses(field: string, values: any[]): any[] {
+    const vals = Array.isArray(values) ? values : [values];
+    const clauses: any[] = [];
+    for (const v of vals) {
+      clauses.push({ term: { [field]: v } });
+    }
+    return clauses;
   }
 
   /**
