@@ -2,14 +2,11 @@ import { estypes } from "@elastic/elasticsearch"; // TypeScript needs this even 
 import isEmptyObject from "../isEmptyObject/isEmptyObject";
 import NestedFieldsProcessor from "../NestedFieldsProcessor/NestedFieldsProcessor";
 import TextProcessor from "../TextProcessor/TextProcessor";
-import {
+import type {
   AnyAllType,
-  BoolQueryShape,
-  BoostType,
   FieldTypeOrTypes,
   FunctionScoreShape,
   IntervalType,
-  MatchType,
   MoreLikeThisLikeParams,
   MoreLikeThisOptions,
   MultiMatchQueryShape,
@@ -17,7 +14,6 @@ import {
   Prettify,
   QueryShape,
   RangeShape,
-  RetrieverContainer,
   SearchRequestShape,
   SortShape,
 } from "../types";
@@ -164,126 +160,20 @@ export default class QueryBuilder {
   }
 
   /**
-   * Append a multi_match condition to the given filter object (match any of the given values against the given fields)
-   * @param fields  The name of the fields to search
-   * @param valueOrValues  A value or array of possible values
-   */
-  multiMatch(fields: string[], valueOrValues: any | any[]) {
-    if (!Array.isArray(valueOrValues)) {
-      valueOrValues = [valueOrValues];
-    }
-    const terms = [];
-    for (const value of valueOrValues) {
-      terms.push({
-        multi_match: {
-          fields: fields,
-          query: value,
-        },
-      });
-    }
-    if (terms.length === 1) {
-      this._must.push(terms[0]);
-    } else {
-      this._must.push({ bool: { should: terms } });
-    }
-  }
-
-  /**
-   * Add a series of term condition to the given filter object (find full-word matches any of the given values against the given field)
-   * @param fields  The name of the fields to search
-   * @param value  A value
-   */
-  addMultiTermAny(fields: string[], value: any) {
-    const terms = [];
-    for (const field of fields) {
-      terms.push({
-        term: {
-          [field]: value,
-        },
-      });
-    }
-    this._must.push({ bool: { should: terms } });
-  }
-
-  /**
-   * Add a series of term condition to the given filter object (find full-word matches any of the given values against the given field)
-   * @param fields  The name of the fields to search
-   * @param value  A value to search for
-   */
-  addMultiTermAll(fields: string[], value: any) {
-    for (const field of fields) {
-      this._must.push({
-        term: {
-          [field]: value,
-        },
-      });
-    }
-  }
-
-  /**
-   * Append filters to the given filter object (match any of the given values)
-   * @param matchType  Either "match" or "term"
-   * @param field  The name of the field to search
-   * @param valueOrValues  A value or array of possible values
-   */
-  addFilterAny(
-    matchType: "match" | "term",
-    field: string,
-    valueOrValues: any | any[],
-  ) {
-    if (!Array.isArray(valueOrValues)) {
-      valueOrValues = [valueOrValues];
-    }
-    if (matchType === "term" && valueOrValues.length > 1) {
-      this._must.push({ terms: { [field]: valueOrValues } });
-      return;
-    }
-    const terms = [];
-    for (const value of valueOrValues) {
-      if (matchType === "match") {
-        terms.push({ match: { [field]: value } });
-      } else {
-        terms.push({ term: { [field]: value } });
-      }
-    }
-    if (terms.length === 1) {
-      this._must.push(terms[0]);
-    } else {
-      // Don't include minimum_should_match for OR queries to match test expectations
-      this._must.push({ bool: { should: terms } });
-    }
-  }
-
-  /**
-   * Append filters to the given filter object (match all the values given)
-   * @param matchType  Either "match" or "term"
-   * @param field  The name of the field to search
-   * @param valueOrValues  A value or array of possible values
-   */
-  addFilterAll(
-    matchType: MatchType,
-    field: string,
-    valueOrValues: any | any[],
-  ) {
-    if (!Array.isArray(valueOrValues)) {
-      valueOrValues = [valueOrValues];
-    }
-    for (const value of valueOrValues) {
-      if (matchType === "match") {
-        this._must.push({ match: { [field]: value } });
-      } else {
-        this._must.push({ [matchType]: { [field]: value } });
-      }
-    }
-  }
-
-  /**
    * Append filters for the given range expression
    * @param field  The name of the field to search
-   * @param op  One of the following: > < >= <= gt lt gte lte between
+   * @param operator  One of the following: > < >= <= gt lt gte lte between
    * @param value  The limit(s) to search against
    */
-  addRange(field: string, op: OperatorType, value: RangeShape) {
+  range({
+    field,
+    operator,
+    range,
+  }: {
+    field: string;
+    operator: OperatorType;
+    range: RangeShape;
+  }) {
     // Map operator aliases to their canonical form
     const opMap: Record<string, string> = {
       "<": "lt",
@@ -297,28 +187,28 @@ export default class QueryBuilder {
       between: "between",
     };
 
-    const normalizedOp = op.toLowerCase();
+    const normalizedOp = operator.toLowerCase();
     let opName = opMap[normalizedOp] || normalizedOp;
-    if (opName === "between" && Array.isArray(value)) {
-      if (!value[0] && !value[1]) {
+    if (opName === "between" && Array.isArray(range)) {
+      if (!range[0] && !range[1]) {
         return this;
       }
-      if (!value[0]) {
+      if (!range[0]) {
         opName = "lt";
-        value = value[0];
+        range = range[0];
       }
-      if (!value[1]) {
+      if (!range[1]) {
         opName = "gt";
-        value = value[1];
+        range = range[1];
       }
     }
-    if (opName === "between" && Array.isArray(value)) {
+    if (opName === "between" && Array.isArray(range)) {
       // Handle 'between' operator with array of [min, max]
       this._must.push({
         range: {
           [field]: {
-            gte: value[0],
-            lte: value[1],
+            gte: range[0],
+            lte: range[1],
           },
         },
       });
@@ -326,36 +216,12 @@ export default class QueryBuilder {
       // Handle standard comparison operators
       this._must.push({
         range: {
-          [field]: { [opName]: value },
+          [field]: { [opName]: range },
         },
       });
     } else {
       // Fallback for unknown operators
-      throw new Error(`Unsupported range operator: ${op}`);
-    }
-    return this;
-  }
-
-  /**
-   * Add a full-text matching condition
-   * @param field  The name of the field to search
-   * @param valueOrValues  A value or array of possible values
-   * @param type  Use "ALL" to require document to contain all values, otherwise match any value
-   * @return {QueryBuilder}
-   * @chainable
-   */
-  match(
-    field: string,
-    valueOrValues: string | string[],
-    type: AnyAllType = "ANY",
-  ) {
-    const values = Array.isArray(valueOrValues)
-      ? valueOrValues.map((v) => this.textProcessor.processText(v))
-      : [this.textProcessor.processText(valueOrValues)];
-    if (type.toUpperCase() === "ALL") {
-      this.addFilterAll("match", field, values);
-    } else {
-      this.addFilterAny("match", field, values);
+      throw new Error(`Unsupported range operator: ${operator}`);
     }
     return this;
   }
@@ -363,85 +229,60 @@ export default class QueryBuilder {
   /**
    * Add a full-text phrase matching condition
    * @param field  The name of the field to search
-   * @param phraseOrPhrases  A value or array of possible phrase values
+   * @param phrase  A phrase string containing multipe words
    * @param options  Options for phrase matching (e.g., slop for word proximity)
    * @return {QueryBuilder}
    * @chainable
    */
-  matchPhrase(
-    field: string,
-    phraseOrPhrases: string | string[],
-    options: { slop?: number } = {},
-  ) {
-    const phrases = Array.isArray(phraseOrPhrases)
-      ? phraseOrPhrases.map((v) => this.textProcessor.processText(v))
-      : [this.textProcessor.processText(phraseOrPhrases)];
+  matchPhrase({
+    field,
+    phrase,
+    options = {},
+  }: {
+    field: string;
+    phrase: string;
+    options: { slop?: number };
+  }): this {
+    phrase = this.textProcessor.processText(phrase);
 
-    const terms = [];
-    for (const phrase of phrases) {
-      terms.push({
-        match_phrase: {
-          [field]: {
-            query: phrase,
-            slop: options.slop || 0,
-          },
+    this._must.push({
+      match_phrase: {
+        [field]: {
+          query: phrase,
+          slop: options.slop || 0,
         },
-      });
-    }
-
-    if (terms.length === 1) {
-      this._must.push(terms[0]);
-    } else {
-      this._must.push({ bool: { should: terms } });
-    }
+      },
+    });
     return this;
   }
 
   /**
-   * Add a full-text phrase prefix matching condition
-   * @see https://www.elastic.co/guide/en/elasticsearch/reference/6.8/query-dsl-match-query-phrase-prefix.html
-   * @param fieldOrFields  The name of the field to search
-   * @param phraseOrPhrases  A value or array of possible phrase values
+   * Add a full-text phrase matching condition
+   * @param field  The name of the field to search
+   * @param phrase  A phrase string containing multipe words
+   * @param options  Options for phrase matching (e.g., slop for word proximity)
    * @return {QueryBuilder}
    * @chainable
    */
-  matchPhrasePrefix(
-    fieldOrFields: string | string[],
-    phraseOrPhrases: string | string[],
-  ) {
-    const phrases = Array.isArray(phraseOrPhrases)
-      ? phraseOrPhrases.map((v) => this.textProcessor.processText(v))
-      : [this.textProcessor.processText(phraseOrPhrases)];
-    if (Array.isArray(fieldOrFields)) {
-      // we want to do a phrase prefix on more than one fields
-      // so we multi_match with a phrase_prefix type
-      const clauses = [];
-      for (const phrase of phrases) {
-        clauses.push({
-          multi_match: {
-            fields: fieldOrFields,
-            type: "phrase_prefix",
-            query: phrase,
-          },
-        });
-      }
-      if (clauses.length === 1) {
-        this._must.push(clauses[0]);
-      } else {
-        this._must.push({ bool: { should: clauses } });
-      }
-      return this;
-    }
-    // fieldOrFields is a string so we can use match_phrase_prefix directly
-    const clauses = [];
-    for (const phrase of phrases) {
-      clauses.push({ match_phrase_prefix: { [fieldOrFields]: phrase } });
-    }
-    if (clauses.length === 1) {
-      this._must.push(clauses[0]);
-    } else {
-      this._must.push({ bool: { should: clauses } });
-    }
+  matchPhrasePrefix({
+    field,
+    phrase,
+    options = {},
+  }: {
+    field: string;
+    phrase: string;
+    options: { slop?: number };
+  }): this {
+    const query = this.textProcessor.processText(phrase);
+
+    this._must.push({
+      match_phrase_prefix: {
+        [field]: {
+          query,
+          slop: options.slop || 0,
+        },
+      },
+    });
     return this;
   }
 
@@ -505,31 +346,6 @@ export default class QueryBuilder {
   // }
 
   /**
-   * Create a basic multi_match clause and add any of the available options.
-   * than they would be in a regular multi_match builder
-   * See the "Combining OR, AND, and match phrase queries" section of https://www.elastic.co/blog/how-to-improve-elasticsearch-search-relevance-with-boolean-queries.
-   * @param fields The fields to search
-   * @param value  The value to match on
-   * @param options  Additional options, including `type`, `analyzer`, `boost`, `operator`, `minimum_should_match`, `fuzziness`, `lenient`, `prefix_length`, `max_expansions`, `fuzzy_rewrite`, `zero_terms_query`, `cutoff_frequency`, and `fuzzy_transpositions`
-   * @chainable
-   */
-  multiMatchWithPhrase(
-    fields: string[],
-    value: string,
-    options: Prettify<Omit<MultiMatchQueryShape, "query" | "fields">> = {},
-  ) {
-    value = this.textProcessor.processText(value);
-    this._must.push({
-      multi_match: {
-        fields,
-        query: value,
-        ...options,
-      },
-    });
-    return this;
-  }
-
-  /**
    * Create a basic match clause and add any of the available options.
    * than they would be in a regular multi_match builder
    * See the "Combining OR, AND, and match phrase queries" section of https://www.elastic.co/blog/how-to-improve-elasticsearch-search-relevance-with-boolean-queries.
@@ -538,16 +354,16 @@ export default class QueryBuilder {
    * @param options  Additional options, including `type`, `analyzer`, `boost`, `operator`, `minimum_should_match`, `fuzziness`, `lenient`, `prefix_length`, `max_expansions`, `fuzzy_rewrite`, `zero_terms_query`, `cutoff_frequency`, and `fuzzy_transpositions`
    * @chainable
    */
-  matchWithPhrase(
+  match({field,phrase,options = {}}:{
     field: string,
     phrase: string,
-    options: Prettify<Omit<MultiMatchQueryShape, "query" | "fields">> = {},
-  ) {
-    phrase = this.textProcessor.processText(phrase);
+    options: Prettify<Omit<MultiMatchQueryShape, "query" | "fields">>,
+  }): this {
+    const query = this.textProcessor.processText(phrase);
     this._must.push({
       match: {
         [field]: {
-          query: phrase,
+          query,
           ...options,
         },
       },
@@ -605,8 +421,8 @@ export default class QueryBuilder {
     return this; // Enable chaining
   }
 
-  semantic(field: string, phrase: string, weight: number = 1): this {
-    const query = this.textProcessor.processText(phrase);
+  semantic({field, value, weight = 1}:{field: string; value: string; weight: number;}): this {
+    const query = this.textProcessor.processText(value);
 
     this._retrievers.push({
       retriever: {
@@ -627,85 +443,56 @@ export default class QueryBuilder {
   }
 
   /**
-   * Add a keyword matching condition across multiple fields
-   * @param fields  The names of the fields to search. Wildcards are not allowed.
-   * @param value  A value to search for
-   * @param type  Use "ALL" to require all fields to contain the value, otherwise match any value
-   * @return {QueryBuilder}
-   * @chainable
-   */
-  multiTerm(fields: string[], value: any, type: AnyAllType = "ANY") {
-    if (type.toUpperCase() === "ALL") {
-      this.addMultiTermAll(fields, value);
-    } else {
-      this.addMultiTermAny(fields, value);
-    }
-    return this;
-  }
-
-  /**
    * Add an exact matching condition
    * @param field  The name of the field to search (can use nested separator for nested fields)
-   * @param valueOrValues  A value or array of possible values
-   * @param type  Use "ALL" to require document to contain all values, otherwise match any value
+   * @param value  A string to match
    * @return {QueryBuilder}
    * @chainable
    */
-  term(field: string, valueOrValues: any | any[], type: AnyAllType = "ANY") {
-     if (type.toUpperCase() === "ALL") {
-      this.addFilterAll("term", field, valueOrValues);
-    } else {
-      this.addFilterAny("term", field, valueOrValues);
-    }
-    return this;
-  }
-
-  /**
-   * Require that the given field or fields contain values (i.e. non-missing, non-null)
-   * @param fieldOrFields  The name or names of the fields (can use nested separator for nested fields)
-   * @returns {QueryBuilder}
-   */
-  exists(fieldOrFields: string | string[]) {
-    const fields = Array.isArray(fieldOrFields)
-      ? fieldOrFields
-      : [fieldOrFields];
-
-    for (const field of fields) {
-      this._must.push({ exists: { field } });
-    }
-    return this;
-  }
-
-  /**
-   * Add a Lucene expression condition
-   * @param fieldOrFields  The name of the field(s) to search
-   * @param query A builder string containing special operators such as AND, NOT, OR, ~, *
-   * @return {QueryBuilder}
-   * @chainable
-   */
-  queryString(fieldOrFields: string | string[], query: string) {
-    const fields = Array.isArray(fieldOrFields)
-      ? fieldOrFields
-      : [fieldOrFields];
+  term({field,value}:{
+    field: string;
+    value: string;
+  }): this {
+    const query = this.textProcessor.processText(value);
     this._must.push({
-      query_string: {
-        fields: fields,
-        query: query,
+      term: {
+        [field]: query,
       },
     });
     return this;
   }
 
   /**
-   * Add a numeric range matching condition
-   * @param field  The name of the field to search (can use nested separator for nested fields)
-   * @param op  One of the following: > < >= <= gt lt gte lte between
-   * @param value  A string or number to search against
+   * Require that the given field or fields contain values (i.e. non-missing, non-null)
+   * @param field  The name of the field
+   * @returns {QueryBuilder}
+   */
+  exists({ field }: { field: string }): this {
+    this._must.push({ exists: { field } });
+    return this;
+  }
+
+  /**
+   * Add a Lucene expression condition
+   * @param field  The name of the field to search
+   * @param queryString  A string containing special operators such as AND, NOT, OR, ~, *
    * @return {QueryBuilder}
    * @chainable
    */
-  range(field: string, op: OperatorType, value: RangeShape) {
-    this.addRange(field, op, value);
+  queryString({
+    field,
+    queryString,
+  }: {
+    field: string;
+    queryString: string;
+  }): this {
+    queryString = this.textProcessor.processText(queryString);
+    this._must.push({
+      query_string: {
+        fields: [field],
+        query: queryString,
+      },
+    });
     return this;
   }
 
@@ -722,6 +509,7 @@ export default class QueryBuilder {
     like: MoreLikeThisLikeParams,
     options: MoreLikeThisOptions = {},
   ) {
+
     const likes = Array.isArray(like) ? like : [like];
     const fields = Array.isArray(fieldOrFields)
       ? fieldOrFields
@@ -753,7 +541,7 @@ export default class QueryBuilder {
    * @return {QueryBuilder}
    * @chainable
    */
-  includeFacets(forFields: string[] | Object, limit: number = 25) {
+  includeFacets(forFields: string[] | Record<string,string>, limit: number = 25) {
     let entries: string[][];
     if (Array.isArray(forFields)) {
       entries = forFields.map((field) => [field, field]);
