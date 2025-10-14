@@ -1,9 +1,7 @@
-import { estypes } from "@elastic/elasticsearch"; // TypeScript needs this even if we don't use it
+import type { estypes } from "@elastic/elasticsearch"; // TypeScript needs this even if we don't use it
 import isEmptyObject from "../isEmptyObject/isEmptyObject";
-import NestedFieldsProcessor from "../NestedFieldsProcessor/NestedFieldsProcessor";
 import TextProcessor from "../TextProcessor/TextProcessor";
 import type {
-  AnyAllType,
   FieldTypeOrTypes,
   FunctionScoreShape,
   IntervalType,
@@ -17,6 +15,8 @@ import type {
   SearchRequestShape,
   SortShape,
 } from "../types";
+import offsetIntToString from "../offsetIntToString/offsetIntToString";
+import isDefined from "../isDefined/isDefined";
 
 export type QueryBuilderBody = QueryBuilder["getBody"];
 
@@ -25,7 +25,6 @@ export type QueryBuilderBody = QueryBuilder["getBody"];
  */
 export default class QueryBuilder {
   public textProcessor: TextProcessor;
-  public nestedFieldsProcessor: NestedFieldsProcessor;
   /**
    * The index to query from
    */
@@ -100,15 +99,12 @@ export default class QueryBuilder {
 
   constructor({
     textProcessor = new TextProcessor(),
-    nestedSeparator = "/",
     index,
   }: {
     textProcessor?: TextProcessor;
-    nestedSeparator?: string;
     index?: string;
   } = {}) {
     this.textProcessor = textProcessor;
-    this.nestedFieldsProcessor = new NestedFieldsProcessor(nestedSeparator);
     this._index = index;
   }
 
@@ -190,16 +186,16 @@ export default class QueryBuilder {
     const normalizedOp = operator.toLowerCase();
     let opName = opMap[normalizedOp] || normalizedOp;
     if (opName === "between" && Array.isArray(range)) {
-      if (!range[0] && !range[1]) {
+      if (!isDefined(range[0]) && !isDefined(range[1])) {
         return this;
       }
-      if (!range[0]) {
+      if (!isDefined(range[0])) {
         opName = "lt";
-        range = range[0];
-      }
-      if (!range[1]) {
-        opName = "gt";
         range = range[1];
+      }
+      if (!isDefined(range[1])) {
+        opName = "gt";
+        range = range[0];
       }
     }
     if (opName === "between" && Array.isArray(range)) {
@@ -241,7 +237,7 @@ export default class QueryBuilder {
   }: {
     field: string;
     phrase: string;
-    options: { slop?: number };
+    options?: { slop?: number };
   }): this {
     phrase = this.textProcessor.processText(phrase);
 
@@ -354,10 +350,14 @@ export default class QueryBuilder {
    * @param options  Additional options, including `type`, `analyzer`, `boost`, `operator`, `minimum_should_match`, `fuzziness`, `lenient`, `prefix_length`, `max_expansions`, `fuzzy_rewrite`, `zero_terms_query`, `cutoff_frequency`, and `fuzzy_transpositions`
    * @chainable
    */
-  match({field,phrase,options = {}}:{
-    field: string,
-    phrase: string,
-    options: Prettify<Omit<MultiMatchQueryShape, "query" | "fields">>,
+  match({
+    field,
+    phrase,
+    options = {},
+  }: {
+    field: string;
+    phrase: string;
+    options: Prettify<Omit<MultiMatchQueryShape, "query" | "fields">>;
   }): this {
     const query = this.textProcessor.processText(phrase);
     this._must.push({
@@ -421,7 +421,15 @@ export default class QueryBuilder {
     return this; // Enable chaining
   }
 
-  semantic({field, value, weight = 1}:{field: string; value: string; weight: number;}): this {
+  semantic({
+    field,
+    value,
+    weight = 1,
+  }: {
+    field: string;
+    value: string;
+    weight: number;
+  }): this {
     const query = this.textProcessor.processText(value);
 
     this._retrievers.push({
@@ -444,15 +452,12 @@ export default class QueryBuilder {
 
   /**
    * Add an exact matching condition
-   * @param field  The name of the field to search (can use nested separator for nested fields)
+   * @param field  The name of the field to search
    * @param value  A string to match
    * @return {QueryBuilder}
    * @chainable
    */
-  term({field,value}:{
-    field: string;
-    value: string;
-  }): this {
+  term({ field, value }: { field: string; value: string }): this {
     const query = this.textProcessor.processText(value);
     this._must.push({
       term: {
@@ -486,46 +491,54 @@ export default class QueryBuilder {
     field: string;
     queryString: string;
   }): this {
-    queryString = this.textProcessor.processText(queryString);
+    const query = this.textProcessor.processText(queryString);
     this._must.push({
       query_string: {
         fields: [field],
-        query: queryString,
+        query: query,
       },
     });
     return this;
   }
 
-  /**
-   * Add a more_like_this condition to find documents similar to the given text or documents
-   * @param fieldOrFields  The names of the fields to search (can use nested separator for nested fields)
-   * @param like  A string or array of strings, or an object or array of objects describing documents
-   * @param options  Additional options for the more_like_this query (e.g., min_term_freq, max_query_terms)
-   * @return {QueryBuilder}
-   * @chainable
-   */
-  moreLikeThis(
-    fieldOrFields: string | string[],
-    like: MoreLikeThisLikeParams,
-    options: MoreLikeThisOptions = {},
-  ) {
+  moreLikeThis({
+    field,
+    like,
+    options = {},
+  }: {
+    field: string;
+    like: MoreLikeThisLikeParams;
+    options: MoreLikeThisOptions;
+  }): this {
+    // Normalize the 'like' parameter using the TextProcessor when it is a string
+    // or an array of strings. Leave objects (e.g., {_id, _index} or {doc: {...}})
+    // untouched per Elasticsearch's API.
+    let processedLike: MoreLikeThisLikeParams;
 
-    const likes = Array.isArray(like) ? like : [like];
-    const fields = Array.isArray(fieldOrFields)
-      ? fieldOrFields
-      : [fieldOrFields];
-    likes.forEach((item, i) => {
-      if (typeof item === "string") {
-        likes[i] = this.textProcessor.processText(item);
-      }
-    });
+    if (Array.isArray(like)) {
+      processedLike = (like as any[]).map((item) => {
+        if (typeof item === "string") {
+          return this.textProcessor.processText(item);
+        } else {
+          return item;
+        }
+      }) as unknown as MoreLikeThisLikeParams;
+    } else if (typeof like === "string") {
+      processedLike = this.textProcessor.processText(
+        like,
+      ) as unknown as MoreLikeThisLikeParams;
+    } else {
+      processedLike = like;
+    }
+
     this._must.push({
       more_like_this: {
-        fields,
-        like: likes,
-        ...options,
+        fields: [field],
+        like: processedLike as any,
+        ...(options ?? {}),
       },
     });
+
     return this;
   }
 
@@ -541,7 +554,10 @@ export default class QueryBuilder {
    * @return {QueryBuilder}
    * @chainable
    */
-  includeFacets(forFields: string[] | Record<string,string>, limit: number = 25) {
+  includeFacets(
+    forFields: string[] | Record<string, string>,
+    limit: number = 25,
+  ) {
     let entries: string[][];
     if (Array.isArray(forFields)) {
       entries = forFields.map((field) => [field, field]);
@@ -618,12 +634,10 @@ export default class QueryBuilder {
       );
     }
     const timezoneString =
-      typeof timezone === "number"
-        ? this.offsetIntToString(timezone)
-        : timezone;
+      typeof timezone === "number" ? offsetIntToString(timezone) : timezone;
     if (!/^[+-]\d\d:\d\d$/.test(timezoneString)) {
       throw new Error(
-        'QueryBuilder.dateHistogram(): timezone must be a numeric offset in minutes OR a string in the form "+02:00".',
+        `QueryBuilder.dateHistogram(): timezone must be a numeric offset in minutes OR a string in the form "+02:00".  Received ${JSON.stringify(timezone)}`,
       );
     }
 
@@ -640,23 +654,6 @@ export default class QueryBuilder {
     // don't return any records; just the histogram
     this.limit(0);
     return this;
-  }
-
-  /**
-   * Get a timezone string from integer offset
-   * @example
-   *    360 => -06:00
-   *    -300 => +05:00
-   *    0 => +00:00
-   * @param offset
-   */
-  offsetIntToString(offset: number) {
-    const pad2 = (n) => `${n < 10 ? "0" : ""}${n}`;
-    const timezone = offset * -1;
-    const sign = offset < 1 ? "-" : "+";
-    const hour = Math.floor(timezone / 60);
-    const min = timezone % 60;
-    return `${sign}${pad2(hour)}:${pad2(min)}`;
   }
 
   /**
@@ -824,11 +821,19 @@ export default class QueryBuilder {
     withBuilders: Array<(qb: QueryBuilder, idx: number) => void>;
     minimumShouldMatch: number | string;
   }): this {
-    const bool = { should: [], minimum_should_match: minimumShouldMatch };
+    const bool: any = { should: [], minimum_should_match: minimumShouldMatch };
     for (let i = 0; i < withBuilders.length; i++) {
       const qb = new QueryBuilder({ textProcessor: this.textProcessor });
       withBuilders[i](qb, i);
-      bool.should.push(qb.getMust());
+      const branch = qb.getMust();
+      if (branch.length === 0) {
+        continue;
+      }
+      if (branch.length === 1) {
+        bool.should.push(branch[0]);
+      } else {
+        bool.should.push({ bool: { must: branch } });
+      }
     }
     this._must.push({ bool });
     return this;
@@ -943,10 +948,6 @@ export default class QueryBuilder {
   }
 
   /**
-   * Process query object to handle nested fields by converting dot notation to nested queries
-   */
-
-  /**
    * Return the builder body
    */
   getBody() {
@@ -1035,7 +1036,7 @@ export default class QueryBuilder {
       body.rescore = this._rescore as any;
     }
 
-    return this.nestedFieldsProcessor.process(body);
+    return body;
   }
 
   /**
@@ -1091,7 +1092,7 @@ export default class QueryBuilder {
     if (typeof this._minScore === "number") {
       options.min_score = this._minScore as any;
     }
-    return this.nestedFieldsProcessor.process(options);
+    return options;
   }
 
   /**
