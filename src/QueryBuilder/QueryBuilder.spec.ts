@@ -212,7 +212,7 @@ describe('QueryBuilder.rrf()', () => {
 describe('QueryBuilder.semantic()', () => {
   it('should add a semantic retriever with weight', () => {
     const qb = new QueryBuilder();
-    qb.semantic({ field: 'title-embed', value: 'harry potter', weight: 2 });
+    qb.semantic({ field: 'title-embed', phrase: 'harry potter', weight: 2 });
     const body: any = qb.getBody();
     expect(body.retriever.linear.retrievers[0]).toEqual({
       retriever: {
@@ -308,7 +308,7 @@ describe('QueryBuilder.rawCondition()', () => {
 describe('QueryBuilder.includeFacets()', () => {
   it('should create terms aggs for array of fields', () => {
     const qb = new QueryBuilder();
-    qb.includeFacets(['category', 'brand'], 50);
+    qb.includeFacets({ fields: ['category', 'brand'], limit: 50 });
     const body: any = qb.getBody();
     expect(body.aggs).toEqual({
       category: {
@@ -331,7 +331,10 @@ describe('QueryBuilder.includeFacets()', () => {
   });
   it('should support object mapping of label to field', () => {
     const qb = new QueryBuilder();
-    qb.includeFacets({ Companies: 'company.name', Countries: 'company.country' }, 10);
+    qb.includeFacets({
+      fields: { Companies: 'company.name', Countries: 'company.country' },
+      limit: 10,
+    });
     const body: any = qb.getBody();
     expect(body.aggs).toEqual({
       Companies: {
@@ -358,7 +361,7 @@ describe('QueryBuilder.includeFacets()', () => {
 describe('QueryBuilder.aggregateTerm()', () => {
   it('should create a single terms aggregation and set limit to 0', () => {
     const qb = new QueryBuilder();
-    qb.aggregateTerm('status', 5, ['archived']);
+    qb.aggregateTerm({ field: 'status', limit: 5, exclude: ['archived'] });
     const full = qb.getQuery();
     expect(full.aggs).toEqual({
       status: {
@@ -462,34 +465,33 @@ describe('QueryBuilder.clear()', () => {
       .page(2)
       .sort('published_at')
       .term({ field: 'status', value: 'published' })
-      .includeFacets(['category'], 10)
+      .includeFacets({ fields: ['category'], limit: 10 })
       .highlightField('title')
       .decayFunctionScore({
         field_value_factor: { field: 'popularity', factor: 1.2 },
       } as any);
 
-    qb.clear([
+    qb.reset([
       'fields',
       'excludeFields',
       'limit',
       'page',
-      'sort',
+      'sorts',
       'must',
       'aggs',
       'highlighter',
       'functionScores',
     ]);
 
-    const full = qb.getQuery();
-    expect(full._source).toBeUndefined();
-    expect(full._source_excludes).toBeUndefined();
-    expect(full.size).toBeUndefined();
-    expect(full.from).toBeUndefined();
-    expect(full.sort).toBeUndefined();
-    expect(qb.getMust()).toEqual([]);
-    expect(full.aggs).toBeUndefined();
-    expect(full.highlight).toBeUndefined();
-    expect(qb.getFunctionScores()).toEqual([]);
+    const empty = new QueryBuilder();
+    expect(qb.getFields()).toEqual(empty.getFields());
+    expect(qb.getExcludeFields()).toEqual(empty.getExcludeFields());
+    expect(qb.getLimit()).toEqual(empty.getLimit());
+    expect(qb.getSort()).toEqual(empty.getSort());
+    expect(qb.getMust()).toEqual(empty.getMust());
+    expect(qb.getAggs()).toEqual(empty.getAggs());
+    expect(qb.getHighlighter()).toEqual(empty.getHighlighter());
+    expect(qb.getFunctionScores()).toEqual(empty.getFunctionScores());
   });
 });
 
@@ -843,7 +845,6 @@ describe('QueryBuilder.range() "between" inclusivity', () => {
     expect(() => qb.range('price', 'invalid', 10)).toThrow(TypeError);
   });
 });
-
 
 // searchAfter and trackTotalHits
 

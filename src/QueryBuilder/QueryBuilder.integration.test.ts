@@ -230,7 +230,7 @@ describe('QueryBuilder - Integration', () => {
   it('should include facets for country', async () => {
     const qb = new QueryBuilder();
     qb.index(index);
-    qb.includeFacets(['country'], 10);
+    qb.includeFacets({ fields: ['country'], limit: 10 });
     const result: any = await client.search(qb.getQuery());
     const buckets = result.aggregations.country.buckets;
     const map: Record<string, number> = {};
@@ -244,7 +244,7 @@ describe('QueryBuilder - Integration', () => {
   it('should aggregate countries with aggregateTerm', async () => {
     const qb = new QueryBuilder();
     qb.index(index);
-    qb.aggregateTerm('country', 10);
+    qb.aggregateTerm({ field: 'country', limit: 10 });
     const result: any = await client.search(qb.getQuery());
     const buckets = result.aggregations.country.buckets;
     const keys = buckets.map((b: any) => b.key).sort();

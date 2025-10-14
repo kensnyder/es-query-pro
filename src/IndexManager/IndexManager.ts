@@ -195,10 +195,18 @@ export default class IndexManager<ThisSchema extends SchemaShape = SchemaShape> 
     }
   }
 
+  /**
+   * Get the alias name used to read/write to the current index version.
+   * @returns The alias name string.
+   */
   getAliasName() {
     return this.index.getAliasName();
   }
 
+  /**
+   * Get the full concrete index name (including version suffix, if any).
+   * @returns The fully-qualified index name.
+   */
   getFullName() {
     return this.index.getFullName();
   }

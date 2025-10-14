@@ -27,10 +27,7 @@ export {
 } from './src/IndexManager/IndexManager';
 export { default as IndexNameManager } from './src/IndexNameManager/IndexNameManager';
 export { default as isEmptyObject } from './src/isEmptyObject/isEmptyObject';
-export {
-  default as QueryBuilder,
-  type QueryBuilderBody,
-} from './src/QueryBuilder/QueryBuilder';
+export { default as QueryBuilder } from './src/QueryBuilder/QueryBuilder';
 export {
   default as QueryRunner,
   type QueryCountResult,

@@ -3,18 +3,30 @@ import isDefined from '../isDefined/isDefined';
 import isEmptyObject from '../isEmptyObject/isEmptyObject';
 import offsetIntToString from '../offsetIntToString/offsetIntToString';
 import type {
+  BoostOperator,
   FieldTypeOrTypes,
-  FunctionScoreShape,
+  InferenceCohereSimilarityType,
+  InnerRetriever,
   IntervalType,
+  KnnRetriever,
   MoreLikeThisLikeParams,
   MoreLikeThisOptions,
-  MultiMatchQueryShape,
-  OperatorType,
   Prettify,
-  QueryShape,
+  QueryBody,
+  QueryDslChildScoreMode,
+  QueryDslDecayFunctionBase,
+  QueryDslMultiMatchQuery,
+  QueryDslQueryContainer,
+  RangeOperator,
   RangeShape,
+  RetrieverContainer,
+  ScoreNormalizer,
+  SearchInnerHits,
   SearchRequestShape,
-  SortShape,
+  SearchRescore,
+  SortCombinations,
+  SortDirection,
+  SortResults,
 } from '../types';
 
 export const getDefaultHighlighter = () =>
@@ -40,13 +52,13 @@ export default class QueryBuilder {
   private _excludeFields: string[] = [];
 
   /** The must filters */
-  private _must: QueryShape[] = [];
+  private _must: QueryDslQueryContainer[] = [];
 
   /** The "aggs" to add to the builder */
   private _aggs: SearchRequestShape['aggs'] = {};
 
   /** The function score builder */
-  private _functionScores: FunctionScoreShape[] = [];
+  private _functionScores: QueryDslDecayFunctionBase[] = [];
 
   /** The highlight definition */
   private _highlighter: SearchRequestShape['highlight'] = getDefaultHighlighter();
@@ -58,13 +70,13 @@ export default class QueryBuilder {
   private _page: number = 1;
 
   /** Fields to sort by */
-  private _sorts: SortShape[] = [];
+  private _sorts: SortCombinations[] = [];
 
   /** Retrievers to use */
-  private _retrievers: estypes.LinearRetriever['retrievers'] = [];
+  private _retrievers: InnerRetriever[] = [];
 
   /** type of normalizer for retrievers */
-  private _normalizer: 'minmax' | 'l2_norm' | 'none' = 'minmax';
+  private _normalizer: ScoreNormalizer = 'minmax';
 
   /** The number of results to find before ranking */
   private _rankWindowSize = 50;
@@ -73,13 +85,13 @@ export default class QueryBuilder {
   private _rankConstant = 20;
 
   /** Optional rescore phase */
-  private _rescore: SearchRequestShape['rescore'] = undefined;
+  private _rescore: SearchRescore[] = undefined;
 
   /** Optional minimum score */
   private _minScore: number = undefined;
 
   /** Optional search_after sort values for deep pagination */
-  private _searchAfter: estypes.SortResults = undefined;
+  private _searchAfter: SortResults = undefined;
 
   /** Optional track_total_hits control */
   private _trackTotalHits: boolean | number = undefined;
@@ -160,6 +172,10 @@ export default class QueryBuilder {
     return this;
   }
 
+  /**
+   * Get the current global highlighter configuration.
+   * @returns The highlight options that will be applied to the query.
+   */
   getHighlighter() {
     return this._highlighter;
   }
@@ -184,6 +200,10 @@ export default class QueryBuilder {
     return this._fields;
   }
 
+  /**
+   * Get the list of fields to exclude from _source in the response.
+   * @returns An array of field paths to exclude.
+   */
   getExcludeFields() {
     return this._excludeFields;
   }
@@ -211,6 +231,10 @@ export default class QueryBuilder {
     return this;
   }
 
+  /**
+   * Get the reciprocal rank fusion window size used by the rank feature.
+   * @returns The window size if set, otherwise undefined.
+   */
   getRankWindowSize() {
     return this._rankWindowSize;
   }
@@ -224,6 +248,10 @@ export default class QueryBuilder {
     return this;
   }
 
+  /**
+   * Get the rank_constant value used by the rank feature.
+   * @returns The rank constant if set, otherwise undefined.
+   */
   getRankConstant() {
     return this._rankConstant;
   }
@@ -236,6 +264,10 @@ export default class QueryBuilder {
     return this;
   }
 
+  /**
+   * Get the minimum _score threshold for hits.
+   * @returns The minimum score if set, otherwise undefined.
+   */
   getMinScore() {
     return this._minScore;
   }
@@ -243,11 +275,15 @@ export default class QueryBuilder {
   /**
    * Use search_after for deep pagination
    */
-  searchAfter(values: estypes.SortResults) {
+  searchAfter(values: SortResults) {
     this._searchAfter = values;
     return this;
   }
 
+  /**
+   * Get the search_after cursor used for deep pagination.
+   * @returns The sort values to resume from, if set.
+   */
   getSearchAfter() {
     return this._searchAfter;
   }
@@ -260,6 +296,10 @@ export default class QueryBuilder {
     return this;
   }
 
+  /**
+   * Get the current track_total_hits setting.
+   * @returns A boolean to enable/disable exact hit counts, or a number limit.
+   */
   getTrackTotalHits() {
     return this._trackTotalHits;
   }
@@ -274,7 +314,7 @@ export default class QueryBuilder {
    * @param operator  One of the following: > < >= <= gt lt gte lte between
    * @param range  The limit(s) to search against
    */
-  range(field: string, operator: OperatorType, range: RangeShape) {
+  range(field: string, operator: RangeOperator, range: RangeShape) {
     const opMap: Record<string, string> = {
       '<': 'lt',
       lt: 'lt',
@@ -418,7 +458,7 @@ export default class QueryBuilder {
   }: {
     field: string;
     phrase: string;
-    options?: Prettify<Omit<MultiMatchQueryShape, 'query' | 'fields'>>;
+    options?: Prettify<Omit<QueryDslMultiMatchQuery, 'query' | 'fields'>>;
   }): this {
     this._must.push({
       match: {
@@ -452,10 +492,10 @@ export default class QueryBuilder {
   }: {
     field: string;
     phrase: string;
-    operators?: Array<'exact' | 'and' | 'or'>;
+    operators?: BoostOperator[];
     weights?: number[];
   }): this {
-    const should: QueryShape[] = [];
+    const should: QueryDslQueryContainer[] = [];
 
     for (let i = 0; i < operators.length; i++) {
       const op = operators[i];
@@ -500,6 +540,15 @@ export default class QueryBuilder {
     return this;
   }
 
+  /**
+   * Search with Reciprocal rank fusion
+   * @see https://www.elastic.co/docs/reference/elasticsearch/rest-apis/reciprocal-rank-fusion
+   *
+   * @param semanticField  The name of the semantic_text field
+   * @param standardField  The name of the text field containing equivalent content
+   * @param phrase  The phrase to search
+   * @param weight  The weight of this retriever block
+   */
   rrf({
     semanticField,
     standardField,
@@ -548,14 +597,22 @@ export default class QueryBuilder {
     return this; // Enable chaining
   }
 
-  semantic({ field, value, weight = 1 }: { field: string; value: string; weight: number }): this {
+  /**
+   * Search on a semantic_text field
+   * @see https://www.elastic.co/docs/solutions/search/semantic-search/semantic-search-semantic-text
+   *
+   * @param field  The field to search on
+   * @param phrase  The phrase to search on
+   * @param weight  The weight of this retriever block
+   */
+  semantic({ field, phrase, weight = 1 }: { field: string; phrase: string; weight: number }): this {
     this._retrievers.push({
       retriever: {
         standard: {
           query: {
             semantic: {
               field,
-              query: value,
+              query: phrase,
             },
           },
         },
@@ -568,7 +625,16 @@ export default class QueryBuilder {
   }
 
   /**
+   * Get the current normalizer setting
+   */
+  getNormalizer() {
+    return this._normalizer;
+  }
+
+  /**
    * Add an exact matching condition
+   * @see https://www.elastic.co/docs/reference/query-languages/query-dsl/query-dsl-term-query
+   *
    * @param field  The name of the field to search
    * @param value  A string to match
    * @return {QueryBuilder}
@@ -595,6 +661,8 @@ export default class QueryBuilder {
 
   /**
    * Add a Lucene expression condition
+   * @see https://www.elastic.co/docs/reference/query-languages/query-dsl/query-dsl-query-string-query
+   *
    * @param field  The name of the field to search
    * @param queryString  A string containing special operators such as AND, NOT, OR, ~, *
    * @return {QueryBuilder}
@@ -610,6 +678,14 @@ export default class QueryBuilder {
     return this;
   }
 
+  /**
+   *
+   * @see https://www.elastic.co/docs/reference/query-languages/query-dsl/query-dsl-mlt-query
+   *
+   * @param field
+   * @param like
+   * @param options
+   */
   moreLikeThis({
     field,
     like,
@@ -630,7 +706,7 @@ export default class QueryBuilder {
     return this;
   }
 
-  rawCondition(query: QueryShape) {
+  rawCondition(query: QueryDslQueryContainer) {
     this._must.push(query);
     return this;
   }
@@ -653,12 +729,12 @@ export default class QueryBuilder {
     k: number;
     numCandidates?: number;
     weight: number;
-    filter?: QueryShape | QueryShape[];
-    similarity?: number | estypes.InferenceCohereSimilarityType;
+    filter?: QueryDslQueryContainer | QueryDslQueryContainer[];
+    similarity?: number | InferenceCohereSimilarityType;
   }) {
     const knnDef: Partial<
-      Omit<estypes.KnnRetriever, 'similarity'> & {
-        similarity?: number | estypes.InferenceCohereSimilarityType;
+      Omit<KnnRetriever, 'similarity'> & {
+        similarity?: number | InferenceCohereSimilarityType;
       }
     > = {
       field,
@@ -677,19 +753,23 @@ export default class QueryBuilder {
     }
 
     if (typeof similarity === 'number' || typeof similarity === 'string') {
-      knnDef.similarity = similarity as unknown as number;
+      knnDef.similarity = similarity;
     }
 
     this._retrievers.push({
       retriever: {
         knn: knnDef,
-      } as estypes.RetrieverContainer,
+      } as RetrieverContainer,
       weight,
       normalizer: this._normalizer,
     });
     return this;
   }
 
+  /**
+   * Get all configured retrievers (e.g., KNN) to be applied during retrieval.
+   * @returns An array of retriever containers with weights and normalizer.
+   */
   getRetrievers() {
     return this._retrievers;
   }
@@ -712,7 +792,7 @@ export default class QueryBuilder {
       query: {
         rescore_query: qb.getQuery(),
       },
-    } as estypes.SearchRescore;
+    } as SearchRescore;
     if (Array.isArray(this._rescore)) {
       this._rescore = [...this._rescore, entry];
     } else if (this._rescore) {
@@ -723,6 +803,10 @@ export default class QueryBuilder {
     return this;
   }
 
+  /**
+   * Get the configured rescore phases for this query, if any.
+   * @returns A rescore definition or array of definitions, or undefined.
+   */
   getRescore() {
     return this._rescore;
   }
@@ -733,17 +817,23 @@ export default class QueryBuilder {
 
   /**
    * Return faceted data using ElasticSearch's "aggregation" feature
-   * @param forFields  The names of fields to aggregate into buckets. Can be a list of strings or an object of label-field pairs
+   * @param fields  The names of fields to aggregate into buckets. Can be a list of strings or an object of label-field pairs
    * @param limit  The maximum number of buckets to return for each facet before an "other" option
    * @return {QueryBuilder}
    * @chainable
    */
-  includeFacets(forFields: string[] | Record<string, string>, limit: number = 25) {
+  includeFacets({
+    fields,
+    limit = 25,
+  }: {
+    fields: string[] | Record<string, string>;
+    limit: number;
+  }): this {
     let entries: string[][];
-    if (Array.isArray(forFields)) {
-      entries = forFields.map((field) => [field, field]);
+    if (Array.isArray(fields)) {
+      entries = fields.map((field) => [field, field]);
     } else {
-      entries = Object.entries(forFields);
+      entries = Object.entries(fields);
     }
     for (const [name, field] of entries) {
       this._aggs[name] = {
@@ -767,14 +857,26 @@ export default class QueryBuilder {
    * @return {QueryBuilder}
    * @chainable
    */
-  aggregateTerm(field: string, limit: number = 10, exclusions: any[] = []) {
+  aggregateTerm({
+    field,
+    limit = 10,
+    exclude = [],
+    order = { _count: 'desc' },
+    showTermDocCountError = true,
+  }: {
+    field: string;
+    limit?: number;
+    showTermDocCountError?: boolean;
+    exclude?: any[];
+    order?: any;
+  }) {
     this._aggs[field] = {
       terms: {
         field: field,
         size: limit,
-        show_term_doc_count_error: true,
-        order: { _count: 'desc' },
-        exclude: exclusions,
+        show_term_doc_count_error: showTermDocCountError,
+        order,
+        exclude,
       },
     };
     // use limit to return no records, just counts
@@ -782,6 +884,10 @@ export default class QueryBuilder {
     return this;
   }
 
+  /**
+   * Get the current aggregation definitions to be included in the request.
+   * @returns A map of aggregation names to their definitions.
+   */
   getAggs() {
     return this._aggs;
   }
@@ -863,6 +969,10 @@ export default class QueryBuilder {
     return this;
   }
 
+  /**
+   * Get the maximum number of results to return (size).
+   * @returns The size/limit, or null to use Elasticsearch defaults.
+   */
   getLimit() {
     return this._limit;
   }
@@ -877,6 +987,10 @@ export default class QueryBuilder {
     return this;
   }
 
+  /**
+   * Get the page number to return (1-based).
+   * @returns The page number, default is 1.
+   */
   getPage() {
     return this._page;
   }
@@ -894,7 +1008,7 @@ export default class QueryBuilder {
    *   qb.sort({ created_at: 'desc' });
    *   qb.sort([ { name: 'asc' }, { created_at: 'desc' } ]);
    */
-  sort(field: SortShape, maybeDirection?: 'asc' | 'desc') {
+  sort(field: SortCombinations, maybeDirection?: SortDirection) {
     // DESC string such as "-created_at"
     if (typeof field === 'string' && field.slice(0, 1) === '-') {
       this._sorts.push({ [field.slice(1)]: { order: 'desc' } });
@@ -914,52 +1028,77 @@ export default class QueryBuilder {
     return this;
   }
 
+  /**
+   * Get the sort clauses to apply to the search.
+   * @returns An array of sort specifications in Elasticsearch format.
+   */
   getSort() {
     return this._sorts;
   }
 
   /**
-   * Clear out one or more builder properties
-   * @param field  Valid values: sort, page, limit, must, aggs, fields, highlighter, functionScore
+   * Reset one or more properties of this instance to its initial value
+   * @param field
    */
-  clear(field: FieldTypeOrTypes = null) {
+  reset(field: FieldTypeOrTypes = null) {
     const all: FieldTypeOrTypes = [
-      'sort',
-      'page',
-      'limit',
-      'must',
-      'aggs',
       'fields',
       'excludeFields',
-      'highlighter',
+      'must',
+      'aggs',
       'functionScores',
+      'highlighter',
+      'sorts',
+      'retrievers',
+      'normalizer',
+      'rankWindowSize',
+      'rankConstant',
+      'rescore',
+      'minScore',
+      'searchAfter',
+      'trackTotalHits',
+      'page',
+      'limit',
     ];
-    if (field === null) {
-      field = all;
-    }
-    if (Array.isArray(field)) {
-      field.forEach((name) => {
-        this.clear(name);
-      });
-    } else if (field === 'sort') {
-      this._sorts = [];
-      this._shouldSortByRandom = false;
-    } else if (field === 'page') {
-      this._page = 1;
-    } else if (field === 'limit') {
-      this._limit = null;
-    } else if (field === 'must') {
-      this._must = [];
-    } else if (field === 'aggs') {
-      this._aggs = {};
-    } else if (field === 'fields') {
-      this._fields = [];
-    } else if (field === 'excludeFields') {
-      this._excludeFields = [];
-    } else if (field === 'highlighter') {
-      this._highlighter = getDefaultHighlighter();
-    } else if (field === 'functionScores') {
-      this._functionScores = [];
+    const fields = field === null ? all : Array.isArray(field) ? field : [field];
+    const empty = new QueryBuilder();
+    for (const field of fields) {
+      if (field === 'fields') {
+        this._fields = empty.getFields();
+      } else if (field === 'excludeFields') {
+        this._excludeFields = empty.getExcludeFields();
+      } else if (field === 'must') {
+        this._must = empty.getMust();
+      } else if (field === 'aggs') {
+        this._aggs = empty.getAggs();
+      } else if (field === 'functionScores') {
+        this._functionScores = empty.getFunctionScores();
+      } else if (field === 'highlighter') {
+        this._highlighter = empty.getHighlighter();
+      } else if (field === 'sorts') {
+        this._sorts = empty.getSort();
+        this._shouldSortByRandom = empty.getSortByRandom();
+      } else if (field === 'retrievers') {
+        this._retrievers = empty.getRetrievers();
+      } else if (field === 'normalizer') {
+        this._normalizer = empty.getNormalizer();
+      } else if (field === 'rankWindowSize') {
+        this._rankWindowSize = empty.getRankWindowSize();
+      } else if (field === 'rankConstant') {
+        this._rankConstant = empty.getRankConstant();
+      } else if (field === 'rescore') {
+        this._rescore = empty.getRescore();
+      } else if (field === 'minScore') {
+        this._minScore = empty.getMinScore();
+      } else if (field === 'searchAfter') {
+        this._searchAfter = empty.getSearchAfter();
+      } else if (field === 'trackTotalHits') {
+        this._trackTotalHits = empty.getTrackTotalHits();
+      } else if (field === 'page') {
+        this._page = empty.getPage();
+      } else if (field === 'limit') {
+        this._limit = empty.getLimit();
+      }
     }
   }
 
@@ -974,11 +1113,18 @@ export default class QueryBuilder {
   }
 
   /**
+   * Get the current sort by random state
+   */
+  getSortByRandom() {
+    return this._shouldSortByRandom;
+  }
+
+  /**
    * Add a decay function score builder
    * @see https://www.elastic.co/guide/en/elasticsearch/reference/9.x/query-dsl-function-score-query.html#function-decay
    * @chainable
    */
-  decayFunctionScore(functionScore: FunctionScoreShape) {
+  decayFunctionScore(functionScore: QueryDslDecayFunctionBase) {
     this._functionScores.push(functionScore);
     return this;
   }
@@ -1053,8 +1199,8 @@ export default class QueryBuilder {
   }: {
     withBuilder: (qb: QueryBuilder) => void;
     path: string;
-    scoreMode?: estypes.QueryDslChildScoreMode;
-    innerHits?: estypes.SearchInnerHits;
+    scoreMode?: QueryDslChildScoreMode;
+    innerHits?: SearchInnerHits;
     ignoreUnmapped?: boolean;
   }): this {
     const qb = new QueryBuilder();
@@ -1086,7 +1232,7 @@ export default class QueryBuilder {
    * Get the current array of "must" filters
    * @return The must filters
    */
-  getMust(): QueryShape[] {
+  getMust(): QueryDslQueryContainer[] {
     return this._must;
   }
 
@@ -1094,7 +1240,7 @@ export default class QueryBuilder {
    * Return the builder body
    */
   getBody() {
-    const body: Pick<SearchRequestShape, 'retriever' | 'highlight' | 'aggs' | 'rescore'> = {};
+    const body: QueryBody = {};
 
     // Determine what we're working with
     const hasLinearRetrievers = this._retrievers.length > 0;
@@ -1174,7 +1320,7 @@ export default class QueryBuilder {
       if (body.retriever?.standard) {
         canRescore = true;
       } else if (body.retriever?.linear) {
-        const retrs = (body.retriever.linear.retrievers || []) as estypes.InnerRetriever[];
+        const retrs = (body.retriever.linear.retrievers || []) as InnerRetriever[];
         canRescore = Array.isArray(retrs) && retrs.some((r) => r?.retriever?.standard);
       }
       if (canRescore) {
@@ -1188,7 +1334,7 @@ export default class QueryBuilder {
   /**
    * Build a bool query from must/must_not conditions
    */
-  private _buildBoolQuery(): QueryShape {
+  private _buildBoolQuery(): QueryDslQueryContainer {
     if (this._must.length === 0) {
       return { match_all: {} };
     } else if (this._must.length === 1) {
@@ -1201,7 +1347,7 @@ export default class QueryBuilder {
   /**
    * Wrap a query with random score function
    */
-  private _wrapWithRandomScore(query: QueryShape): QueryShape {
+  private _wrapWithRandomScore(query: QueryDslQueryContainer): QueryDslQueryContainer {
     return {
       function_score: {
         query,
@@ -1294,7 +1440,7 @@ export default class QueryBuilder {
    * @see https://www.elastic.co/guide/en/elasticsearch/reference/9.x/query-dsl-terms-set-query.html
    */
   termsSet(field: string, terms: (string | number)[], minimumShouldMatchScript?: string) {
-    const clause: QueryShape = {
+    const clause: QueryDslQueryContainer = {
       terms_set: {
         [field]: {
           terms,
@@ -1317,8 +1463,8 @@ export default class QueryBuilder {
    * @param {String} index  The index to pull the name from
    * @return {String}
    */
-  toKibana(index: string): string {
+  toKibana(index?: string): string {
     const json = JSON.stringify(this.getQuery(), null, 4);
-    return `GET ${index}/_search\n${json}`;
+    return `GET ${index || this._index}/_search\n${json}`;
   }
 }

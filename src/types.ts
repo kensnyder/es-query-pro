@@ -51,16 +51,11 @@ export type ElasticsearchRecord<T> = T extends Record<string, any>
           : string | null | string[]
     : any;
 
-export type BoostType = {
-  expand?: boolean;
-  boosts?: [or: number, and: number, phrase: number];
-};
+export type BoostOperator = 'exact' | 'and' | 'or';
 
-export type AnyAllType = 'ANY' | 'ALL' | 'any' | 'all';
+export type RangeOperator = '>' | 'gt' | '<' | 'lt' | '>=' | 'gte' | '<=' | 'lte' | 'between';
 
-export type MatchType = 'match' | 'term';
-
-export type OperatorType = '>' | 'gt' | '<' | 'lt' | '>=' | 'gte' | '<=' | 'lte' | 'between';
+export type SortDirection = 'asc' | 'desc';
 
 export type IntervalType =
   | 'year'
@@ -73,25 +68,32 @@ export type IntervalType =
   | 'second';
 
 export type FieldType =
-  | 'sort'
-  | 'page'
-  | 'limit'
-  | 'must'
-  | 'mustNot'
-  | 'aggs'
   | 'fields'
   | 'excludeFields'
+  | 'must'
+  | 'aggs'
+  | 'functionScores'
   | 'highlighter'
-  | 'functionScores';
+  | 'sorts'
+  | 'retrievers'
+  | 'normalizer'
+  | 'rankWindowSize'
+  | 'rankConstant'
+  | 'rescore'
+  | 'minScore'
+  | 'searchAfter'
+  | 'trackTotalHits'
+  | 'shouldSortByRandom'
+  | 'page'
+  | 'limit';
 
 // Elasticsearch types
 export type FieldTypeOrTypes = FieldType | FieldType[] | null;
 export type RangeShape = string | [string, string] | number | [number, number];
-export type QueryShape = Prettify<estypes.QueryDslQueryContainer>;
-export type MultiMatchQueryShape = Prettify<estypes.QueryDslMultiMatchQuery>;
-export type SortShape = Prettify<estypes.SortCombinations>;
-export type FunctionScoreShape = Prettify<estypes.QueryDslDecayFunctionBase>;
-export type BoolQueryShape = Prettify<estypes.QueryDslBoolQuery>;
+export type QueryDslQueryContainer = estypes.QueryDslQueryContainer;
+export type QueryDslMultiMatchQuery = estypes.QueryDslMultiMatchQuery;
+export type SortCombinations = Prettify<estypes.SortCombinations>;
+export type QueryDslDecayFunctionBase = estypes.QueryDslDecayFunctionBase;
 export type SearchRequestShape = Prettify<estypes.SearchRequest>;
 export type IndexSettings = Prettify<estypes.IndicesCreateRequest['settings']>;
 export type MappingProperty = Prettify<estypes.MappingProperty>;
@@ -106,12 +108,18 @@ export type DeleteRequestShape = Prettify<estypes.IndicesDeleteRequest>;
 export type AliasDeleteParams = Prettify<estypes.IndicesDeleteAliasRequest>;
 export type GetRequestParams = Prettify<estypes.GetRequest>;
 export type PutRequestParams = Prettify<estypes.IndexRequest>;
-export type BulkRequestParams = Prettify<estypes.BulkRequest>;
+export type BulkRequestParams = estypes.BulkRequest;
 export type PatchRequestParams = Prettify<estypes.UpdateRequest>;
 export type FlushRequestParams = Prettify<estypes.IndicesFlushRequest>;
-export type MoreLikeThisOptions = Prettify<
-  Omit<estypes.QueryDslMoreLikeThisQuery, 'fields' | 'like'>
->;
-export type MoreLikeThisLikeParams = Prettify<estypes.QueryDslMoreLikeThisQuery['like']>;
-export type RetrieverBase = Prettify<estypes.RetrieverBase>;
-export type RetrieverContainer = Prettify<estypes.RetrieverContainer>;
+export type MoreLikeThisOptions = Omit<estypes.QueryDslMoreLikeThisQuery, 'fields' | 'like'>;
+export type MoreLikeThisLikeParams = estypes.QueryDslMoreLikeThisQuery['like'];
+export type RetrieverContainer = estypes.RetrieverContainer;
+export type InferenceCohereSimilarityType = estypes.InferenceCohereSimilarityType;
+export type SearchRescore = estypes.SearchRescore;
+export type SortResults = estypes.SortResults;
+export type KnnRetriever = estypes.KnnRetriever;
+export type QueryDslChildScoreMode = estypes.QueryDslChildScoreMode;
+export type SearchInnerHits = estypes.SearchInnerHits;
+export type InnerRetriever = estypes.InnerRetriever;
+export type ScoreNormalizer = estypes.ScoreNormalizer;
+export type QueryBody = Pick<SearchRequestShape, 'retriever' | 'highlight' | 'aggs' | 'rescore'>;
