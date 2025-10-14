@@ -21,7 +21,6 @@ export default class QueryRunner<ThisSchema extends SchemaShape> {
     this.index = index;
     this.builder = new QueryBuilder({
       index: this.index.getAliasName(),
-      nestedSeparator: this.index.nestedSeparator,
     });
   }
 
@@ -36,7 +35,7 @@ export default class QueryRunner<ThisSchema extends SchemaShape> {
     if (response?.hits?.hits) {
       const records: ElasticsearchRecord<ThisSchema>[] = [];
       for (const hit of response.hits.hits) {
-        records.push(this.index.textProcessor.prepareResult(hit._source));
+        records.push(hit._source);
       }
       return {
         records,

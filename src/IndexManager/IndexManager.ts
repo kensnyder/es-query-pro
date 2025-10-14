@@ -1,7 +1,9 @@
-import IndexNameManager, { IndexNameAttributes } from '../IndexNameManager/IndexNameManager';
-import type QueryBuilder from '../QueryBuilder/QueryBuilder';
-import getEsClient from '../getEsClient/getEsClient';
-import { type Client, type estypes, errors } from '@elastic/elasticsearch';
+import IndexNameManager, {
+  IndexNameAttributes,
+} from "../IndexNameManager/IndexNameManager";
+import type QueryBuilder from "../QueryBuilder/QueryBuilder";
+import getEsClient from "../getEsClient/getEsClient";
+import { type Client, type estypes, errors } from "@elastic/elasticsearch";
 import type {
   AliasCreateParams,
   AliasDeleteParams,
@@ -19,47 +21,58 @@ import type {
   MappingProperties,
   PatchRequestParams,
   SchemaShape,
-} from '../types';
-import TextProcessor from '../TextProcessor/TextProcessor';
-import QueryRunner from '../QueryRunner/QueryRunner';
-import SchemaManager from '../SchemaManager/SchemaManager';
+} from "../types";
+import QueryRunner from "../QueryRunner/QueryRunner";
+import SchemaManager from "../SchemaManager/SchemaManager";
 
-export type IndexErrorShape = IndexManager['_formatError'];
-export type IndexExistsShape = Awaited<ReturnType<IndexManager['exists']>>;
-export type AliasExistsShape = Awaited<ReturnType<IndexManager['aliasExists']>>;
-export type IndexMetadataShape = Awaited<ReturnType<IndexManager['getIndexMetadata']>>;
-export type AliasMetadataShape = Awaited<ReturnType<IndexManager['getAliasMetadata']>>;
-export type IndexFlushResult = Awaited<ReturnType<IndexManager['flush']>>;
-export type IndexCreateResult = Awaited<ReturnType<IndexManager['create']>>;
-export type IndexDropResult = Awaited<ReturnType<IndexManager['drop']>>;
-export type IndexCreateAliasResult = Awaited<ReturnType<IndexManager['createAlias']>>;
-export type IndexDropAliasResult = Awaited<ReturnType<IndexManager['dropAlias']>>;
-export type IndexCreateIfNeededResult = Awaited<ReturnType<IndexManager['createIfNeeded']>>;
+export type IndexErrorShape = IndexManager["_formatError"];
+export type IndexExistsShape = Awaited<ReturnType<IndexManager["exists"]>>;
+export type AliasExistsShape = Awaited<ReturnType<IndexManager["aliasExists"]>>;
+export type IndexMetadataShape = Awaited<
+  ReturnType<IndexManager["getIndexMetadata"]>
+>;
+export type AliasMetadataShape = Awaited<
+  ReturnType<IndexManager["getAliasMetadata"]>
+>;
+export type IndexFlushResult = Awaited<ReturnType<IndexManager["flush"]>>;
+export type IndexCreateResult = Awaited<ReturnType<IndexManager["create"]>>;
+export type IndexDropResult = Awaited<ReturnType<IndexManager["drop"]>>;
+export type IndexCreateAliasResult = Awaited<
+  ReturnType<IndexManager["createAlias"]>
+>;
+export type IndexDropAliasResult = Awaited<
+  ReturnType<IndexManager["dropAlias"]>
+>;
+export type IndexCreateIfNeededResult = Awaited<
+  ReturnType<IndexManager["createIfNeeded"]>
+>;
 export type IndexCreateAliasIfNeededResult = Awaited<
-  ReturnType<IndexManager['createAliasIfNeeded']>
+  ReturnType<IndexManager["createAliasIfNeeded"]>
 >;
-export type IndexPutResult = Awaited<ReturnType<IndexManager['put']>>;
-export type IndexPutBulkResult = Awaited<ReturnType<IndexManager['putBulk']>>;
-export type IndexPatchResult = Awaited<ReturnType<IndexManager['patch']>>;
-export type IndexDeleteResult = Awaited<ReturnType<IndexManager['deleteById']>>;
-export type IndexStatusReport = Awaited<ReturnType<IndexManager['getStatus']>>;
-export type IndexRecreateResult = Awaited<ReturnType<IndexManager['recreate']>>;
-export type IndexMigrationReport = Awaited<ReturnType<IndexManager['migrateIfNeeded']>>;
-export type IndexMigrationReportCode = IndexMigrationReport['code'];
+export type IndexPutResult = Awaited<ReturnType<IndexManager["put"]>>;
+export type IndexPutBulkResult = Awaited<ReturnType<IndexManager["putBulk"]>>;
+export type IndexPatchResult = Awaited<ReturnType<IndexManager["patch"]>>;
+export type IndexDeleteResult = Awaited<ReturnType<IndexManager["deleteById"]>>;
+export type IndexStatusReport = Awaited<ReturnType<IndexManager["getStatus"]>>;
+export type IndexRecreateResult = Awaited<ReturnType<IndexManager["recreate"]>>;
+export type IndexMigrationReport = Awaited<
+  ReturnType<IndexManager["migrateIfNeeded"]>
+>;
+export type IndexMigrationReportCode = IndexMigrationReport["code"];
 
-export type IndexInferSchema<T extends IndexManager<any>> = T extends IndexManager<infer S>
-  ? S
-  : never;
-export type IndexInferRecordShape<T extends IndexManager<any>> = ElasticsearchRecord<
-  IndexInferSchema<T>
->;
-export type IndexRunShape<T extends IndexManager> = ReturnType<T['run']>;
+export type IndexInferSchema<T extends IndexManager<any>> =
+  T extends IndexManager<infer S> ? S : never;
+export type IndexInferRecordShape<T extends IndexManager<any>> =
+  ElasticsearchRecord<IndexInferSchema<T>>;
+export type IndexRunShape<T extends IndexManager> = ReturnType<T["run"]>;
 
 /**
  * ElasticSearch index manager for creating, searching and saving data
  * for a particular index
  */
-export default class IndexManager<ThisSchema extends SchemaShape = SchemaShape> {
+export default class IndexManager<
+  ThisSchema extends SchemaShape = SchemaShape,
+> {
   /**
    * Builds the index name and alias
    */
@@ -76,8 +89,6 @@ export default class IndexManager<ThisSchema extends SchemaShape = SchemaShape> 
   public analyzer: string;
   public schema: SchemaManager<ThisSchema>;
   public settings: any;
-  public nestedSeparator: string;
-  public textProcessor: TextProcessor;
   public fulltextFields: string[];
   public allFields: string[];
   /**
@@ -93,18 +104,14 @@ export default class IndexManager<ThisSchema extends SchemaShape = SchemaShape> 
    * @param schema  The schema definition (see schemaToMappings.spec.js)
    * @param properties  Additional ElasticSearch mapping properties to add to schema; e.g. for custom fields
    * @param settings  The ElasticSearch settings; e.g. for sort hints
-   * @param textProcessor  A TextProcessor to use
-   * @param nestedSeparator  The separator to use for nested fields
    */
   constructor({
     index,
     schema = {} as ThisSchema,
     settings = {} as IndexSettings,
-    textProcessor = new TextProcessor(),
-    analyzer = 'english',
+    analyzer = "english",
     properties = {} as MappingProperties,
     client = getEsClient(),
-    nestedSeparator = '/',
   }: {
     client?: Client;
     index: IndexNameAttributes;
@@ -112,20 +119,14 @@ export default class IndexManager<ThisSchema extends SchemaShape = SchemaShape> 
     properties?: MappingProperties;
     analyzer?: string;
     settings?: IndexSettings;
-    textProcessor?: TextProcessor;
-    nestedSeparator?: string;
   }) {
     this.client = client;
     this.settings = settings;
-    this.nestedSeparator = nestedSeparator;
-    this.textProcessor = textProcessor;
-    this.textProcessor.registerSchema(schema);
-    this.analyzer = analyzer || 'english';
+    this.analyzer = analyzer || "english";
     this.index = new IndexNameManager(index);
     this.schema = new SchemaManager({
       schema,
       properties,
-      nestedSeparator: this.nestedSeparator,
     });
     this.fulltextFields = this.schema.getFulltextFields();
     this.allFields = this.schema.getAllFields();
@@ -136,35 +137,35 @@ export default class IndexManager<ThisSchema extends SchemaShape = SchemaShape> 
       // Handle Elasticsearch response errors
       return {
         error: e,
-        errorKind: 'response',
+        errorKind: "response",
         response: e.meta || null,
       };
     }
     if (e instanceof errors.ConnectionError) {
       return {
         error: e,
-        errorKind: 'connection',
+        errorKind: "connection",
         response: null,
       };
     }
     if (e instanceof errors.TimeoutError) {
       return {
         error: e,
-        errorKind: 'timeout',
+        errorKind: "timeout",
         response: null,
       };
     }
     if (e instanceof errors.NoLivingConnectionsError) {
       return {
         error: e,
-        errorKind: 'disconnected',
+        errorKind: "disconnected",
         response: null,
       };
     }
     // Handle other types of errors
     return {
       error: e as Error,
-      errorKind: 'javascript',
+      errorKind: "javascript",
       response: null,
     };
   }
@@ -183,7 +184,7 @@ export default class IndexManager<ThisSchema extends SchemaShape = SchemaShape> 
   async exists(more?: Partial<IndexExistParams>) {
     const start = Date.now();
     const request = {
-      method: 'HEAD',
+      method: "HEAD",
       endpoint: `/${this.getFullName()}`,
       body: {
         index: this.getFullName(),
@@ -222,7 +223,7 @@ export default class IndexManager<ThisSchema extends SchemaShape = SchemaShape> 
   async aliasExists(more?: Partial<AliasExistParams>) {
     const start = Date.now();
     const request = {
-      method: 'HEAD',
+      method: "HEAD",
       endpoint: `/_alias/${this.getAliasName()}`,
       body: {
         name: this.getAliasName(),
@@ -262,7 +263,7 @@ export default class IndexManager<ThisSchema extends SchemaShape = SchemaShape> 
   async getIndexMetadata(more?: Partial<IndexMetadataParams>) {
     const start = Date.now();
     const request = {
-      method: 'GET',
+      method: "GET",
       endpoint: `/${this.getFullName()}`,
       body: {
         index: this.getFullName(),
@@ -295,7 +296,7 @@ export default class IndexManager<ThisSchema extends SchemaShape = SchemaShape> 
   async getAliasMetadata(more?: Partial<AliasMetadataParams>) {
     const start = Date.now();
     const request = {
-      method: 'GET',
+      method: "GET",
       endpoint: `/_alias/${this.getAliasName()}`,
       body: {
         name: this.getAliasName(),
@@ -328,7 +329,7 @@ export default class IndexManager<ThisSchema extends SchemaShape = SchemaShape> 
   async flush(more?: Partial<FlushRequestParams>) {
     const start = Date.now();
     const request = {
-      method: 'POST',
+      method: "POST",
       endpoint: `/${this.getAliasName()}/_flush`,
       body: {
         index: this.getAliasName(),
@@ -356,7 +357,7 @@ export default class IndexManager<ThisSchema extends SchemaShape = SchemaShape> 
   getCreateRequest(more?: Partial<IndexCreateParams>) {
     const sm = new SchemaManager(this.schema);
     return {
-      method: 'PUT',
+      method: "PUT",
       endpoint: `/${this.getFullName()}`,
       body: {
         index: this.getFullName(),
@@ -397,7 +398,7 @@ export default class IndexManager<ThisSchema extends SchemaShape = SchemaShape> 
   async drop(more?: Partial<DeleteRequestShape>) {
     const start = Date.now();
     const request = {
-      method: 'DELETE',
+      method: "DELETE",
       endpoint: `/${this.getFullName()}`,
       body: {
         index: this.getFullName(),
@@ -447,7 +448,7 @@ export default class IndexManager<ThisSchema extends SchemaShape = SchemaShape> 
   async createAlias(more?: Partial<AliasCreateParams>) {
     const start = Date.now();
     const request = {
-      method: 'PUT',
+      method: "PUT",
       endpoint: `/${this.getFullName()}/_alias/${this.getAliasName()}`,
       body: {
         name: this.getAliasName(),
@@ -479,7 +480,7 @@ export default class IndexManager<ThisSchema extends SchemaShape = SchemaShape> 
   async dropAlias(more?: Partial<AliasDeleteParams>) {
     const start = Date.now();
     const request = {
-      method: 'DELETE',
+      method: "DELETE",
       endpoint: `/${this.getFullName()}/_alias/${this.getAliasName()}`,
       body: {
         name: this.getAliasName(),
@@ -516,7 +517,7 @@ export default class IndexManager<ThisSchema extends SchemaShape = SchemaShape> 
         success: true,
         took: Date.now() - start,
         request: res.request,
-        code: 'ALREADY_EXISTS',
+        code: "ALREADY_EXISTS",
         error: null,
         errorKind: null,
       };
@@ -525,7 +526,7 @@ export default class IndexManager<ThisSchema extends SchemaShape = SchemaShape> 
         success: false,
         took: Date.now() - start,
         request: res.request,
-        code: 'ERROR',
+        code: "ERROR",
         error: res.error,
         errorKind: res.errorKind,
       };
@@ -536,14 +537,14 @@ export default class IndexManager<ThisSchema extends SchemaShape = SchemaShape> 
           success: false,
           took: Date.now() - start,
           request: res.request,
-          code: 'ERROR',
+          code: "ERROR",
           error: res.error,
           errorKind: res.errorKind,
         };
       } else {
         return {
           success: true,
-          code: 'CREATED',
+          code: "CREATED",
           request: res.request,
           took: Date.now() - start,
           error: null,
@@ -565,7 +566,7 @@ export default class IndexManager<ThisSchema extends SchemaShape = SchemaShape> 
         success: true,
         took: Date.now() - start,
         request: res.request,
-        code: 'ALREADY_EXISTS',
+        code: "ALREADY_EXISTS",
         error: null,
         errorKind: null,
       };
@@ -574,7 +575,7 @@ export default class IndexManager<ThisSchema extends SchemaShape = SchemaShape> 
         success: false,
         took: Date.now() - start,
         request: res.request,
-        code: 'ERROR',
+        code: "ERROR",
         error: res.error,
         errorKind: res.errorKind,
       };
@@ -585,7 +586,7 @@ export default class IndexManager<ThisSchema extends SchemaShape = SchemaShape> 
           success: false,
           took: Date.now() - start,
           request: res.request,
-          code: 'ERROR',
+          code: "ERROR",
           error: res.error,
           errorKind: res.errorKind,
         };
@@ -593,7 +594,7 @@ export default class IndexManager<ThisSchema extends SchemaShape = SchemaShape> 
         return {
           success: true,
           request: res.request,
-          code: 'CREATED',
+          code: "CREATED",
           error: null,
           errorKind: null,
         };
@@ -609,7 +610,7 @@ export default class IndexManager<ThisSchema extends SchemaShape = SchemaShape> 
   async findById(id: string, more?: Partial<GetRequestParams>) {
     const start = Date.now();
     const request = {
-      method: 'GET',
+      method: "GET",
       endpoint: `/${this.getAliasName()}/_doc/${id}`,
       body: {
         index: this.getAliasName(),
@@ -620,7 +621,6 @@ export default class IndexManager<ThisSchema extends SchemaShape = SchemaShape> 
     try {
       const response = await this.client.get(request.body);
       const record = response._source;
-      this.textProcessor.prepareResult(record);
       return {
         record,
         took: Date.now() - start,
@@ -724,9 +724,8 @@ export default class IndexManager<ThisSchema extends SchemaShape = SchemaShape> 
    */
   async put(id: number | string, body: ElasticsearchRecord<ThisSchema>) {
     const start = Date.now();
-    this.textProcessor.prepareInsertion(body);
     const request = {
-      method: 'PUT',
+      method: "PUT",
       endpoint: `/${this.getAliasName()}/_doc/${id}`,
       body: {
         index: this.getAliasName(),
@@ -757,18 +756,21 @@ export default class IndexManager<ThisSchema extends SchemaShape = SchemaShape> 
    * @param records  The records to save
    * @param [more]  Additional body params
    */
-  async putBulk(records: ElasticsearchRecord<ThisSchema>[], more?: Partial<BulkRequestParams>) {
+  async putBulk(
+    records: ElasticsearchRecord<ThisSchema>[],
+    more?: Partial<BulkRequestParams>,
+  ) {
     const start = Date.now();
-    records.forEach((r) => {
-      this.textProcessor.prepareInsertion(r);
-    });
     const index = this.getAliasName();
     const bulkBody: any[] = [];
     for (const record of records) {
-      bulkBody.push({ index: { _index: index, _id: record.id || crypto.randomUUID() } }, record);
+      bulkBody.push(
+        { index: { _index: index, _id: record.id || crypto.randomUUID() } },
+        record,
+      );
     }
     const request = {
-      method: 'PUT',
+      method: "PUT",
       endpoint: `/_bulk`,
       body: {
         index,
@@ -807,7 +809,7 @@ export default class IndexManager<ThisSchema extends SchemaShape = SchemaShape> 
   ) {
     const start = Date.now();
     const request = {
-      method: 'POST',
+      method: "POST",
       endpoint: `/${this.getAliasName()}/_update/${id}`,
       body: {
         index: this.getAliasName(),
@@ -816,12 +818,11 @@ export default class IndexManager<ThisSchema extends SchemaShape = SchemaShape> 
         ...(more || {}),
       },
     };
-    this.textProcessor.prepareInsertion(body);
     try {
       const response = await this.client.update(request.body);
       return {
         success: true,
-        result: 'updated',
+        result: "updated",
         request,
         took: Date.now() - start,
         ...this._formatNonError(response),
@@ -829,7 +830,7 @@ export default class IndexManager<ThisSchema extends SchemaShape = SchemaShape> 
     } catch (e) {
       return {
         success: false,
-        result: 'error',
+        result: "error",
         request,
         took: Date.now() - start,
         ...this._formatError(e),
@@ -844,7 +845,7 @@ export default class IndexManager<ThisSchema extends SchemaShape = SchemaShape> 
   async deleteById(id: string) {
     const start = Date.now();
     const request = {
-      method: 'DELETE',
+      method: "DELETE",
       endpoint: `/${this.getAliasName()}/_doc/${id}`,
       body: {
         index: this.getAliasName(),
@@ -875,7 +876,7 @@ export default class IndexManager<ThisSchema extends SchemaShape = SchemaShape> 
   async deleteAll() {
     const start = Date.now();
     const request = {
-      method: 'DELETE',
+      method: "DELETE",
       endpoint: `/${this.getAliasName()}/delete_by_query/?conflicts=proceed`,
       body: {
         index: this.getAliasName(),
@@ -914,7 +915,8 @@ export default class IndexManager<ThisSchema extends SchemaShape = SchemaShape> 
       aliasName,
       indexExists: indexExists.exists,
       aliasExists: aliasExists.exists,
-      needsMigration: indexExists.exists === false || aliasExists.exists === false,
+      needsMigration:
+        indexExists.exists === false || aliasExists.exists === false,
       needsCreation: aliasExists.exists === false,
     };
   }
@@ -955,7 +957,7 @@ export default class IndexManager<ThisSchema extends SchemaShape = SchemaShape> 
           return {
             success: false,
             took: Date.now() - start,
-            code: 'ERROR_CREATING_INDEX',
+            code: "ERROR_CREATING_INDEX",
             oldName: null,
             newName: currentIndexName,
             error: createResult.error,
@@ -974,7 +976,7 @@ export default class IndexManager<ThisSchema extends SchemaShape = SchemaShape> 
           return {
             success: true,
             took: Date.now() - start,
-            code: 'CREATED_INDEX',
+            code: "CREATED_INDEX",
             oldName: null,
             newName: currentIndexName,
             ...this._formatNonError(createResult),
@@ -985,21 +987,22 @@ export default class IndexManager<ThisSchema extends SchemaShape = SchemaShape> 
         const stats = await this.client.indices.stats({
           index: oldIndexName,
         });
-        const maxSeqNo = stats.indices?.[oldIndexName]?.total?.translog?.operations || 0;
+        const maxSeqNo =
+          stats.indices?.[oldIndexName]?.total?.translog?.operations || 0;
 
         // Version number has changed - perform initial reindex
         await this.client.reindex({
           wait_for_completion: true,
           source: { index: oldIndexName },
           dest: { index: currentIndexName },
-          conflicts: 'proceed',
+          conflicts: "proceed",
         });
 
         try {
           // Stop writes to old index
           await this.client.indices.putSettings({
             index: oldIndexName,
-            body: { 'index.blocks.write': true },
+            body: { "index.blocks.write": true },
           });
 
           // Update alias to point to the new index atomically
@@ -1039,7 +1042,10 @@ export default class IndexManager<ThisSchema extends SchemaShape = SchemaShape> 
             if (changes.hits.hits.length > 0) {
               const bulkBody = [];
               for (const hit of changes.hits.hits) {
-                bulkBody.push({ index: { _index: currentIndexName, _id: hit._id } }, hit._source);
+                bulkBody.push(
+                  { index: { _index: currentIndexName, _id: hit._id } },
+                  hit._source,
+                );
               }
               await this.client.bulk({
                 body: bulkBody,
@@ -1059,7 +1065,7 @@ export default class IndexManager<ThisSchema extends SchemaShape = SchemaShape> 
           // Allow writes to new index so we can delete
           await this.client.indices.putSettings({
             index: oldIndexName,
-            body: { 'index.blocks.write': null },
+            body: { "index.blocks.write": null },
           });
 
           // We should be good to delete
@@ -1068,7 +1074,7 @@ export default class IndexManager<ThisSchema extends SchemaShape = SchemaShape> 
           return {
             success: true,
             took: Date.now() - start,
-            code: 'MIGRATED',
+            code: "MIGRATED",
             oldName: oldIndexName,
             newName: currentIndexName,
             ...this._formatNonError(indexExists),
@@ -1077,7 +1083,7 @@ export default class IndexManager<ThisSchema extends SchemaShape = SchemaShape> 
           return {
             success: false,
             took: Date.now() - start,
-            code: 'MIGRATION_FAILED',
+            code: "MIGRATION_FAILED",
             oldName: oldIndexName,
             newName: currentIndexName,
             ...this._formatError(e),
@@ -1086,7 +1092,7 @@ export default class IndexManager<ThisSchema extends SchemaShape = SchemaShape> 
           // Ensure we reinstate writes to old index upon error
           await this.client.indices.putSettings({
             index: oldIndexName,
-            body: { 'index.blocks.write': null },
+            body: { "index.blocks.write": null },
           });
         }
       }
@@ -1095,7 +1101,7 @@ export default class IndexManager<ThisSchema extends SchemaShape = SchemaShape> 
       return {
         success: true,
         took: Date.now() - start,
-        code: 'NO_CHANGE',
+        code: "NO_CHANGE",
         oldName: currentIndexName,
         newName: currentIndexName,
         ...this._formatNonError(indexExists),
@@ -1104,7 +1110,7 @@ export default class IndexManager<ThisSchema extends SchemaShape = SchemaShape> 
       return {
         success: false,
         took: Date.now() - start,
-        code: 'ERROR',
+        code: "ERROR",
         oldName: null,
         newName: null,
         ...this._formatError(e),
