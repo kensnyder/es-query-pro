@@ -1,6 +1,10 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import getEsClient from '../getEsClient/getEsClient';
-import { createBooksIndex, deleteBooksIndex, insertBooksData } from '../testFixtures/books';
+import {
+  createBooksIndex,
+  deleteBooksIndex,
+  insertBooksData,
+} from '../testFixtures/books';
 import QueryBuilder from './QueryBuilder';
 
 describe('QueryBuilder - Integration', () => {
@@ -157,7 +161,9 @@ describe('QueryBuilder - Integration', () => {
 
     const docIds = result.hits.hits.map((hit: any) => hit._id);
     expect(docIds).toEqual(['3']);
-    const years = result.hits.hits.map((hit: any) => hit._source.publishing.year);
+    const years = result.hits.hits.map(
+      (hit: any) => hit._source.publishing.year,
+    );
     expect(years).toEqual([2018]);
   });
 

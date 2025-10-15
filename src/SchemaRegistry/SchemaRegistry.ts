@@ -7,9 +7,15 @@ import IndexManager, {
   IndexStatusReport,
 } from '../IndexManager/IndexManager';
 
-export type SchemaMigrationResultShape = Awaited<ReturnType<SchemaRegistry['migrateIfNeeded']>>;
-export type SchemaStatusResultShape = Awaited<ReturnType<SchemaRegistry['getStatus']>>;
-export type SchemaDropResultShape = Awaited<ReturnType<SchemaRegistry['dropAll']>>;
+export type SchemaMigrationResultShape = Awaited<
+  ReturnType<SchemaRegistry['migrateIfNeeded']>
+>;
+export type SchemaStatusResultShape = Awaited<
+  ReturnType<SchemaRegistry['getStatus']>
+>;
+export type SchemaDropResultShape = Awaited<
+  ReturnType<SchemaRegistry['dropAll']>
+>;
 
 export default class SchemaRegistry {
   // Yes, I know the proper term is "indices"
@@ -40,7 +46,9 @@ export default class SchemaRegistry {
   async migrateIfNeeded(concurrency = 2) {
     const start = Date.now();
     if (this.indexes.length === 0) {
-      throw new Error('No indexes registered in SchemaRegistry; cannot migrateIfNeeded');
+      throw new Error(
+        'No indexes registered in SchemaRegistry; cannot migrateIfNeeded',
+      );
     }
     const report: IndexMigrationReport[] = [];
     const summary: Record<string, IndexMigrationReportCode> = {};
@@ -83,7 +91,9 @@ export default class SchemaRegistry {
   async recreateAll(concurrency = 2) {
     const start = Date.now();
     if (this.indexes.length === 0) {
-      throw new Error('No indexes registered in SchemaRegistry; cannot recreateAll');
+      throw new Error(
+        'No indexes registered in SchemaRegistry; cannot recreateAll',
+      );
     }
     const report: IndexRecreateResult[] = [];
     const summary: Record<string, string> = {};
@@ -142,7 +152,10 @@ export default class SchemaRegistry {
   async getStatus(concurrency = 2) {
     const start = Date.now();
     const report: IndexStatusReport[] = [];
-    const summary: Record<string, 'needsCreation' | 'current' | 'needsMigration'> = {};
+    const summary: Record<
+      string,
+      'needsCreation' | 'current' | 'needsMigration'
+    > = {};
     try {
       const groups = this.chunkify(this.indexes, concurrency);
       await Promise.all(

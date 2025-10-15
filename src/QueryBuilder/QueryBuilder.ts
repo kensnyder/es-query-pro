@@ -65,7 +65,8 @@ export default class QueryBuilder {
   public _functionScores: QueryDslDecayFunctionBase[] = [];
 
   /** The highlight definition */
-  public _highlighter: SearchRequestShape['highlight'] = getDefaultHighlighter();
+  public _highlighter: SearchRequestShape['highlight'] =
+    getDefaultHighlighter();
 
   /** The max number of records to return */
   public _limit: number = null;
@@ -190,7 +191,9 @@ export default class QueryBuilder {
    * @example
    *   qb.highlighterOptions({ type: 'fvh', number_of_fragments: 1, fragment_size: 100, fields: {} });
    */
-  highlighterOptions(options: Omit<SearchRequestShape['highlight'], 'fields'>): this {
+  highlighterOptions(
+    options: Omit<SearchRequestShape['highlight'], 'fields'>,
+  ): this {
     this._highlighter = {
       ...options,
       fields: this._highlighter.fields,
@@ -661,7 +664,15 @@ export default class QueryBuilder {
    * @example
    *   qb.semantic({ field: 'content_semantic', phrase: 'vector search', weight: 1 });
    */
-  semantic({ field, phrase, weight = 1 }: { field: string; phrase: string; weight: number }): this {
+  semantic({
+    field,
+    phrase,
+    weight = 1,
+  }: {
+    field: string;
+    phrase: string;
+    weight: number;
+  }): this {
     this._retrievers.push({
       retriever: {
         standard: {
@@ -730,7 +741,13 @@ export default class QueryBuilder {
    * @example
    *   qb.queryString({ field: 'title', queryString: 'quick AND fox' });
    */
-  queryString({ field, queryString }: { field: string; queryString: string }): this {
+  queryString({
+    field,
+    queryString,
+  }: {
+    field: string;
+    queryString: string;
+  }): this {
     this._must.push({
       query_string: {
         fields: [field],
@@ -1027,7 +1044,11 @@ export default class QueryBuilder {
    * @example
    *   qb.dateHistogram('created_at', 'month', '+00:00');
    */
-  dateHistogram(dateField: string, intervalName: IntervalType, timezone: string | number): this {
+  dateHistogram(
+    dateField: string,
+    intervalName: IntervalType,
+    timezone: string | number,
+  ): this {
     // see https://www.elastic.co/guide/en/elasticsearch/reference/current/mapping-date-format.html
     // Map human-friendly interval names to ES9 calendar/fixed intervals and output formats
     const intervals: Record<
@@ -1052,7 +1073,8 @@ export default class QueryBuilder {
       );
     }
 
-    const timezoneString = typeof timezone === 'number' ? offsetIntToString(timezone) : timezone;
+    const timezoneString =
+      typeof timezone === 'number' ? offsetIntToString(timezone) : timezone;
 
     if (!/^[+-]\d\d:\d\d$/.test(timezoneString)) {
       throw new Error(
@@ -1201,7 +1223,8 @@ export default class QueryBuilder {
       'page',
       'limit',
     ];
-    const fields = field === null ? all : Array.isArray(field) ? field : [field];
+    const fields =
+      field === null ? all : Array.isArray(field) ? field : [field];
     const empty = new QueryBuilder();
     for (const field of fields) {
       if (field === 'fields') {
@@ -1504,13 +1527,18 @@ export default class QueryBuilder {
     }
 
     // Add rescore if specified and supported (requires a standard query retriever)
-    if (this._rescore && (Array.isArray(this._rescore) ? this._rescore.length > 0 : true)) {
+    if (
+      this._rescore &&
+      (Array.isArray(this._rescore) ? this._rescore.length > 0 : true)
+    ) {
       let canRescore = false;
       if (body.retriever?.standard) {
         canRescore = true;
       } else if (body.retriever?.linear) {
-        const retrs = (body.retriever.linear.retrievers || []) as InnerRetriever[];
-        canRescore = Array.isArray(retrs) && retrs.some((r) => r?.retriever?.standard);
+        const retrs = (body.retriever.linear.retrievers ||
+          []) as InnerRetriever[];
+        canRescore =
+          Array.isArray(retrs) && retrs.some((r) => r?.retriever?.standard);
       }
       if (canRescore) {
         body.rescore = this._rescore;
@@ -1536,7 +1564,9 @@ export default class QueryBuilder {
   /**
    * Wrap a query with random score function
    */
-  private _wrapWithRandomScore(query: QueryDslQueryContainer): QueryDslQueryContainer {
+  private _wrapWithRandomScore(
+    query: QueryDslQueryContainer,
+  ): QueryDslQueryContainer {
     return {
       function_score: {
         query,
@@ -1557,7 +1587,12 @@ export default class QueryBuilder {
   getOptions() {
     const options: Pick<
       SearchRequestShape,
-      'size' | 'from' | 'sort' | 'min_score' | 'search_after' | 'track_total_hits'
+      | 'size'
+      | 'from'
+      | 'sort'
+      | 'min_score'
+      | 'search_after'
+      | 'track_total_hits'
     > = {};
     if (this._limit !== null) {
       options.size = this._limit;
@@ -1574,7 +1609,10 @@ export default class QueryBuilder {
     if (Array.isArray(this._searchAfter) && this._searchAfter.length > 0) {
       options.search_after = this._searchAfter;
     }
-    if (typeof this._trackTotalHits === 'boolean' || typeof this._trackTotalHits === 'number') {
+    if (
+      typeof this._trackTotalHits === 'boolean' ||
+      typeof this._trackTotalHits === 'number'
+    ) {
       options.track_total_hits = this._trackTotalHits;
     }
     return options;

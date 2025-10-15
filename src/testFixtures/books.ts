@@ -119,7 +119,8 @@ export function getBooksData(): any {
     {
       id: '2',
       title: 'Harry Potter and the Chamber of Secrets',
-      premise: 'At Hogwarts, Harry uncovers the mystery behind a mysterious hidden chamber',
+      premise:
+        'At Hogwarts, Harry uncovers the mystery behind a mysterious hidden chamber',
       country: 'United Kingdom',
       categories: [
         {

@@ -547,7 +547,10 @@ describe('QueryBuilder.should()', () => {
     });
     expect(qb.getMust()[0]).toEqual({
       bool: {
-        should: [{ term: { status: 'published' } }, { range: { views: { gte: 1000 } } }],
+        should: [
+          { term: { status: 'published' } },
+          { range: { views: { gte: 1000 } } },
+        ],
         minimum_should_match: 1,
       },
     });
@@ -754,7 +757,11 @@ describe('QueryBuilder.matchBoostedPhrase()', () => {
         bool: {
           should: [
             { match_phrase: { title: { query: 'Harry Potter', boost: 1 } } },
-            { match: { title: { query: 'Harry Potter', operator: 'and', boost: 3 } } },
+            {
+              match: {
+                title: { query: 'Harry Potter', operator: 'and', boost: 3 },
+              },
+            },
           ],
           minimum_should_match: 1,
         },
@@ -774,8 +781,16 @@ describe('QueryBuilder.matchBoostedPhrase()', () => {
       {
         bool: {
           should: [
-            { match: { title: { query: 'Harry Potter', operator: 'or', boost: 2 } } },
-            { match: { title: { query: 'Harry Potter', operator: 'and', boost: 5 } } },
+            {
+              match: {
+                title: { query: 'Harry Potter', operator: 'or', boost: 2 },
+              },
+            },
+            {
+              match: {
+                title: { query: 'Harry Potter', operator: 'and', boost: 5 },
+              },
+            },
             { match_phrase: { title: { query: 'Harry Potter', boost: 7 } } },
           ],
           minimum_should_match: 1,
@@ -786,7 +801,12 @@ describe('QueryBuilder.matchBoostedPhrase()', () => {
 
   it('should not add anything when operators is empty', () => {
     const qb = new QueryBuilder();
-    qb.matchBoostedPhrase({ field: 'title', phrase: 'Harry Potter', operators: [], weights: [] });
+    qb.matchBoostedPhrase({
+      field: 'title',
+      phrase: 'Harry Potter',
+      operators: [],
+      weights: [],
+    });
     expect(qb.getMust()).toEqual([]);
   });
 });
@@ -813,12 +833,20 @@ describe('QueryBuilder.knn() with similarity and filter', () => {
       field: 'vec',
       vector: [0.1, 0.2],
       k: 3,
-      filter: [{ term: { status: 'active' } } as any, { range: { year: { gte: 2000 } } } as any],
+      filter: [
+        { term: { status: 'active' } } as any,
+        { range: { year: { gte: 2000 } } } as any,
+      ],
       weight: 1,
     });
     const knn = qb.getBody().retriever.knn;
     expect(knn.filter).toEqual({
-      bool: { filter: [{ term: { status: 'active' } }, { range: { year: { gte: 2000 } } }] },
+      bool: {
+        filter: [
+          { term: { status: 'active' } },
+          { range: { year: { gte: 2000 } } },
+        ],
+      },
     });
   });
 
@@ -891,6 +919,8 @@ describe('QueryBuilder rescore with retrievers', () => {
       },
     });
     const body: any = qb.getBody();
-    expect(Array.isArray(body.rescore) ? body.rescore.length > 0 : !!body.rescore).toBe(true);
+    expect(
+      Array.isArray(body.rescore) ? body.rescore.length > 0 : !!body.rescore,
+    ).toBe(true);
   });
 });

@@ -5,7 +5,9 @@ export type Prettify<T> = {
   [K in keyof T]: T[K];
 } & {};
 
-export type ColumnType = ElasticsearchType | Record<ColumnName, ElasticsearchType>;
+export type ColumnType =
+  | ElasticsearchType
+  | Record<ColumnName, ElasticsearchType>;
 
 export type SchemaShape = Record<ColumnName, ColumnType>;
 
@@ -53,7 +55,16 @@ export type ElasticsearchRecord<T> = T extends Record<string, any>
 
 export type BoostOperator = 'exact' | 'and' | 'or';
 
-export type RangeOperator = '>' | 'gt' | '<' | 'lt' | '>=' | 'gte' | '<=' | 'lte' | 'between';
+export type RangeOperator =
+  | '>'
+  | 'gt'
+  | '<'
+  | 'lt'
+  | '>='
+  | 'gte'
+  | '<='
+  | 'lte'
+  | 'between';
 
 export type SortDirection = 'asc' | 'desc';
 
@@ -111,10 +122,14 @@ export type PutRequestParams = Prettify<estypes.IndexRequest>;
 export type BulkRequestParams = estypes.BulkRequest;
 export type PatchRequestParams = Prettify<estypes.UpdateRequest>;
 export type FlushRequestParams = Prettify<estypes.IndicesFlushRequest>;
-export type MoreLikeThisOptions = Omit<estypes.QueryDslMoreLikeThisQuery, 'fields' | 'like'>;
+export type MoreLikeThisOptions = Omit<
+  estypes.QueryDslMoreLikeThisQuery,
+  'fields' | 'like'
+>;
 export type MoreLikeThisLikeParams = estypes.QueryDslMoreLikeThisQuery['like'];
 export type RetrieverContainer = estypes.RetrieverContainer;
-export type InferenceCohereSimilarityType = estypes.InferenceCohereSimilarityType;
+export type InferenceCohereSimilarityType =
+  estypes.InferenceCohereSimilarityType;
 export type SearchRescore = estypes.SearchRescore;
 export type SortResults = estypes.SortResults;
 export type KnnRetriever = estypes.KnnRetriever;
@@ -122,4 +137,7 @@ export type QueryDslChildScoreMode = estypes.QueryDslChildScoreMode;
 export type SearchInnerHits = estypes.SearchInnerHits;
 export type InnerRetriever = estypes.InnerRetriever;
 export type ScoreNormalizer = estypes.ScoreNormalizer;
-export type QueryBody = Pick<SearchRequestShape, 'retriever' | 'highlight' | 'aggs' | 'rescore'>;
+export type QueryBody = Pick<
+  SearchRequestShape,
+  'retriever' | 'highlight' | 'aggs' | 'rescore'
+>;

@@ -1,4 +1,6 @@
-import IndexNameManager, { IndexNameAttributes } from '../IndexNameManager/IndexNameManager';
+import IndexNameManager, {
+  IndexNameAttributes,
+} from '../IndexNameManager/IndexNameManager';
 import type QueryBuilder from '../QueryBuilder/QueryBuilder';
 import getEsClient from '../getEsClient/getEsClient';
 import { type Client, type estypes, errors } from '@elastic/elasticsearch';
@@ -26,14 +28,24 @@ import SchemaManager from '../SchemaManager/SchemaManager';
 export type IndexErrorShape = IndexManager['_formatError'];
 export type IndexExistsShape = Awaited<ReturnType<IndexManager['exists']>>;
 export type AliasExistsShape = Awaited<ReturnType<IndexManager['aliasExists']>>;
-export type IndexMetadataShape = Awaited<ReturnType<IndexManager['getIndexMetadata']>>;
-export type AliasMetadataShape = Awaited<ReturnType<IndexManager['getAliasMetadata']>>;
+export type IndexMetadataShape = Awaited<
+  ReturnType<IndexManager['getIndexMetadata']>
+>;
+export type AliasMetadataShape = Awaited<
+  ReturnType<IndexManager['getAliasMetadata']>
+>;
 export type IndexFlushResult = Awaited<ReturnType<IndexManager['flush']>>;
 export type IndexCreateResult = Awaited<ReturnType<IndexManager['create']>>;
 export type IndexDropResult = Awaited<ReturnType<IndexManager['drop']>>;
-export type IndexCreateAliasResult = Awaited<ReturnType<IndexManager['createAlias']>>;
-export type IndexDropAliasResult = Awaited<ReturnType<IndexManager['dropAlias']>>;
-export type IndexCreateIfNeededResult = Awaited<ReturnType<IndexManager['createIfNeeded']>>;
+export type IndexCreateAliasResult = Awaited<
+  ReturnType<IndexManager['createAlias']>
+>;
+export type IndexDropAliasResult = Awaited<
+  ReturnType<IndexManager['dropAlias']>
+>;
+export type IndexCreateIfNeededResult = Awaited<
+  ReturnType<IndexManager['createIfNeeded']>
+>;
 export type IndexCreateAliasIfNeededResult = Awaited<
   ReturnType<IndexManager['createAliasIfNeeded']>
 >;
@@ -43,22 +55,24 @@ export type IndexPatchResult = Awaited<ReturnType<IndexManager['patch']>>;
 export type IndexDeleteResult = Awaited<ReturnType<IndexManager['deleteById']>>;
 export type IndexStatusReport = Awaited<ReturnType<IndexManager['getStatus']>>;
 export type IndexRecreateResult = Awaited<ReturnType<IndexManager['recreate']>>;
-export type IndexMigrationReport = Awaited<ReturnType<IndexManager['migrateIfNeeded']>>;
+export type IndexMigrationReport = Awaited<
+  ReturnType<IndexManager['migrateIfNeeded']>
+>;
 export type IndexMigrationReportCode = IndexMigrationReport['code'];
 
-export type IndexInferSchema<T extends IndexManager<any>> = T extends IndexManager<infer S>
-  ? S
-  : never;
-export type IndexInferRecordShape<T extends IndexManager<any>> = ElasticsearchRecord<
-  IndexInferSchema<T>
->;
+export type IndexInferSchema<T extends IndexManager<any>> =
+  T extends IndexManager<infer S> ? S : never;
+export type IndexInferRecordShape<T extends IndexManager<any>> =
+  ElasticsearchRecord<IndexInferSchema<T>>;
 export type IndexRunShape<T extends IndexManager> = ReturnType<T['run']>;
 
 /**
  * ElasticSearch index manager for creating, searching and saving data
  * for a particular index
  */
-export default class IndexManager<ThisSchema extends SchemaShape = SchemaShape> {
+export default class IndexManager<
+  ThisSchema extends SchemaShape = SchemaShape,
+> {
   /**
    * Builds the index name and alias
    */
@@ -750,12 +764,18 @@ export default class IndexManager<ThisSchema extends SchemaShape = SchemaShape> 
    * @param records  The records to save
    * @param [more]  Additional body params
    */
-  async putBulk(records: ElasticsearchRecord<ThisSchema>[], more?: Partial<BulkRequestParams>) {
+  async putBulk(
+    records: ElasticsearchRecord<ThisSchema>[],
+    more?: Partial<BulkRequestParams>,
+  ) {
     const start = Date.now();
     const index = this.getAliasName();
     const bulkBody: any[] = [];
     for (const record of records) {
-      bulkBody.push({ index: { _index: index, _id: record.id || crypto.randomUUID() } }, record);
+      bulkBody.push(
+        { index: { _index: index, _id: record.id || crypto.randomUUID() } },
+        record,
+      );
     }
     const request = {
       method: 'PUT',
@@ -903,7 +923,8 @@ export default class IndexManager<ThisSchema extends SchemaShape = SchemaShape> 
       aliasName,
       indexExists: indexExists.exists,
       aliasExists: aliasExists.exists,
-      needsMigration: indexExists.exists === false || aliasExists.exists === false,
+      needsMigration:
+        indexExists.exists === false || aliasExists.exists === false,
       needsCreation: aliasExists.exists === false,
     };
   }
@@ -974,7 +995,8 @@ export default class IndexManager<ThisSchema extends SchemaShape = SchemaShape> 
         const stats = await this.client.indices.stats({
           index: oldIndexName,
         });
-        const maxSeqNo = stats.indices?.[oldIndexName]?.total?.translog?.operations || 0;
+        const maxSeqNo =
+          stats.indices?.[oldIndexName]?.total?.translog?.operations || 0;
 
         // Version number has changed - perform initial reindex
         await this.client.reindex({
@@ -1028,7 +1050,10 @@ export default class IndexManager<ThisSchema extends SchemaShape = SchemaShape> 
             if (changes.hits.hits.length > 0) {
               const bulkBody = [];
               for (const hit of changes.hits.hits) {
-                bulkBody.push({ index: { _index: currentIndexName, _id: hit._id } }, hit._source);
+                bulkBody.push(
+                  { index: { _index: currentIndexName, _id: hit._id } },
+                  hit._source,
+                );
               }
               await this.client.bulk({
                 body: bulkBody,

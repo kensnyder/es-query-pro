@@ -41,7 +41,7 @@
     "lint": "biome lint .",
     "format": "biome format .",
     "format:write": "biome format --write .",
-    "check": "biome check .",
+    "format:check": "biome check .",
     "build": "bun run build:clean && bun run build:dts && bun run build:esm && bun run build:cjs && bun run build:gzip-size",
     "build:clean": "rm -Rf dist/ && mkdir dist && touch dist/.gitkeep",
     "build:dts": "yes | bunx dts-bundle-generator --project tsconfig.bundle-generator.json -o dist/index.d.ts ./index.ts",
