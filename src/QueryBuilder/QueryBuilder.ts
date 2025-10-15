@@ -1336,7 +1336,7 @@ export default class QueryBuilder {
     withBuilders,
     minimumShouldMatch = 1,
   }: {
-    withBuilders: Array<(qb: QueryBuilder, idx: number) => void>;
+    withBuilders: Array<(qb: QueryBuilder, idx: number) => any>;
     minimumShouldMatch?: number | string;
   }): this {
     const bool: any = { should: [], minimum_should_match: minimumShouldMatch };
@@ -1361,7 +1361,7 @@ export default class QueryBuilder {
    * Get a Query Builder to add a negative condition
    * @param withBuilder  A function that takes a QueryBuilder to allow adding conditions
    */
-  mustNot(withBuilder: (qb: QueryBuilder) => void): this {
+  mustNot(withBuilder: (qb: QueryBuilder) => any): this {
     const qb = new QueryBuilder();
     withBuilder(qb);
     this._must.push({ bool: { must_not: qb.getMust() } });
@@ -1412,33 +1412,6 @@ export default class QueryBuilder {
    */
   getFunctionScores() {
     return this._functionScores;
-  }
-
-  /**
-   * Provide an array of handlers, each adding some conditions
-   * @param withBuilders  Array of handlers receiving a fresh QueryBuilder instance
-   * @example
-   *   const qb = new QueryBuilder();
-   *   qb.must([
-   *     (q) => { q.term({ field: 'status', value: 'active' }); },
-   *     (q) => { q.range('price', 'between', [10, 50]); },
-   *   ]);
-   */
-  must(withBuilders: Array<(qb: QueryBuilder, idx: number) => void>): this {
-    for (let i = 0; i < withBuilders.length; i++) {
-      const qb = new QueryBuilder();
-      withBuilders[i](qb, i);
-      const branch = qb.getMust();
-      if (branch.length === 0) {
-        continue;
-      }
-      if (branch.length === 1) {
-        this._must.push(branch[0]);
-      } else {
-        this._must.push(...branch);
-      }
-    }
-    return this;
   }
 
   /**
