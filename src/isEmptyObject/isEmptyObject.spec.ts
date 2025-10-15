@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import isEmptyObject from './isEmptyObject';
 
 describe('isEmptyObject', () => {
@@ -19,7 +19,7 @@ describe('isEmptyObject', () => {
   });
 
   it('should identify instances of empty functions', () => {
-    const f = function () {};
+    const f = () => {};
     expect(isEmptyObject(new f())).toBe(true);
   });
 });

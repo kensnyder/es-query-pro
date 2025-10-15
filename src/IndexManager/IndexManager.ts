@@ -1,9 +1,11 @@
+import { type Client, errors, type estypes } from '@elastic/elasticsearch';
+import getEsClient from '../getEsClient/getEsClient';
 import IndexNameManager, {
-  IndexNameAttributes,
+  type IndexNameAttributes,
 } from '../IndexNameManager/IndexNameManager';
 import type QueryBuilder from '../QueryBuilder/QueryBuilder';
-import getEsClient from '../getEsClient/getEsClient';
-import { type Client, type estypes, errors } from '@elastic/elasticsearch';
+import QueryRunner from '../QueryRunner/QueryRunner';
+import SchemaManager from '../SchemaManager/SchemaManager';
 import type {
   AliasCreateParams,
   AliasDeleteParams,
@@ -22,8 +24,6 @@ import type {
   PatchRequestParams,
   SchemaShape,
 } from '../types';
-import QueryRunner from '../QueryRunner/QueryRunner';
-import SchemaManager from '../SchemaManager/SchemaManager';
 
 export type IndexErrorShape = IndexManager['_formatError'];
 export type IndexExistsShape = Awaited<ReturnType<IndexManager['exists']>>;

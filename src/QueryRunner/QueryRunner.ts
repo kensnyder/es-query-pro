@@ -3,9 +3,15 @@ import type IndexManager from '../IndexManager/IndexManager';
 import QueryBuilder from '../QueryBuilder/QueryBuilder';
 import type { ElasticsearchRecord, SchemaShape } from '../types';
 
-export type QueryFindManyResult<T extends QueryRunner<any>> = Awaited<ReturnType<T['findMany']>>;
-export type QueryFindFirstResult<T extends QueryRunner<any>> = Awaited<ReturnType<T['findFirst']>>;
-export type QueryCountResult<T extends QueryRunner<any>> = Awaited<ReturnType<T['count']>>;
+export type QueryFindManyResult<T extends QueryRunner<any>> = Awaited<
+  ReturnType<T['findMany']>
+>;
+export type QueryFindFirstResult<T extends QueryRunner<any>> = Awaited<
+  ReturnType<T['findFirst']>
+>;
+export type QueryCountResult<T extends QueryRunner<any>> = Awaited<
+  ReturnType<T['count']>
+>;
 
 export default class QueryRunner<ThisSchema extends SchemaShape> {
   public index: IndexManager<ThisSchema>;
@@ -23,12 +29,16 @@ export default class QueryRunner<ThisSchema extends SchemaShape> {
    * @param response  The result from withEsClient()
    * @private
    */
-  formatResponse(response: estypes.SearchResponse<ElasticsearchRecord<ThisSchema>>) {
+  formatResponse(
+    response: estypes.SearchResponse<ElasticsearchRecord<ThisSchema>>,
+  ) {
     if (response?.hits?.hits) {
-      const records: ElasticsearchRecord<ThisSchema>[] = response.hits.hits.map((hit) => ({
-        ...hit._source,
-        _score: hit._score,
-      }));
+      const records: ElasticsearchRecord<ThisSchema>[] = response.hits.hits.map(
+        (hit) => ({
+          ...hit._source,
+          _score: hit._score,
+        }),
+      );
       return {
         records,
         total:
@@ -102,7 +112,9 @@ export default class QueryRunner<ThisSchema extends SchemaShape> {
   /**
    * Run this builder and return result.hits.hits[0]
    */
-  async findFirstOrThrow(more: Omit<estypes.SearchRequest, 'index' | 'query'> = {}) {
+  async findFirstOrThrow(
+    more: Omit<estypes.SearchRequest, 'index' | 'query'> = {},
+  ) {
     const { records, ...result } = await this.findMany(more);
     if (records.length === 0) {
       const error = new Error('No record found');
