@@ -61,20 +61,20 @@ export default class QueryRunner<ThisSchema extends SchemaShape> {
     };
   }
 
-  mget(more: Omit<estypes.MgetRequest, 'index' | 'ids'> = {}) {
-    // const request = {
-    //   index: this.index.getAliasName(),
-    //   ...this.builder.getBody(),
-    //   ...more,
-    // };
-    // return this.index.client.mget(request);
-  }
-
-  msearch(queries: QueryBuilder[]) {
-    // this.client.msearch({
-    //
-    // });
-  }
+  // mget(more: Omit<estypes.MgetRequest, 'index' | 'ids'> = {}) {
+  //   // const request = {
+  //   //   index: this.index.getAliasName(),
+  //   //   ...this.builder.getBody(),
+  //   //   ...more,
+  //   // };
+  //   // return this.index.client.mget(request);
+  // }
+  //
+  // msearch(queries: QueryBuilder[]) {
+  //   // this.client.msearch({
+  //   //
+  //   // });
+  // }
 
   /**
    * Run this builder and return results

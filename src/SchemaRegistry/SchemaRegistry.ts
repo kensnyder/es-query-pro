@@ -63,7 +63,7 @@ export default class SchemaRegistry {
                 const result = await index.migrateIfNeeded();
                 report.push(result);
                 summary[index.getFullName()] = result.code;
-              } catch (e) {
+              } catch (_error) {
                 summary[index.getFullName()] = 'ERROR';
               }
             }
@@ -108,7 +108,7 @@ export default class SchemaRegistry {
                 const result = await index.recreate();
                 report.push(result);
                 summary[index.getFullName()] = 'SUCCESS';
-              } catch (e) {
+              } catch (_error) {
                 summary[index.getFullName()] = 'ERROR';
               }
             }

@@ -1,6 +1,6 @@
 import type { estypes } from '@elastic/elasticsearch';
 import getEsClient from '../getEsClient/getEsClient';
-import { PutRequestParams, type SchemaShape } from '../types';
+import type { SchemaShape } from '../types';
 
 export function getBooksMappings(): estypes.MappingTypeMapping {
   return {
@@ -201,7 +201,7 @@ export async function deleteBooksIndex(index: string) {
   const client = getEsClient();
   try {
     await client.indices.delete({ index });
-  } catch (error) {
+  } catch (_error) {
     // Ignore if index doesn't exist
   }
 }

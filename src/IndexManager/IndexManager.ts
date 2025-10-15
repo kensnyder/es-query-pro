@@ -1031,8 +1031,6 @@ export default class IndexManager<
             ],
           });
 
-          let manualMigrationCount = 0;
-
           const migrateChanges = async (batchSize = 100, from = 0) => {
             // Fetch any documents that were updated/created during reindex
             const changes = await this.client.search({
@@ -1060,8 +1058,6 @@ export default class IndexManager<
                 refresh: true,
               });
             }
-
-            manualMigrationCount += changes.hits.hits.length;
 
             if (changes.hits.hits.length === batchSize) {
               await migrateChanges(from + batchSize);
