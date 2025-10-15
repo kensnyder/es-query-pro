@@ -721,7 +721,11 @@ describe('QueryBuilder.minScore()', () => {
 describe('QueryBuilder.termsSet()', () => {
   it('should add a terms_set clause with a minimum_should_match_script when provided', () => {
     const qb = new QueryBuilder();
-    qb.termsSet('tags', ['hiking', 'camping', 'skiing'], 'Math.min(params.num_terms, 2)');
+    qb.termsSet({
+      field: 'tags',
+      terms: ['hiking', 'camping', 'skiing'],
+      script: 'Math.min(params.num_terms, 2)',
+    });
     expect(qb.getMust()[0]).toEqual({
       terms_set: {
         tags: {

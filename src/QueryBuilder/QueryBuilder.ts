@@ -534,7 +534,6 @@ export default class QueryBuilder {
    * @return {QueryBuilder}
    * @chainable
    * @example
-   *   const qb = new QueryBuilder();
    *   qb.matchBoostedPhrase({ field: 'title', phrase: 'elastic search', operators: ['exact','and','or'], weights: [5,3,1] });
    */
   matchBoostedPhrase({
@@ -602,7 +601,6 @@ export default class QueryBuilder {
    * @param phrase  The phrase to search
    * @param weight  The weight of this retriever block
    * @example
-   *   const qb = new QueryBuilder();
    *   qb.rrf({ semanticField: 'content_semantic', standardField: 'content', phrase: 'neural search', weight: 2 });
    */
   rrf({
@@ -661,7 +659,6 @@ export default class QueryBuilder {
    * @param phrase  The phrase to search on
    * @param weight  The weight of this retriever block
    * @example
-   *   const qb = new QueryBuilder();
    *   qb.semantic({ field: 'content_semantic', phrase: 'vector search', weight: 1 });
    */
   semantic({ field, phrase, weight = 1 }: { field: string; phrase: string; weight: number }): this {
@@ -699,7 +696,6 @@ export default class QueryBuilder {
    * @return {QueryBuilder}
    * @chainable
    * @example
-   *   const qb = new QueryBuilder();
    *   qb.term({ field: 'status', value: 'active' });
    */
   term({ field, value }: { field: string; value: string }): this {
@@ -716,7 +712,6 @@ export default class QueryBuilder {
    * @param field  The name of the field
    * @returns {QueryBuilder}
    * @example
-   *   const qb = new QueryBuilder();
    *   qb.exists({ field: 'author' });
    */
   exists({ field }: { field: string }): this {
@@ -733,7 +728,6 @@ export default class QueryBuilder {
    * @return {QueryBuilder}
    * @chainable
    * @example
-   *   const qb = new QueryBuilder();
    *   qb.queryString({ field: 'title', queryString: 'quick AND fox' });
    */
   queryString({ field, queryString }: { field: string; queryString: string }): this {
@@ -754,7 +748,6 @@ export default class QueryBuilder {
    * @param like  The like string or { _doc: '123' }
    * @param options  Additional MorkLikeThisOptions
    * @example
-   *   const qb = new QueryBuilder();
    *   qb.moreLikeThis({ field: 'description', like: 'wireless headphones', options: { min_term_freq: 1, max_query_terms: 12 } });
    */
   moreLikeThis({
@@ -781,7 +774,6 @@ export default class QueryBuilder {
    * Add an arbitrary condition
    * @param query
    * @example
-   *   const qb = new QueryBuilder();
    *   qb.rawCondition({ range: { price: { gte: 10, lte: 50 } } });
    */
   rawCondition(query: QueryDslQueryContainer): this {
@@ -793,18 +785,25 @@ export default class QueryBuilder {
    * Add a terms_set query to must filters
    * @see https://www.elastic.co/guide/en/elasticsearch/reference/9.x/query-dsl-terms-set-query.html
    * @example
-   *   const qb = new QueryBuilder();
-   *   qb.termsSet('tags', ['red','blue'], "Math.min(params.num_terms, 2)");
+   *   qb.termsSet({ field: 'tags', terms: ['red','blue'], script: "Math.min(params.num_terms, 2)" });
    */
-  termsSet(field: string, terms: (string | number)[], minimumShouldMatchScript?: string): this {
+  termsSet({
+    field,
+    terms,
+    script,
+  }: {
+    field: string;
+    terms: Array<string | number>;
+    script?: string;
+  }): this {
     const clause: QueryDslQueryContainer = {
       terms_set: {
         [field]: {
           terms,
-          ...(minimumShouldMatchScript
+          ...(script
             ? {
                 minimum_should_match_script: {
-                  source: minimumShouldMatchScript,
+                  source: script,
                 },
               }
             : {}),
@@ -819,7 +818,6 @@ export default class QueryBuilder {
    * Add a KNN retriever (Approximate Nearest Neighbor search)
    * @see https://www.elastic.co/guide/en/elasticsearch/reference/9.x/knn-search.html
    * @example
-   *   const qb = new QueryBuilder();
    *   qb.knn({ field: 'embedding', vector: [0.1, 0.2, 0.3], k: 10, numCandidates: 100, weight: 2 });
    */
   knn({
@@ -885,7 +883,7 @@ export default class QueryBuilder {
    * Add a rescore phase for the query. Multiple calls will append additional rescore entries.
    * @see https://www.elastic.co/guide/en/elasticsearch/reference/9.x/filter-search-results.html#rescore
    * @example
-   *   const qb = new QueryBuilder();
+
    *   qb.rescore({ windowSize: 50, withBuilder: (q) => { q.match({ field: 'title', phrase: 'elasticsearch' }); } });
    */
   rescore({
@@ -932,7 +930,7 @@ export default class QueryBuilder {
    * @return {QueryBuilder}
    * @chainable
    * @example
-   *   const qb = new QueryBuilder();
+
    *   qb.includeFacets({ fields: ['category', 'brand'], limit: 10 });
    */
   includeFacets({
@@ -970,7 +968,7 @@ export default class QueryBuilder {
    * @return {QueryBuilder}
    * @chainable
    * @example
-   *   const qb = new QueryBuilder();
+
    *   qb.aggregateTerm({ field: 'category', limit: 5, exclude: ['misc'] });
    */
   aggregateTerm({
@@ -1291,7 +1289,7 @@ export default class QueryBuilder {
    * @see https://www.elastic.co/guide/en/elasticsearch/reference/9.x/query-dsl-function-score-query.html#function-decay
    * @chainable
    * @example
-   *   const qb = new QueryBuilder();
+
    *   qb.decayFunctionScore({
    *     gauss: {
    *       "created_at": { origin: "now", scale: "7d", decay: 0.5 }

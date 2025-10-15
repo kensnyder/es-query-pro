@@ -128,44 +128,80 @@ schemaManager.createOrMigrate();
 
 ### Match conditions
 
-| Function                                                  | Match Type        | Example                                                      |
-| --------------------------------------------------------- | ----------------- | ------------------------------------------------------------ |
-| term({ field, value })                                    | Exact field value | term({ field: 'created_by', value: 123 })                    |
-| matchBoostedPhrase({ field, phrase, operators, weights }) | Full-text         | matchBoostedPhrase(\['title'], 'AT&T Wireless')              |
-| match({ field, phrase, options })                         | Full-text         | match('title', 'Market research')                            |
-| exists({ field })                                         | Exact field       | exists('deleted_at')                                         |
-| range(field, operator, value)                             | Exact field value | range('age', 'between', \[18, 35])                           |
-| ----------------------------------------------------      | ----------------- | ------------------------------------------------------------ |
-| matchPhrase({ field, phrase, options })                   | Full-text         | matchPhrase('title', 'Little Red Riding Hood')               |
-| matchPhrasePrefix({ field, phrase, options })             | Full-text         | matchPhrasePrefix('title', 'Little Red R')                   |
-| queryString({ field, queryString })                       | Lucene expression | queryString('body', '(tech AND support) OR (service desk)')  |
+| Function                                                             | Match Type              | Example                                                                 |
+| -------------------------------------------------------------------- | ----------------------- | ----------------------------------------------------------------------- |
+| exists({ field })                                                    | Exact field             | exists('deleted_at')                                                    |
+| knn({ field, vector, k, numCandidates, weight, filter, similarity }) | kNN retrieval           | knn({ field: 'vec', vector: [0.1, 0.2], k: 10, numCandidates: 100 })    |
+| match({ field, phrase, options })                                    | Full-text               | match('title', 'Market research')                                       |
+| matchBoostedPhrase({ field, phrase, operators, weights })            | Full-text (boosted)     | matchBoostedPhrase(\['title'], 'AT&T Wireless')                         |
+| matchPhrase({ field, phrase, options })                              | Full-text               | matchPhrase('title', 'Little Red Riding Hood')                          |
+| matchPhrasePrefix({ field, phrase, options })                        | Full-text               | matchPhrasePrefix('title', 'Little Red R')                              |
+| moreLikeThis({ field, like, options })                               | Similar documents       | moreLikeThis({ field: 'body', like: 'quick brown fox' })                |
+| queryString({ field, queryString })                                  | Lucene expression       | queryString('body', '(tech AND support) OR (service desk)')             |
+| range(field, operator, value)                                        | Exact field value       | range('age', 'between', [18, 35])                                       |
+| rawCondition(query)                                                  | Raw ES query container  | rawCondition({ wildcard: { title: 'wire\*' } })                         |
+| rrf({ semanticField, standardField, phrase, weight })                | Reciprocal rank fusion  | rrf({ semanticField: 'vec', standardField: 'title', phrase: 'router' }) |
+| semantic({ field, phrase, weight })                                  | Vector/semantic scoring | semantic({ field: 'title.embedding', phrase: 'wireless', weight: 2 })   |
+| term({ field, value })                                               | Exact field value       | term({ field: 'created_by', value: 123 })                               |
+| termsSet(field, terms, minimumShouldMatchScript)                     | Terms set               | termsSet('tags', ['a','b'], 'Math.max(1, params.num_terms/2)')          |
 
 ### Other functions
 
-| Function                                         | Purpose                                                                       |
-| ------------------------------------------------ | ----------------------------------------------------------------------------- |
-| should({ withBuilders, minimumShouldMatch })     | Where subquery matches                                                        |
-| mustNot(withBuilder)                             | Where subquery matches                                                        |
-| nested({ withBuilder, path, scoreMode })         | Add conditions for a nested field                                             |
-| limit(limitTo)                                   | Sets limit                                                                    |
-| page(pageNo)                                     | Sets page                                                                     |
-| sort(field)                                      | Sets field sorting                                                            |
-| sortByRandom(trueOrFalse)                        | If true, sort by random                                                       |
-| ------------------------------------------------ | ----------------------------------------------------------------------------- |
-| fields(fieldNames)                               | Set which fields to return. Default is \['\*'] which returns all fields       |
-| highlighterOptions(options)                      | Set additional sorting options                                                |
-| highlightField(name, overrideOptions)            | Enable highlights for a particular field                                      |
-| includeFacets(forFields, limit)                  | Include counts for each field                                                 |
-| decayFunctionScore(definition)                   | Give match weight based on a bell-curve                                       |
-| aggregateTerm(field, limit, exclusions)          | A count of field values (like GROUP BY in SQL)                                |
-| dateHistogram(dateField, intervalName, timezone) | Aggregate matches by time periods                                             |
-| reset(field)                                     | Reset all instance values                                                     |
-| ------------                                     | ----------------------------------------------                                |
-| toKibana()                                       | Get a string suitable for running in Kibana                                   |
-| getFields()                                      | Get the list of fields that will be returned                                  |
-| getBody()                                        | Get the structure of the builder body                                         |
-| getOptions()                                     | Get the size, from, sort                                                      |
-| getQuery()                                       | Return the fields, body and options to builder                                |
+| Function                                                               | Purpose                                                               |
+| ---------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| aggregateTerm({ field, limit, exclude, order, showTermDocCountError }) | Count of field values (GROUP BY-like)                                 |
+| aggs(aggs)                                                             | Set custom aggregations                                               |
+| clone()                                                                | Clone the current builder                                             |
+| dateHistogram(dateField, intervalName, timezone)                       | Aggregate matches by time periods                                     |
+| decayFunctionScore(definition)                                         | Give match weight based on a bell-curve                               |
+| excludeFields(fieldNames)                                              | Alias for sourceExcludes                                              |
+| fields(fieldNames)                                                     | Set which fields to return. Default is ['*'] which returns all fields |
+| getAggs()                                                              | Get custom aggregations                                               |
+| getBody()                                                              | Get the structure of the builder body                                 |
+| getFields()                                                            | Get the list of fields that will be returned                          |
+| getFunctionScores()                                                    | Get function score definitions                                        |
+| getHighlighter()                                                       | Get the full highlighter definition                                   |
+| getIndex()                                                             | Get the index name                                                    |
+| getLimit()                                                             | Get limit                                                             |
+| getMinScore()                                                          | Get minimum score                                                     |
+| getMust()                                                              | Get must conditions                                                   |
+| getOptions()                                                           | Get the size, from, sort                                              |
+| getPage()                                                              | Get page                                                              |
+| getQuery(overrides?)                                                   | Return the fields, body and options to builder                        |
+| getRankConstant()                                                      | Get rank constant                                                     |
+| getRankWindowSize()                                                    | Get window size                                                       |
+| getRescore()                                                           | Get rescore definition                                                |
+| getRetrievers()                                                        | Get retriever blocks (e.g., kNN)                                      |
+| getSearchAfter()                                                       | Get search_after values                                               |
+| getSort()                                                              | Get sort                                                              |
+| getSortByRandom()                                                      | Get the random sort flag                                              |
+| getSourceExcludes()                                                    | Get current \_source excludes                                         |
+| getSourceIncludes()                                                    | Get current \_source includes                                         |
+| getTrackTotalHits()                                                    | Get track_total_hits                                                  |
+| highlighterOptions(options)                                            | Set highlighter options                                               |
+| highlightField(name, overrideOptions)                                  | Enable highlights for a particular field                              |
+| includeFacets({ fields, limit })                                       | Include counts for each field                                         |
+| index(name)                                                            | Set the index name                                                    |
+| limit(limitTo)                                                         | Sets limit                                                            |
+| minScore(score)                                                        | Set minimum score                                                     |
+| mustNot(withBuilder)                                                   | Where subquery does not match                                         |
+| nested({ withBuilder, path, scoreMode, innerHits, ignoreUnmapped })    | Add conditions for a nested field                                     |
+| page(pageNo)                                                           | Sets page                                                             |
+| rankConstant(constant)                                                 | Set rank constant for RRF                                             |
+| rankWindowSize(size)                                                   | Set window size for rank/rerank                                       |
+| rescore({ windowSize, withBuilder })                                   | Add a rescore block                                                   |
+| reset(field?)                                                          | Reset all instance values                                             |
+| searchAfter(values)                                                    | Set search_after values                                               |
+| should({ withBuilders, minimumShouldMatch })                           | Where subquery matches                                                |
+| sort(field, direction?)                                                | Sets field sorting                                                    |
+| sortByRandom(trueOrFalse)                                              | If true, sort by random                                               |
+| sourceExcludes(fieldNames)                                             | Set \_source excludes                                                 |
+| sourceIncludes(fieldNames)                                             | Set \_source includes                                                 |
+| toJSON()                                                               | Serialize to JSON                                                     |
+| toKibana(index?)                                                       | Get a string suitable for running in Kibana                           |
+| toString()                                                             | String representation                                                 |
+| trackTotalHits(value)                                                  | Set track_total_hits                                                  |
+| valueOf()                                                              | Coerce to value                                                       |
 
 ## Full documentation
 
