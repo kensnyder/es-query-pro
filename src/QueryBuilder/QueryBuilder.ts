@@ -1452,12 +1452,17 @@ export default class QueryBuilder {
         });
       }
 
-      body.retriever = {
-        linear: {
-          retrievers,
-          normalizer: this._normalizer,
-        },
-      };
+      // Only use linear if we have multiple retrievers
+      if (retrievers.length === 1) {
+        body.retriever = retrievers[0].retriever;
+      } else {
+        body.retriever = {
+          linear: {
+            retrievers,
+            normalizer: this._normalizer,
+          },
+        };
+      }
     } else if (hasFilters) {
       // STANDARD RETRIEVER PATH (with query)
       let query = this._buildBoolQuery();
@@ -1621,11 +1626,12 @@ export default class QueryBuilder {
 
   /**
    * Get a full Kibana builder string for the given builder
-   * @param {String} index  The index to pull the name from
+   * @param {String} indexOverride  The index to pull the name from
    * @return {String}
    */
-  toKibana(index?: string): string {
-    const json = JSON.stringify(this.getQuery(), null, 4);
-    return `GET ${index || this._index}/_search\n${json}`;
+  toKibana(indexOverride?: string): string {
+    const { index, ...query } = this.getQuery();
+    const json = JSON.stringify(query, null, 4);
+    return `GET ${indexOverride || this._index}/_search\n${json}`;
   }
 }

@@ -131,19 +131,19 @@ schemaManager.createOrMigrate();
 | Function                                                             | Match Type              | Example                                                                 |
 | -------------------------------------------------------------------- | ----------------------- | ----------------------------------------------------------------------- |
 | exists({ field })                                                    | Exact field             | exists('deleted_at')                                                    |
-| knn({ field, vector, k, numCandidates, weight, filter, similarity }) | kNN retrieval           | knn({ field: 'vec', vector: [0.1, 0.2], k: 10, numCandidates: 100 })    |
+| knn({ field, vector, k, numCandidates, weight, filter, similarity }) | kNN retrieval           | knn({ field: 'vec', vector: \[0.1, 0.2\], k: 10, numCandidates: 100 })  |
 | match({ field, phrase, options })                                    | Full-text               | match('title', 'Market research')                                       |
 | matchBoostedPhrase({ field, phrase, operators, weights })            | Full-text (boosted)     | matchBoostedPhrase(\['title'], 'AT&T Wireless')                         |
 | matchPhrase({ field, phrase, options })                              | Full-text               | matchPhrase('title', 'Little Red Riding Hood')                          |
 | matchPhrasePrefix({ field, phrase, options })                        | Full-text               | matchPhrasePrefix('title', 'Little Red R')                              |
 | moreLikeThis({ field, like, options })                               | Similar documents       | moreLikeThis({ field: 'body', like: 'quick brown fox' })                |
 | queryString({ field, queryString })                                  | Lucene expression       | queryString('body', '(tech AND support) OR (service desk)')             |
-| range(field, operator, value)                                        | Exact field value       | range('age', 'between', [18, 35])                                       |
+| range(field, operator, value)                                        | Exact field value       | range('age', 'between', \[18, 35\])                                     |
 | rawCondition(query)                                                  | Raw ES query container  | rawCondition({ wildcard: { title: 'wire\*' } })                         |
 | rrf({ semanticField, standardField, phrase, weight })                | Reciprocal rank fusion  | rrf({ semanticField: 'vec', standardField: 'title', phrase: 'router' }) |
 | semantic({ field, phrase, weight })                                  | Vector/semantic scoring | semantic({ field: 'title.embedding', phrase: 'wireless', weight: 2 })   |
 | term({ field, value })                                               | Exact field value       | term({ field: 'created_by', value: 123 })                               |
-| termsSet(field, terms, minimumShouldMatchScript)                     | Terms set               | termsSet('tags', ['a','b'], 'Math.max(1, params.num_terms/2)')          |
+| termsSet({ field, terms, script })                                   | Terms set               | termsSet({ field: 'tags', terms: \['a','b'\]                            |
 
 ### Other functions
 
