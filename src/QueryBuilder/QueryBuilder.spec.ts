@@ -185,7 +185,7 @@ describe('QueryBuilder.rrf()', () => {
       weight: 3,
     });
     const body: any = qb.getBody();
-    expect(body.retriever.linear.retrievers[0]).toEqual({
+    expect(body).toEqual({
       retriever: {
         rrf: {
           retrievers: [
@@ -202,8 +202,6 @@ describe('QueryBuilder.rrf()', () => {
           rank_constant: 60,
         },
       },
-      weight: 3,
-      normalizer: 'minmax',
     });
   });
 });
@@ -214,14 +212,12 @@ describe('QueryBuilder.semantic()', () => {
     const qb = new QueryBuilder();
     qb.semantic({ field: 'title-embed', phrase: 'harry potter', weight: 2 });
     const body: any = qb.getBody();
-    expect(body.retriever.linear.retrievers[0]).toEqual({
+    expect(body).toEqual({
       retriever: {
         standard: {
           query: { semantic: { field: 'title-embed', query: 'harry potter' } },
         },
       },
-      weight: 2,
-      normalizer: 'minmax',
     });
   });
 });
@@ -672,7 +668,7 @@ describe('QueryBuilder.knn()', () => {
       weight: 2,
     });
     const body: any = qb.getBody();
-    expect(body.retriever.linear.retrievers[0]).toEqual({
+    expect(body).toEqual({
       retriever: {
         knn: {
           field: 'embedding',
@@ -681,8 +677,6 @@ describe('QueryBuilder.knn()', () => {
           num_candidates: 50,
         },
       },
-      weight: 2,
-      normalizer: 'minmax',
     });
   });
 });
@@ -810,7 +804,7 @@ describe('QueryBuilder.knn() with similarity and filter', () => {
       similarity: 'cosine',
     });
     const body: any = qb.getBody();
-    expect(body.retriever.linear.retrievers[0].retriever.knn.similarity).toBe('cosine');
+    expect(body.retriever.knn.similarity).toBe('cosine');
   });
 
   it('should wrap multiple filters under bool.filter', () => {
@@ -822,7 +816,7 @@ describe('QueryBuilder.knn() with similarity and filter', () => {
       filter: [{ term: { status: 'active' } } as any, { range: { year: { gte: 2000 } } } as any],
       weight: 1,
     });
-    const knn = qb.getBody().retriever.linear.retrievers[0].retriever.knn;
+    const knn = qb.getBody().retriever.knn;
     expect(knn.filter).toEqual({
       bool: { filter: [{ term: { status: 'active' } }, { range: { year: { gte: 2000 } } }] },
     });
@@ -837,7 +831,7 @@ describe('QueryBuilder.knn() with similarity and filter', () => {
       filter: { term: { category: 'news' } },
       weight: 1,
     });
-    const knn = qb.getBody().retriever.linear.retrievers[0].retriever.knn;
+    const knn = qb.getBody().retriever.knn;
     expect(knn.filter).toEqual({ term: { category: 'news' } });
   });
 });

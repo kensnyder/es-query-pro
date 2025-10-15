@@ -1,7 +1,7 @@
-import { estypes } from '@elastic/elasticsearch';
-import IndexManager from '../IndexManager/IndexManager';
+import type { estypes } from '@elastic/elasticsearch';
+import type IndexManager from '../IndexManager/IndexManager';
 import QueryBuilder from '../QueryBuilder/QueryBuilder';
-import { ElasticsearchRecord, SchemaShape } from '../types';
+import type { ElasticsearchRecord, SchemaShape } from '../types';
 
 export type QueryFindManyResult<T extends QueryRunner<any>> = Awaited<ReturnType<T['findMany']>>;
 export type QueryFindFirstResult<T extends QueryRunner<any>> = Awaited<ReturnType<T['findFirst']>>;
@@ -25,10 +25,10 @@ export default class QueryRunner<ThisSchema extends SchemaShape> {
    */
   formatResponse(response: estypes.SearchResponse<ElasticsearchRecord<ThisSchema>>) {
     if (response?.hits?.hits) {
-      const records: ElasticsearchRecord<ThisSchema>[] = [];
-      for (const hit of response.hits.hits) {
-        records.push(hit._source);
-      }
+      const records: ElasticsearchRecord<ThisSchema>[] = response.hits.hits.map((hit) => ({
+        ...hit._source,
+        _score: hit._score,
+      }));
       return {
         records,
         total:
@@ -107,9 +107,9 @@ export default class QueryRunner<ThisSchema extends SchemaShape> {
     if (records.length === 0) {
       const error = new Error('No record found');
       error.name = 'NotFoundError';
-      // @ts-ignore  Adding some metadata
+      // @ts-expect-error  Adding some metadata
       error.status = 404;
-      // @ts-ignore  Adding some metadata
+      // @ts-expect-error  Adding some metadata
       error.result = result;
       throw error;
     }

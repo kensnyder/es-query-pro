@@ -260,7 +260,7 @@ export default class QueryBuilder {
   }
 
   /**
-   * Set rank_window_size
+   * Set rank_window_size - The number of results to find before ranking
    * @param size
    * @example
    *   qb.rankWindowSize(100);
@@ -282,7 +282,7 @@ export default class QueryBuilder {
   }
 
   /**
-   * Set rank_constant
+   * Set rank_constant - How much to consider lower ranking content, on a scale of 0-100
    * @param constant
    */
   rankConstant(constant: number): this {
