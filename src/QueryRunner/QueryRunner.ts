@@ -133,7 +133,7 @@ export default class QueryRunner<ThisSchema extends SchemaShape> {
    * @returns The count of matching documents
    */
   async count(more: Omit<estypes.CountRequest, 'index' | 'query'> = {}) {
-    const now = Date.now();
+    const start = Date.now();
     const { _source, retriever, query, ...other } = this.builder.getQuery();
     const request = {
       ...other,
@@ -144,7 +144,7 @@ export default class QueryRunner<ThisSchema extends SchemaShape> {
       const response = await this.index.client.count(request);
       return {
         total: response.count,
-        took: Date.now() - now,
+        took: Date.now() - start,
         request,
         response,
         error: null,
@@ -152,7 +152,7 @@ export default class QueryRunner<ThisSchema extends SchemaShape> {
     } catch (e) {
       return {
         total: null,
-        took: Date.now() - now,
+        took: Date.now() - start,
         request,
         response: e.meta || null,
         error: e as Error,
@@ -162,5 +162,4 @@ export default class QueryRunner<ThisSchema extends SchemaShape> {
 
   // aggregate
   // groupBy
-  // delete
 }

@@ -3,7 +3,7 @@ import getEsClient from '../getEsClient/getEsClient';
 import IndexNameManager, {
   type IndexNameAttributes,
 } from '../IndexNameManager/IndexNameManager';
-import type QueryBuilder from '../QueryBuilder/QueryBuilder';
+import QueryBuilder from '../QueryBuilder/QueryBuilder';
 import QueryRunner from '../QueryRunner/QueryRunner';
 import SchemaManager from '../SchemaManager/SchemaManager';
 import type {
@@ -498,7 +498,7 @@ export default class IndexManager<
 
   async recreate() {
     const exists = await this.exists();
-    if (!exists.exists) {
+    if (exists.exists) {
       await this.drop();
     }
     const res = await this.create();
@@ -667,141 +667,6 @@ export default class IndexManager<
   }
 
   /**
-   * Find a single record by the given id
-   * @param id  The record id
-   * @param [more]  Additional body params
-   */
-  async findById(id: string, more?: Partial<GetRequestParams>) {
-    const start = Date.now();
-    const request = {
-      method: 'GET',
-      endpoint: `/${this.getAliasName()}/_doc/${id}`,
-      body: {
-        index: this.getAliasName(),
-        id,
-        ...(more || {}),
-      },
-    };
-    try {
-      const response = await this.client.get(request.body);
-      const record = response._source;
-      return {
-        record,
-        took: Date.now() - start,
-        ...this._formatNonError(response),
-      };
-    } catch (e) {
-      return {
-        record: null,
-        took: Date.now() - start,
-        ...this._formatError(e as Error),
-      };
-    }
-  }
-  //
-  // /**
-  //  * Find records that have content_* columns matching the given term or phrase
-  //  * @param searchFields  specify a subset of fields to search
-  //  * @param fetchFields  specify a subset of fields to fetch
-  //  * @param phrase  A word or phrase to search for
-  //  * @param boosts  boost options (defaults to { boosts: [1, 3, 5] })
-  //  * @param where  Field-value pairs of fields to match
-  //  * @param [more]  Additional body params such as size and from
-  //  */
-  // async findByPhrase({
-  //   searchFields = this.fulltextFields,
-  //   fetchFields = ['*'],
-  //   phrase,
-  //   boosts = {},
-  //   where = {},
-  //   more = {},
-  // }: {
-  //   searchFields?: string[];
-  //   fetchFields?: string[];
-  //   phrase: string;
-  //   more?: Partial<estypes.SearchRequest>;
-  //   where?: Record<string, any>;
-  //   boosts?: BoostType;
-  // }) {
-  //   return this.run(runner => {
-  //     const builder = runner.builder;
-  //     builder.fields(fetchFields);
-  //     builder.matchBoostedPhrase(searchFields, phrase, boosts);
-  //     for (const [field, value] of Object.entries(where)) {
-  //       builder.match(field, value);
-  //     }
-  //     return runner.findMany(more);
-  //   });
-  // }
-  //
-  // /**
-  //  * Find records that have content_* columns matching the given term or phrase
-  //  * @param fetchFields  specify a subset of fields to fetch
-  //  * @param where  Field-value pairs of fields to match
-  //  * @param [more]  Additional body params such as size and from
-  //  */
-  // async findByCriteria({
-  //   fetchFields = ['*'],
-  //   where = {},
-  //   more = {},
-  // }: {
-  //   searchFields?: string[];
-  //   fetchFields?: string[];
-  //   more?: Partial<estypes.SearchRequest>;
-  //   where?: Record<string, any>;
-  //   boosts?: BoostType;
-  // } = {}) {
-  //   return this.run(runner => {
-  //     const builder = runner.builder;
-  //     builder.fields(fetchFields);
-  //     for (const [field, value] of Object.entries(where)) {
-  //       builder.match(field, value);
-  //     }
-  //     return runner.findMany(more);
-  //   });
-  // }
-
-  run<T>(withQueryRunner: (runner: QueryRunner<ThisSchema>) => T) {
-    return withQueryRunner(new QueryRunner(this));
-  }
-
-  findMany(
-    withQueryBuilder?: (builder: QueryBuilder) => void | Promise<void>,
-    more?: Omit<estypes.SearchRequest, 'index' | 'query'>,
-  ) {
-    return this.run(async (runner) => {
-      if (withQueryBuilder) {
-        await withQueryBuilder(runner.builder);
-      }
-      return runner.findMany(more);
-    });
-  }
-
-  findFirst(
-    withQueryBuilder?: (builder: QueryBuilder) => void | Promise<void>,
-    more?: Omit<estypes.SearchRequest, 'index' | 'query'>,
-  ) {
-    return this.run(async (runner) => {
-      if (withQueryBuilder) {
-        await withQueryBuilder(runner.builder);
-      }
-      return runner.findFirst(more);
-    });
-  }
-
-  count(
-    withQueryBuilder?: (builder: QueryBuilder) => void | Promise<void>,
-    more?: Omit<estypes.SearchRequest, 'index' | 'query'>,
-  ) {
-    return this.run(async (runner) => {
-      if (withQueryBuilder) {
-        await withQueryBuilder(runner.builder);
-      }
-      return runner.count(more);
-    });
-  }
-
-  /**
    * Save the given record and return its id (uses PUT)
    * @param id  The record id
    * @param body  The record to save
@@ -931,95 +796,6 @@ export default class IndexManager<
       return {
         success: false,
         result: 'error',
-        request,
-        took: Date.now() - start,
-        ...this._formatError(e),
-      };
-    }
-  }
-
-  /**
-   * Remove record from database
-   * @param {String} id  The id of the record
-   */
-  async deleteById(id: string) {
-    const start = Date.now();
-    const request = {
-      method: 'DELETE',
-      endpoint: `/${this.getAliasName()}/_doc/${id}`,
-      body: {
-        index: this.getAliasName(),
-        id,
-      },
-    };
-    try {
-      const response = await this.client.delete(request.body);
-      return {
-        success: true,
-        request,
-        took: Date.now() - start,
-        ...this._formatNonError(response),
-      };
-    } catch (e) {
-      return {
-        success: false,
-        request,
-        took: Date.now() - start,
-        ...this._formatError(e),
-      };
-    }
-  }
-
-  async deleteByQuery(builder: QueryBuilder) {
-    const start = Date.now();
-    const request = {
-      index: this.getAliasName(),
-      query: builder.getBody().query,
-    };
-    try {
-      const response = await this.client.deleteByQuery(request);
-      return {
-        success: true,
-        request,
-        took: Date.now() - start,
-        ...this._formatNonError(response),
-      };
-    } catch (e) {
-      return {
-        success: false,
-        request,
-        took: Date.now() - start,
-        ...this._formatError(e),
-      };
-    }
-  }
-
-  /**
-   * Remove all records from index
-   */
-  async deleteAll() {
-    const start = Date.now();
-    const request = {
-      method: 'DELETE',
-      endpoint: `/${this.getAliasName()}/delete_by_query/?conflicts=proceed`,
-      body: {
-        index: this.getAliasName(),
-        query: {
-          match_all: {},
-        },
-      },
-    };
-    try {
-      const response = await this.client.deleteByQuery(request.body);
-      return {
-        success: true,
-        request,
-        took: Date.now() - start,
-        ...this._formatNonError(response),
-      };
-    } catch (e) {
-      return {
-        success: false,
         request,
         took: Date.now() - start,
         ...this._formatError(e),
@@ -1261,6 +1037,142 @@ export default class IndexManager<
       return {
         success: false,
         ...meta,
+        took: Date.now() - start,
+        ...this._formatError(e),
+      };
+    }
+  }
+
+  /**
+   * Find a single record by the given id
+   * @param id  The record id
+   * @param [more]  Additional body params
+   */
+  async findById(id: string, more?: Partial<GetRequestParams>) {
+    const start = Date.now();
+    const request = {
+      method: 'GET',
+      endpoint: `/${this.getAliasName()}/_doc/${id}`,
+      body: {
+        index: this.getAliasName(),
+        id,
+        ...(more || {}),
+      },
+    };
+    try {
+      const response = await this.client.get(request.body);
+      const record = response._source;
+      return {
+        record,
+        took: Date.now() - start,
+        ...this._formatNonError(response),
+      };
+    } catch (e) {
+      return {
+        record: null,
+        took: Date.now() - start,
+        ...this._formatError(e as Error),
+      };
+    }
+  }
+
+  run<T>(withQueryRunner: (runner: QueryRunner<ThisSchema>) => T) {
+    return withQueryRunner(new QueryRunner(this));
+  }
+
+  findMany(
+    withQueryBuilder?: (builder: QueryBuilder) => void | Promise<void>,
+    more?: Omit<estypes.SearchRequest, 'index' | 'query'>,
+  ) {
+    return this.run(async (runner) => {
+      if (withQueryBuilder) {
+        await withQueryBuilder(runner.builder);
+      }
+      return runner.findMany(more);
+    });
+  }
+
+  findFirst(
+    withQueryBuilder?: (builder: QueryBuilder) => void | Promise<void>,
+    more?: Omit<estypes.SearchRequest, 'index' | 'query'>,
+  ) {
+    return this.run(async (runner) => {
+      if (withQueryBuilder) {
+        await withQueryBuilder(runner.builder);
+      }
+      return runner.findFirst(more);
+    });
+  }
+
+  count(
+    withQueryBuilder?: (builder: QueryBuilder) => void | Promise<void>,
+    more?: Omit<estypes.SearchRequest, 'index' | 'query'>,
+  ) {
+    return this.run(async (runner) => {
+      if (withQueryBuilder) {
+        await withQueryBuilder(runner.builder);
+      }
+      return runner.count(more);
+    });
+  }
+
+  /**
+   * Remove record from database
+   * @param {String} id  The id of the record
+   */
+  async deleteById(id: string) {
+    const start = Date.now();
+    const request = {
+      method: 'DELETE',
+      endpoint: `/${this.getAliasName()}/_doc/${id}`,
+      body: {
+        index: this.getAliasName(),
+        id,
+      },
+    };
+    try {
+      const response = await this.client.delete(request.body);
+      return {
+        success: true,
+        request,
+        took: Date.now() - start,
+        ...this._formatNonError(response),
+      };
+    } catch (e) {
+      return {
+        success: false,
+        request,
+        took: Date.now() - start,
+        ...this._formatError(e),
+      };
+    }
+  }
+
+  async deleteMany(
+    withQueryBuilder?: (builder: QueryBuilder) => void | Promise<void>,
+    more?: Omit<estypes.SearchRequest, 'index' | 'query'>,
+  ) {
+    const start = Date.now();
+    const builder = new QueryBuilder();
+    if (withQueryBuilder) {
+      await withQueryBuilder(builder);
+    }
+    const request = {
+      index: this.getAliasName(),
+      query: builder.getBody().query,
+    };
+    try {
+      const response = await this.client.deleteByQuery(request, more);
+      return {
+        success: true,
+        request,
+        took: Date.now() - start,
+        ...this._formatNonError(response),
+      };
+    } catch (e) {
+      return {
+        success: false,
+        request,
         took: Date.now() - start,
         ...this._formatError(e),
       };

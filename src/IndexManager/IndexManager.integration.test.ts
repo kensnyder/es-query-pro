@@ -74,14 +74,38 @@ describe('QueryBuilder - Integration', () => {
     expect(status.needsMigration).toBe(true);
     expect(status.needsCreation).toBe(false);
 
-    const onProgress = jest.fn();
+    let resolveDone: (() => void) | null = null;
+    let timeoutId: number | null = null;
+    const donePromise = new Promise<void>((resolve, reject) => {
+      timeoutId = setTimeout(() => {
+        reject(new Error('Migration progress wait timed out after 4500ms'));
+      }, 4500) as unknown as number;
+      resolveDone = () => {
+        if (timeoutId !== null) {
+          clearTimeout(timeoutId as unknown as number);
+          timeoutId = null;
+        }
+        resolve();
+      };
+    });
+
+    const onProgress = jest.fn((details: MigrationProgressDetails) => {
+      if (details.percent === 100) {
+        if (resolveDone !== null) {
+          resolveDone();
+        }
+      }
+    });
+
     const migration = await booksIndex.migrateIfNeeded({
       onProgress,
     });
     expect(migration.recordsToMigrate).toBe(3);
     expect(migration.createdAlias).toBe(false);
     expect(migration.createdIndex).toBe(true);
-    await new Promise((resolve) => setTimeout(resolve, 3000));
+
+    await donePromise;
+
     expect((await booksIndex.count()).total).toBe(3);
     expect(onProgress).toHaveBeenCalled();
     const calls = onProgress.mock
@@ -90,9 +114,9 @@ describe('QueryBuilder - Integration', () => {
     expect(lastCall.done).toBe(3);
     expect(lastCall.total).toBe(3);
     expect(lastCall.percent).toBe(100);
-    const res = await booksIndex.count((qb) => {
+    const { total } = await booksIndex.count((qb) => {
       qb.matchPhrase({ field: 'title', phrase: 'Chamber' });
     });
-    expect(res.total).toEqual(1);
+    expect(total).toEqual(1);
   });
 });
