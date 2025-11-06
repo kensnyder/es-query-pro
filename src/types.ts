@@ -103,9 +103,10 @@ export type FieldTypeOrTypes = FieldType | FieldType[] | null;
 export type RangeShape = string | [string, string] | number | [number, number];
 export type QueryDslQueryContainer = estypes.QueryDslQueryContainer;
 export type QueryDslMultiMatchQuery = estypes.QueryDslMultiMatchQuery;
+export type SortOrder = estypes.SortOrder;
 export type SortCombinations = Prettify<estypes.SortCombinations>;
 export type QueryDslDecayFunctionBase = estypes.QueryDslDecayFunctionBase;
-export type SearchRequestShape = Prettify<estypes.SearchRequest>;
+export type SearchRequest = Prettify<estypes.SearchRequest>;
 export type IndexSettings = Prettify<estypes.IndicesCreateRequest['settings']>;
 export type MappingProperty = Prettify<estypes.MappingProperty>;
 export type MappingProperties = Record<string, MappingProperty>;
@@ -137,7 +138,9 @@ export type QueryDslChildScoreMode = estypes.QueryDslChildScoreMode;
 export type SearchInnerHits = estypes.SearchInnerHits;
 export type InnerRetriever = estypes.InnerRetriever;
 export type ScoreNormalizer = estypes.ScoreNormalizer;
-export type QueryBody = Pick<
-  SearchRequestShape,
-  'retriever' | 'highlight' | 'aggs' | 'rescore'
->;
+export type AggregationsAggregateOrder = estypes.AggregationsAggregateOrder;
+export type AggregationsAggregationContainer =
+  estypes.AggregationsAggregationContainer;
+export type AggregationsCompositeAggregationSource =
+  estypes.AggregationsCompositeAggregationSource;
+export type ErrorCause = estypes.ErrorCause;

@@ -236,7 +236,7 @@ describe('QueryBuilder - Integration', () => {
   it('should include facets for country', async () => {
     const qb = new QueryBuilder();
     qb.index(index);
-    qb.includeFacets({ fields: ['country'], limit: 10 });
+    qb.aggregateTerm({ field: 'country', limit: 10 });
     const result: any = await client.search(qb.getQuery());
     const buckets = result.aggregations.country.buckets;
     const map: Record<string, number> = {};
@@ -269,7 +269,7 @@ describe('QueryBuilder - Integration', () => {
   it('should build a date histogram over published_at by year (ES9 calendar_interval)', async () => {
     const qb = new QueryBuilder();
     qb.index(index);
-    qb.dateHistogram('published_at', 'year', '+00:00');
+    qb.dateHistogram({ field: 'published_at', interval: 'year' });
     const result: any = await client.search(qb.getQuery());
     const buckets = result.aggregations.published_at.buckets;
     const keys = buckets.map((b: any) => b.key_as_string);

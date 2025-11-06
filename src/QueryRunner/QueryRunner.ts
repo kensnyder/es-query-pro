@@ -55,7 +55,7 @@ export default class QueryRunner<ThisSchema extends SchemaShape> {
       records: [],
       total: 0,
       took: response?.took,
-      aggregations: {},
+      aggregations: {} as any,
       response,
       error: new Error('response.hits.hits not found'),
     };
@@ -134,10 +134,10 @@ export default class QueryRunner<ThisSchema extends SchemaShape> {
    */
   async count(more: Omit<estypes.CountRequest, 'index' | 'query'> = {}) {
     const now = Date.now();
-    const { _source, retriever, ...other } = this.builder.getQuery();
+    const { _source, retriever, query, ...other } = this.builder.getQuery();
     const request = {
       ...other,
-      query: retriever.standard.query,
+      query: query || retriever.standard.query,
       ...more,
     };
     try {

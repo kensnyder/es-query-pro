@@ -1,32 +1,34 @@
 import type { estypes } from '@elastic/elasticsearch'; // TypeScript needs estypes even if we don't use it
 import isDefined from '../isDefined/isDefined';
 import isEmptyObject from '../isEmptyObject/isEmptyObject';
-import offsetIntToString from '../offsetIntToString/offsetIntToString';
-import type {
-  BoostOperator,
-  FieldTypeOrTypes,
-  InferenceCohereSimilarityType,
-  InnerRetriever,
+import { normalizeTimeZone } from '../normalizeTimeZone/normalizeTimeZone';
+import {
+  type AggregationsAggregationContainer,
+  type AggregationsCompositeAggregationSource,
+  type BoostOperator,
+  type FieldTypeOrTypes,
+  type InferenceCohereSimilarityType,
+  type InnerRetriever,
   IntervalType,
-  KnnRetriever,
-  MoreLikeThisLikeParams,
-  MoreLikeThisOptions,
-  Prettify,
-  QueryBody,
-  QueryDslChildScoreMode,
-  QueryDslDecayFunctionBase,
-  QueryDslMultiMatchQuery,
-  QueryDslQueryContainer,
-  RangeOperator,
-  RangeShape,
-  RetrieverContainer,
-  ScoreNormalizer,
-  SearchInnerHits,
-  SearchRequestShape,
-  SearchRescore,
-  SortCombinations,
-  SortDirection,
-  SortResults,
+  type KnnRetriever,
+  type MoreLikeThisLikeParams,
+  type MoreLikeThisOptions,
+  type Prettify,
+  type QueryDslChildScoreMode,
+  type QueryDslDecayFunctionBase,
+  type QueryDslMultiMatchQuery,
+  type QueryDslQueryContainer,
+  type RangeOperator,
+  type RangeShape,
+  type RetrieverContainer,
+  type ScoreNormalizer,
+  type SearchInnerHits,
+  type SearchRequest,
+  type SearchRescore,
+  type SortCombinations,
+  type SortDirection,
+  type SortOrder,
+  type SortResults,
 } from '../types';
 
 /**
@@ -40,7 +42,7 @@ export const getDefaultHighlighter = () =>
     fragment_size: 150,
     tags_schema: 'styled',
     fields: {},
-  }) as SearchRequestShape['highlight'];
+  }) as SearchRequest['highlight'];
 
 /**
  * ElasticSearch query builder (ElasticSearch 9 only)
@@ -59,14 +61,13 @@ export default class QueryBuilder {
   public _must: QueryDslQueryContainer[] = [];
 
   /** The "aggs" to add to the builder */
-  public _aggs: SearchRequestShape['aggs'] = {};
+  public _aggs: SearchRequest['aggs'] = {};
 
   /** The function score builder */
   public _functionScores: QueryDslDecayFunctionBase[] = [];
 
   /** The highlight definition */
-  public _highlighter: SearchRequestShape['highlight'] =
-    getDefaultHighlighter();
+  public _highlighter: SearchRequest['highlight'] = getDefaultHighlighter();
 
   /** The max number of records to return */
   public _limit: number = null;
@@ -192,7 +193,7 @@ export default class QueryBuilder {
    *   qb.highlighterOptions({ type: 'fvh', number_of_fragments: 1, fragment_size: 100, fields: {} });
    */
   highlighterOptions(
-    options: Omit<SearchRequestShape['highlight'], 'fields'>,
+    options: Omit<SearchRequest['highlight'], 'fields'>,
   ): this {
     this._highlighter = {
       ...options,
@@ -221,7 +222,7 @@ export default class QueryBuilder {
    */
   highlightField(
     name: string,
-    overrideOptions: Omit<SearchRequestShape['highlight'], 'fields'> = {},
+    overrideOptions: Omit<SearchRequest['highlight'], 'fields'> = {},
   ): this {
     this._highlighter.fields[name] = overrideOptions;
     return this;
@@ -702,17 +703,20 @@ export default class QueryBuilder {
    * Add an exact matching condition
    * @see https://www.elastic.co/docs/reference/query-languages/query-dsl/query-dsl-term-query
    *
-   * @param field  The name of the field to search
+   * @param field  The name of the field to search OR an object {field:name, value:value}
    * @param value  A string to match
    * @return {QueryBuilder}
    * @chainable
    * @example
    *   qb.term({ field: 'status', value: 'active' });
+   *   qb.term('tag', 'music');
    */
-  term({ field, value }: { field: string; value: string }): this {
+  term(field: string | { field: string; value: string }, value?: string): this {
+    const effectiveName = typeof field === 'string' ? field : field.field;
+    const effectiveValue = typeof field === 'string' ? value : field.value;
     this._must.push({
       term: {
-        [field]: value,
+        [effectiveName]: effectiveValue,
       },
     });
     return this;
@@ -720,13 +724,15 @@ export default class QueryBuilder {
 
   /**
    * Require that the given field or fields contain values (i.e. non-missing, non-null)
-   * @param field  The name of the field
+   * @param field  The name of the field or an object with { field: name }
    * @returns {QueryBuilder}
    * @example
    *   qb.exists({ field: 'author' });
+   *   qb.exists('publisher');
    */
-  exists({ field }: { field: string }): this {
-    this._must.push({ exists: { field } });
+  exists(field: string | { field: string }): this {
+    const effectiveField = typeof field === 'string' ? field : field.field;
+    this._must.push({ exists: { field: effectiveField } });
     return this;
   }
 
@@ -734,24 +740,30 @@ export default class QueryBuilder {
    * Add a Lucene expression condition
    * @see https://www.elastic.co/docs/reference/query-languages/query-dsl/query-dsl-query-string-query
    *
-   * @param field  The name of the field to search
+   * @param field  The name of the field to search OR an object with {field:name,queryString:value}
    * @param queryString  A string containing special operators such as AND, NOT, OR, ~, *
    * @return {QueryBuilder}
    * @chainable
    * @example
    *   qb.queryString({ field: 'title', queryString: 'quick AND fox' });
+   *   qb.queryString('introduction', 'quick AND fox');
    */
-  queryString({
-    field,
-    queryString,
-  }: {
-    field: string;
-    queryString: string;
-  }): this {
+  queryString(
+    field:
+      | string
+      | {
+          field: string;
+          queryString: string;
+        },
+    queryString?: string,
+  ): this {
+    const effectiveName = typeof field === 'string' ? field : field.field;
+    const effectiveValue =
+      typeof field === 'string' ? queryString : field.queryString;
     this._must.push({
       query_string: {
-        fields: [field],
-        query: queryString,
+        fields: [effectiveName],
+        query: effectiveValue,
       },
     });
     return this;
@@ -941,76 +953,282 @@ export default class QueryBuilder {
   //
 
   /**
-   * Return faceted data using ElasticSearch's "aggregation" feature
-   * @param fields  The names of fields to aggregate into buckets. Can be a list of strings or an object of label-field pairs
-   * @param limit  The maximum number of buckets to return for each facet before an "other" option
+   * Return faceted data using ElasticSearch's "aggregation" feature against a keyword field
+   * @param field  The name of a field to aggregate into buckets (e.g. 'osisID.keyword')
+   * @param limit  The maximum number of buckets to return for the facet [default=25]
+   * @param showTermDocCountError  When true, Elasticsearch adds per-bucket accuracy metadata
+   *   (e.g., `doc_count_error_upper_bound`) to indicate the maximum error caused by
+   *   distributed counting across shards. Useful for diagnosing/monitoring count accuracy,
+   *   with a small overhead. [default=false]
+   * @param orderBy Array of ordering instructions. If the only item is `{ field: '_count' }`,
+   *   the aggregation uses a `terms` agg ordered by bucket frequency. Otherwise, a
+   *   `composite` agg is built with one `terms`-based source per entry, ordered by those keys.
+   * @property field  The field to order by (use '_count' to order by bucket count)
+   * @property order  Either 'asc' or 'desc'
+   * @property missing_bucket  If true, include a bucket for documents missing the value
+   * @property missing_order  'first' to put the missing bucket first, 'last' to put it last
    * @return {QueryBuilder}
    * @chainable
    * @example
-
-   *   qb.includeFacets({ fields: ['category', 'brand'], limit: 10 });
-   */
-  includeFacets({
-    fields,
-    limit = 25,
-  }: {
-    fields: string[] | Record<string, string>;
-    limit: number;
-  }): this {
-    let entries: string[][];
-    if (Array.isArray(fields)) {
-      entries = fields.map((field) => [field, field]);
-    } else {
-      entries = Object.entries(fields);
-    }
-    for (const [name, field] of entries) {
-      this._aggs[name] = {
-        terms: {
-          field,
-          size: limit,
-          show_term_doc_count_error: true,
-          order: { _count: 'desc' },
-        },
-      };
-    }
-    return this;
-  }
-
-  /**
-   * Add an "aggs" entry for term aggregation. Similar to COUNT(*) with GROUP BY
-   * @see https://www.elastic.co/guide/en/elasticsearch/reference/current/search-aggregations-bucket-terms-aggregation.html
-   * @param field  The field to group by
-   * @param limit  The maximum number of counts to return (default 10)
-   * @param exclusions  Values that should be excluded from the counts (default [])
-   * @return {QueryBuilder}
-   * @chainable
-   * @example
-
-   *   qb.aggregateTerm({ field: 'category', limit: 5, exclude: ['misc'] });
+   *   qb.aggregateTerm({ field: 'chapterNumber' });
+   *   qb.aggregateTerm({
+   *     field: 'chapterNumber',
+   *     limit: 1000,
+   *     showTermDocCountError: true,
+   *     orderBy: [{ field: 'chapterNumber': order: 'asc' }],
+   *   });
    */
   aggregateTerm({
     field,
-    limit = 10,
-    exclude = [],
-    order = { _count: 'desc' },
-    showTermDocCountError = true,
+    limit = 25,
+    showTermDocCountError = false,
+    orderBy = [{ field: '_count', order: 'asc' }],
   }: {
     field: string;
     limit?: number;
     showTermDocCountError?: boolean;
-    exclude?: any[];
-    order?: any;
+    orderBy?: Array<{ field: string; order: SortOrder }>;
   }): this {
+    if (orderBy.length === 1 && orderBy[0].field === '_count') {
+      this._aggs[field] = {
+        terms: {
+          field,
+          size: limit,
+          show_term_doc_count_error: showTermDocCountError,
+          order: { _count: orderBy[0].order ?? 'asc' },
+        },
+      };
+    } else {
+      this._aggs[field] = {
+        terms: {
+          field,
+          size: limit,
+          show_term_doc_count_error: showTermDocCountError,
+          order: Object.fromEntries(
+            orderBy.map((o) => [
+              o.field === field ? '_key' : o.field, // Map field name to _key when it matches the aggregation field
+              o.order,
+            ]),
+          ),
+        },
+        aggs: Object.fromEntries(
+          orderBy.map((o) => {
+            const field = o.field;
+            const dir = o.order === 'desc' ? 'min' : 'max';
+            return [field, { [dir]: { field } }];
+          }),
+        ) as Record<string, AggregationsAggregationContainer>,
+      };
+    }
+    this.limit(0);
+    return this;
+  }
+
+  /**
+   * Return faceted data binned by a numeric interval using a composite "histogram" source.
+   *
+   * Unlike `aggregateTerm`, histograms cannot be ordered by `_count` inside `composite`;
+   * buckets are emitted in key order (you control direction via each source's `order`).
+   *
+   * @param field  The numeric field to bucket (e.g., 'price', 'durationMs')
+   * @param interval  The width of each histogram bucket (e.g., 10, 1000)
+   * @param limit  The maximum number of composite buckets to return per page [default=25]
+   * @param orderBy  Array of composite histogram sources to control ordering (and add secondary sort keys).
+   *   If omitted, a single source is synthesized from `{ field, interval, order: 'asc' }`.
+   * @property field  Numeric field name for the histogram source
+   * @property interval  Bucket width for the histogram source
+   * @property order  'asc' or 'desc' for bucket-key order (default 'asc')
+   * @return {QueryBuilder}
+   * @chainable
+   * @example
+   *   qb.aggregateHistogram({ field: 'price', interval: 50 });
+   *   qb.aggregateHistogram({
+   *     field: 'latencyMs',
+   *     interval: 25,
+   *     orderBy: [{ field: 'latencyMs', interval: 25, order: 'desc' }],
+   *   });
+   */
+  aggregateHistogram({
+    field,
+    interval,
+    limit = 25,
+    orderBy,
+  }: {
+    field: string;
+    interval: number;
+    limit?: number;
+    orderBy?: Array<AggregationsCompositeAggregationSource['histogram']>;
+  }): this {
+    const sources: Array<
+      Record<string, AggregationsCompositeAggregationSource>
+    > =
+      orderBy && orderBy.length > 0
+        ? orderBy.map((o) => ({ [o.field]: { histogram: o } }))
+        : [{ [field]: { histogram: { field, interval, order: 'asc' } } }];
+
     this._aggs[field] = {
-      terms: {
-        field: field,
+      composite: {
         size: limit,
-        show_term_doc_count_error: showTermDocCountError,
-        order,
-        exclude,
+        sources,
       },
     };
-    // use limit to return no records, just counts
+    this.limit(0);
+    return this;
+  }
+
+  /**
+   * Return faceted data binned by time using a composite "date_histogram" source.
+   *
+   * You must specify either `calendarInterval` (e.g., '1d', '1w', '1M') or `fixedInterval`
+   * (e.g., '24h', '15m'). Ordering by `_count` is not supported in `composite`; buckets are
+   * sorted by key(s) you define.
+   *
+   * @param field  The date/datetime field to bucket (e.g., '@timestamp')
+   * @param limit  The maximum number of composite buckets to return per page [default=25]
+   * @param calendarInterval  Calendar-based interval (one of year|quarter|month|week|day|hour|minute|second)
+   * @param fixedInterval  Fixed time interval string (e.g., '24h', '90m'); use instead of `calendarInterval`
+   * @param timeZone  IANA time zone or offset to apply when bucketing (e.g., 'America/Denver', '+00:00')
+   * @param format  Output format for the bucket key as a date string
+   * @param offset  Shift the bucket boundaries (e.g., '+6h', '-1d')
+   * @param order  'asc' or 'desc' for the primary source (default 'asc')
+   * @param orderBy  Array of composite date-histogram sources. If omitted, a single source is built
+   *   from the parameters above.
+   * @property field  Date field name
+   * @property calendar_interval  Calendar interval (snake_case form for the composite source)
+   * @property fixed_interval  Fixed interval string (snake_case form)
+   * @property time_zone  Time zone for bucketing (snake_case form)
+   * @property format  Output format for bucket keys
+   * @property offset  Boundary shift for buckets
+   * @property order  'asc' | 'desc' for source key ordering
+   * @return {QueryBuilder}
+   * @chainable
+   * @example
+   *   qb.aggregateDateHistogram({ field: '@timestamp', calendarInterval: 'day' });
+   *   qb.aggregateDateHistogram({
+   *     field: '@timestamp',
+   *     fixedInterval: '1h',
+   *     timeZone: 'America/Denver',
+   *     order: 'desc',
+   *   });
+   */
+  aggregateDateHistogram({
+    field,
+    limit = 25,
+    calendarInterval,
+    fixedInterval,
+    timeZone,
+    format,
+    offset,
+    order = 'asc',
+    orderBy,
+  }: {
+    field: string;
+    limit?: number;
+    calendarInterval?: string;
+    fixedInterval?: string;
+    timeZone?: string;
+    format?: string;
+    offset?: string;
+    order?: 'asc' | 'desc';
+    orderBy?: Array<AggregationsCompositeAggregationSource['date_histogram']>;
+  }): this {
+    let sources: Array<Record<string, AggregationsCompositeAggregationSource>>;
+
+    if (orderBy && orderBy.length > 0) {
+      sources = orderBy.map((o) => ({ [o.field]: { date_histogram: o } }));
+    } else {
+      // Build a single date_histogram source from the provided params
+      const src: AggregationsCompositeAggregationSource['date_histogram'] = {
+        field,
+        order,
+        ...(calendarInterval ? { calendar_interval: calendarInterval } : {}),
+        ...(fixedInterval ? { fixed_interval: fixedInterval } : {}),
+        ...(timeZone ? { time_zone: timeZone } : {}),
+        ...(format ? { format } : {}),
+        ...(offset ? { offset } : {}),
+      };
+      if (!src.calendar_interval && !src.fixed_interval) {
+        throw new Error(
+          'aggregateDateHistogram: require either calendarInterval or fixedInterval.',
+        );
+      }
+      sources = [{ [field]: { date_histogram: src } }];
+    }
+
+    this._aggs[field] = {
+      composite: {
+        size: limit,
+        sources,
+      },
+    };
+    this.limit(0);
+    return this;
+  }
+
+  /**
+   * Return faceted data binned by map tiles using a composite "geotile_grid" source.
+   *
+   * @param field  The `geo_point` field to bucket (e.g., 'location')
+   * @param precision  Tile precision (zoom level) from 0–29 (higher = finer grid)
+   * @param limit  The maximum number of composite buckets to return per page [default=25]
+   * @param bounds  Optional bounding box to limit tiles considered
+   *   (e.g., { top_left: "41,-109", bottom_right: "37,-102" })
+   * @param order  'asc' or 'desc' for the tile key order (default 'asc')
+   * @param orderBy  Array of composite geotile grid sources. If omitted, a single source is built
+   *   from the parameters above.
+   * @property field  geo_point field name for the grid source
+   * @property precision  Tile precision level
+   * @property bounds  Bounding box for the grid source
+   * @property order  'asc' | 'desc' for key ordering
+   * @return {QueryBuilder}
+   * @chainable
+   * @example
+   *   qb.aggregateGeotileGrid({ field: 'location', precision: 7 });
+   *   qb.aggregateGeotileGrid({
+   *     field: 'location',
+   *     precision: 8,
+   *     bounds: { top_left: '40.8,-74.3', bottom_right: '40.4,-73.6' },
+   *   });
+   */
+  aggregateGeotileGrid({
+    field,
+    precision,
+    limit = 25,
+    bounds,
+    order = 'asc',
+    orderBy,
+  }: {
+    field: string;
+    precision: number;
+    limit?: number;
+    bounds?: { top_left: string; bottom_right: string };
+    order?: 'asc' | 'desc';
+    orderBy?: Array<AggregationsCompositeAggregationSource['geotile_grid']>;
+  }): this {
+    const sources: Array<
+      Record<string, AggregationsCompositeAggregationSource>
+    > =
+      orderBy && orderBy.length > 0
+        ? orderBy.map((o) => ({ [o.field]: { geotile_grid: o } }))
+        : [
+            {
+              [field]: {
+                geotile_grid: {
+                  field,
+                  precision,
+                  ...(bounds ? { bounds } : {}),
+                  order,
+                },
+              },
+            },
+          ];
+
+    this._aggs[field] = {
+      composite: {
+        size: limit,
+        sources,
+      },
+    };
     this.limit(0);
     return this;
   }
@@ -1019,7 +1237,7 @@ export default class QueryBuilder {
    * Manually set the aggs array
    * @param aggs
    */
-  aggs(aggs: SearchRequestShape['aggs']): this {
+  aggs(aggs: SearchRequest['aggs']): this {
     this._aggs = aggs;
     return this;
   }
@@ -1031,75 +1249,97 @@ export default class QueryBuilder {
   getAggs() {
     return this._aggs;
   }
-
   /**
-   * Add an "aggs" entry for date histogram aggregation. Similar to COUNT(*) over a timer period with GROUP BY
-   * ES 9 requires using calendar_interval or fixed_interval (interval is deprecated/removed).
+   * Add a date histogram aggregation (COUNT(*) grouped by time buckets).
+   * ES 9 requires using `calendar_interval` or `fixed_interval` (the old `interval` is removed).
    * @see https://www.elastic.co/guide/en/elasticsearch/reference/current/search-aggregations-bucket-datehistogram-aggregation.html
-   * @param dateField  The date field
-   * @param intervalName  Interval of year, quarter, month, week, day, hour, minute, second
-   * @param timezone  The timezone offset (e.g. 360 or "-06:00")
-   * @returns This instance
-   * @chainable
+   *
+   * @param field     The date/datetime field to bucket (e.g. '@timestamp')
+   * @param interval  One of: 'year' | 'quarter' | 'month' | 'week' | 'day' | 'hour' | 'minute' | 'second'
+   *                  - calendar intervals (year, quarter, month, week, day) align to calendar boundaries
+   *                  - fixed intervals (hour, minute, second here) use exact durations (uniform size)
+   * @param limit     Max number of buckets returned per page (via composite size) [default=100]
+   * @param offset    Shift bucket boundaries (e.g. '+6h', '-1d'); must include a unit compatible with your interval
+   * @param timezone  IANA TZ (e.g. 'America/Denver'), 'UTC'/'Z', a string offset '±HH:MM', or a numeric minute offset
+   * @returns         This instance (chainable)
+   *
    * @example
-   *   qb.dateHistogram('created_at', 'month', '+00:00');
+   *   qb.dateHistogram({ field: 'created_at', interval: 'month', timezone: 'UTC' });
+   *   qb.dateHistogram({ field: '@timestamp', interval: 'hour', offset: '+30m', timezone: 'America/Denver' });
    */
-  dateHistogram(
-    dateField: string,
-    intervalName: IntervalType,
-    timezone: string | number,
-  ): this {
-    // see https://www.elastic.co/guide/en/elasticsearch/reference/current/mapping-date-format.html
-    // Map human-friendly interval names to ES9 calendar/fixed intervals and output formats
+  dateHistogram({
+    field,
+    interval,
+    limit = 100,
+    offset = null,
+    timezone = 'UTC',
+  }: {
+    field: string;
+    interval:
+      | 'year'
+      | 'quarter'
+      | 'month'
+      | 'week'
+      | 'day'
+      | 'hour'
+      | 'minute'
+      | 'second';
+    limit?: number;
+    offset?: string | null;
+    timezone?: string | number;
+  }): this {
+    // Map human-friendly interval names to ES9 calendar/fixed intervals and output formats (Java time)
     const intervals: Record<
-      IntervalType,
+      | 'year'
+      | 'quarter'
+      | 'month'
+      | 'week'
+      | 'day'
+      | 'hour'
+      | 'minute'
+      | 'second',
       { code: string; format: string; kind: 'calendar' | 'fixed' }
     > = {
-      year: { code: '1y', format: 'yyyy', kind: 'calendar' },
-      quarter: { code: '1q', format: 'yyyy-Q', kind: 'calendar' },
-      month: { code: '1M', format: 'yyyy-MM', kind: 'calendar' },
-      week: { code: '1w', format: 'xxxx-ww', kind: 'calendar' },
-      day: { code: '1d', format: 'yyyy-MM-dd', kind: 'calendar' },
-      hour: { code: '1h', format: "yyyy-MM-dd'T'HH", kind: 'fixed' },
-      minute: { code: '1m', format: "yyyy-MM-dd'T'HH:mm", kind: 'fixed' },
-      second: { code: '1s', format: "yyyy-MM-dd'T'HH:mm:ss", kind: 'fixed' },
+      year: { code: '1y', format: 'uuuu', kind: 'calendar' },
+      quarter: { code: '1q', format: "uuuu-'Q'Q", kind: 'calendar' },
+      month: { code: '1M', format: 'uuuu-MM', kind: 'calendar' },
+      week: { code: '1w', format: "YYYY-'W'ww", kind: 'calendar' }, // ISO week-based year/week
+      day: { code: '1d', format: 'uuuu-MM-dd', kind: 'calendar' },
+      hour: { code: '1h', format: "uuuu-MM-dd'T'HH", kind: 'fixed' },
+      minute: { code: '1m', format: "uuuu-MM-dd'T'HH:mm", kind: 'fixed' },
+      second: { code: '1s', format: "uuuu-MM-dd'T'HH:mm:ss", kind: 'fixed' },
     } as const;
 
-    const interval = intervals[intervalName];
-    if (!interval) {
+    const intv = intervals[interval];
+    if (!intv) {
       const supported = Object.keys(intervals).join(', ');
       throw new Error(
-        `QueryBuilder.dateHistogram(): intervalName not supported. Supported intervals are ${supported}.`,
+        `QueryBuilder.dateHistogram(): interval not supported. Supported intervals are ${supported}.`,
       );
     }
 
-    const timezoneString =
-      typeof timezone === 'number' ? offsetIntToString(timezone) : timezone;
+    const timeZone = normalizeTimeZone(timezone);
 
-    if (!/^[+-]\d\d:\d\d$/.test(timezoneString)) {
-      throw new Error(
-        `QueryBuilder.dateHistogram(): timezone must be a numeric offset in minutes OR a string in the form "+02:00".  Received ${JSON.stringify(timezone)}`,
-      );
+    // Validate offset if provided (ES expects things like "+6h", "-1d", "+30m")
+    if (offset != null) {
+      const okOffset = /^[+-]\d+(ms|s|m|h|d|w|M|q|y)$/.test(offset);
+      if (!okOffset) {
+        throw new Error(
+          `QueryBuilder.dateHistogram(): offset must look like "+30m", "-6h", "+1d", etc. Received ${JSON.stringify(offset)}`,
+        );
+      }
     }
 
-    const dateHistogram: any = {
-      field: dateField,
-      time_zone: timezoneString,
-      format: interval.format,
-      min_doc_count: 1,
-    };
-
-    if (interval.kind === 'calendar') {
-      dateHistogram.calendar_interval = interval.code;
-    } else {
-      dateHistogram.fixed_interval = interval.code;
-    }
-
-    this._aggs[dateField] = { date_histogram: dateHistogram };
-
-    // don't return any records; just the histogram
-    this.limit(0);
-    return this;
+    return this.aggregateDateHistogram({
+      field,
+      limit,
+      fixedInterval: intv.kind === 'fixed' ? intv.code : undefined,
+      calendarInterval: intv.kind === 'calendar' ? intv.code : undefined,
+      format: intv.format,
+      timeZone, // pass through; ES uses "time_zone"
+      offset: offset ?? undefined,
+      order: 'asc',
+    });
   }
 
   //
@@ -1360,8 +1600,16 @@ export default class QueryBuilder {
     withBuilders: Array<(qb: QueryBuilder, idx: number) => any>;
     minimumShouldMatch?: number | string;
   }): this {
+    if (withBuilders.length === 1) {
+      // just a single condition - treat like must
+      const qb = new QueryBuilder();
+      withBuilders[0](qb, 0);
+      this._must.push(qb.getMust()[0]);
+      return this;
+    }
     const bool: any = { should: [], minimum_should_match: minimumShouldMatch };
     for (let i = 0; i < withBuilders.length; i++) {
+      // should match at least minimumShouldMatch conditions
       const qb = new QueryBuilder();
       withBuilders[i](qb, i);
       const branch = qb.getMust();
@@ -1447,7 +1695,7 @@ export default class QueryBuilder {
    * Return the builder body
    */
   getBody() {
-    const body: QueryBody = {};
+    const body: SearchRequest = {};
 
     // Determine what we're working with
     const hasLinearRetrievers = this._retrievers.length > 0;
@@ -1493,26 +1741,18 @@ export default class QueryBuilder {
       if (this._shouldSortByRandom) {
         query = this._wrapWithRandomScore(query);
       }
-
-      body.retriever = {
-        standard: {
-          query,
-        },
-      };
-    } else {
-      // FALLBACK: No filters, no retrievers
-      // If sorting is requested, omit retriever to allow ES to sort normally
       if (this._sorts.length > 0) {
-        // no retriever
-      } else {
-        // match all documents via retriever
-        body.retriever = {
-          standard: {
-            query: this._shouldSortByRandom
-              ? this._wrapWithRandomScore({ match_all: {} })
-              : { match_all: {} },
-          },
-        };
+        body.sort = this._sorts;
+      }
+
+      body.query = query;
+    } else {
+      // match all documents
+      body.query = this._shouldSortByRandom
+        ? this._wrapWithRandomScore({ match_all: {} })
+        : { match_all: {} };
+      if (this._sorts.length > 0) {
+        body.sort = this._sorts;
       }
     }
 
@@ -1586,22 +1826,14 @@ export default class QueryBuilder {
    */
   getOptions() {
     const options: Pick<
-      SearchRequestShape,
-      | 'size'
-      | 'from'
-      | 'sort'
-      | 'min_score'
-      | 'search_after'
-      | 'track_total_hits'
+      SearchRequest,
+      'size' | 'from' | 'min_score' | 'search_after' | 'track_total_hits'
     > = {};
     if (this._limit !== null) {
       options.size = this._limit;
       if (this._page > 1) {
         options.from = this._limit * (this._page - 1);
       }
-    }
-    if (this._sorts.length > 0) {
-      options.sort = this._sorts;
     }
     if (typeof this._minScore === 'number') {
       options.min_score = this._minScore;
@@ -1623,8 +1855,8 @@ export default class QueryBuilder {
    * suitable for the Elasticsearch SDK or Kibana
    * @return {Object}
    */
-  getQuery(overrides: Partial<SearchRequestShape> = {}): SearchRequestShape {
-    const source: Pick<SearchRequestShape, '_source' | '_source_excludes'> = {};
+  getQuery(overrides: Partial<SearchRequest> = {}): SearchRequest {
+    const source: Pick<SearchRequest, '_source' | '_source_excludes'> = {};
     if (this._fields.length > 0) {
       source._source = this._fields;
     }

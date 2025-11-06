@@ -1,6 +1,6 @@
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, it, jest } from 'bun:test';
 import { getBooksData, getBooksSchema } from '../testFixtures/books';
-import IndexManager from './IndexManager';
+import IndexManager, { type MigrationProgressDetails } from './IndexManager';
 
 describe('QueryBuilder - Integration', () => {
   const booksIndex = new IndexManager({
@@ -15,13 +15,14 @@ describe('QueryBuilder - Integration', () => {
 
   beforeAll(async () => {
     await booksIndex.drop();
-    const migration = await booksIndex.migrateIfNeeded();
-    if (migration.error) {
-      throw new Error(migration.error);
+    const created = await booksIndex.create();
+    if (created.error) {
+      throw new Error(created.error);
     }
+    await booksIndex.createAlias();
     const bulk = await booksIndex.putBulk(getBooksData(), { refresh: true });
-    if (bulk.error) {
-      throw new Error(bulk.error);
+    if (bulk.errors.length > 0) {
+      throw new Error(bulk.errors.join('\n'));
     }
     const flush = await booksIndex.flush();
     if (flush.error) {
@@ -33,14 +34,14 @@ describe('QueryBuilder - Integration', () => {
     await booksIndex.drop();
   });
 
-  // it('should work with no criteria', async () => {
-  //   const found = await booksIndex.findByCriteria();
-  //   if (found.error) {
-  //     throw new Error(found.error);
-  //   }
-  //   const ids = found.records.map((r) => r.id).sort();
-  //   expect(ids).toEqual(['1', '2', '3']);
-  // });
+  it('should work with no criteria', async () => {
+    const found = await booksIndex.findMany();
+    if (found.error) {
+      throw new Error(found.error);
+    }
+    const ids = found.records.map((r) => r.id).sort();
+    expect(ids).toEqual(['1', '2', '3']);
+  });
   //
   // it('should match by phrase', async () => {
   //   const found = await booksIndex.findByPhrase({
@@ -64,13 +65,33 @@ describe('QueryBuilder - Integration', () => {
   });
 
   it('should migrate data', async () => {
+    expect((await booksIndex.count()).total).toBe(3);
     booksIndex.index.version = 2;
     expect(booksIndex.getFullName()).toEndWith('~v2');
-    await booksIndex.migrateIfNeeded();
-    await booksIndex.flush();
-    const res = await booksIndex.run((runner) => {
-      runner.builder.matchPhrase({ field: 'title', phrase: 'Chamber' });
-      return runner.count();
+    const status = await booksIndex.getStatus();
+    expect(status.indexExists).toBe(false);
+    expect(status.aliasExists).toBe(true);
+    expect(status.needsMigration).toBe(true);
+    expect(status.needsCreation).toBe(false);
+
+    const onProgress = jest.fn();
+    const migration = await booksIndex.migrateIfNeeded({
+      onProgress,
+    });
+    expect(migration.recordsToMigrate).toBe(3);
+    expect(migration.createdAlias).toBe(false);
+    expect(migration.createdIndex).toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+    expect((await booksIndex.count()).total).toBe(3);
+    expect(onProgress).toHaveBeenCalled();
+    const calls = onProgress.mock
+      .calls as unknown as MigrationProgressDetails[];
+    const lastCall = calls[calls.length - 1][0];
+    expect(lastCall.done).toBe(3);
+    expect(lastCall.total).toBe(3);
+    expect(lastCall.percent).toBe(100);
+    const res = await booksIndex.count((qb) => {
+      qb.matchPhrase({ field: 'title', phrase: 'Chamber' });
     });
     expect(res.total).toEqual(1);
   });

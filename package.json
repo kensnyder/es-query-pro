@@ -3,9 +3,6 @@
   "version": "3.0.0",
   "description": "Simple and powerful ElasticSearch query builder and index manager",
   "type": "module",
-  "engines": {
-    "bun": ">=1.2.0"
-  },
   "main": "./dist/index.cjs",
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.ts",

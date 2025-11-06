@@ -14,6 +14,7 @@ import type {
   BulkRequestParams,
   DeleteRequestShape,
   ElasticsearchRecord,
+  ErrorCause,
   FlushRequestParams,
   GetRequestParams,
   IndexCreateParams,
@@ -58,13 +59,20 @@ export type IndexRecreateResult = Awaited<ReturnType<IndexManager['recreate']>>;
 export type IndexMigrationReport = Awaited<
   ReturnType<IndexManager['migrateIfNeeded']>
 >;
-export type IndexMigrationReportCode = IndexMigrationReport['code'];
-
 export type IndexInferSchema<T extends IndexManager<any>> =
   T extends IndexManager<infer S> ? S : never;
 export type IndexInferRecordShape<T extends IndexManager<any>> =
   ElasticsearchRecord<IndexInferSchema<T>>;
 export type IndexRunShape<T extends IndexManager> = ReturnType<T['run']>;
+export type MigrationProgressDetails = {
+  done: number;
+  total: number;
+  percent: number;
+  taskId: string;
+  oldIndex: string;
+  newIndex: string;
+  alias: string;
+};
 
 /**
  * ElasticSearch index manager for creating, searching and saving data
@@ -192,12 +200,12 @@ export default class IndexManager<
       },
     };
     try {
-      const response = await this.client.indices.exists(request.body);
+      const exists = await this.client.indices.exists(request.body);
       return {
-        exists: response,
+        exists,
         took: Date.now() - start,
         request,
-        ...this._formatNonError(null),
+        ...this._formatNonError(exists),
       };
     } catch (e) {
       return {
@@ -239,16 +247,17 @@ export default class IndexManager<
       },
     };
     try {
-      const response = this.client.indices.existsAlias(request.body);
+      const exists = await this.client.indices.existsAlias(request.body);
       return {
-        exists: Object.keys(response)[0],
+        exists,
         request,
         took: Date.now() - start,
-        ...this._formatNonError(response),
+        ...this._formatNonError(exists),
       };
     } catch (e) {
       const error = e as errors.ResponseError;
-      if (error.statusCode === 404) {
+      console.log('aliasExists error', error);
+      if (error.meta.statusCode === 404) {
         return {
           exists: false,
           request,
@@ -313,16 +322,35 @@ export default class IndexManager<
     };
     try {
       const response = await this.client.indices.getAlias(request.body);
-      const indexName = Object.keys(response.body)[0];
+      if (typeof response !== 'object') {
+        throw new Error(
+          `Unexpected indices.getAlias() response: ${JSON.stringify(response, null, 2)}`,
+        );
+      }
+      const indexes: string[] = [];
+      for (const indexName of Object.keys(response)) {
+        indexes.push(indexName);
+      }
       return {
-        name: indexName,
+        success: true,
+        indexes,
         request,
         took: Date.now() - start,
         ...this._formatNonError(response),
       };
     } catch (e) {
+      if (e.meta?.statusCode === 404) {
+        return {
+          success: true,
+          indexes: [],
+          request,
+          took: Date.now() - start,
+          ...this._formatNonError({}),
+        };
+      }
       return {
-        name: null,
+        success: false,
+        indexes: [],
         request,
         took: Date.now() - start,
         ...this._formatError(e),
@@ -398,6 +426,34 @@ export default class IndexManager<
         ...this._formatError(e),
       };
     }
+  }
+
+  async createWithAlias() {
+    const start = Date.now();
+    const indexResponse = await this.create();
+    if (indexResponse.error) {
+      return {
+        success: false,
+        took: Date.now() - start,
+        indexResponse,
+        alias: null,
+        error: indexResponse.error,
+        errorKind: indexResponse.errorKind,
+      };
+    }
+    const aliasResponse = await this.createAlias();
+    return {
+      took: Date.now() - start,
+      success: aliasResponse.acknowledged,
+      indexResponse,
+      aliasResponse,
+      ...(aliasResponse.error
+        ? {
+            error: aliasResponse.error,
+            errorKind: aliasResponse.errorKind,
+          }
+        : {}),
+    };
   }
 
   /**
@@ -709,19 +765,39 @@ export default class IndexManager<
     return withQueryRunner(new QueryRunner(this));
   }
 
-  findMany(withQueryBuilder: (builder: QueryBuilder) => void | Promise<void>) {
+  findMany(
+    withQueryBuilder?: (builder: QueryBuilder) => void | Promise<void>,
+    more?: Omit<estypes.SearchRequest, 'index' | 'query'>,
+  ) {
     return this.run(async (runner) => {
-      const builder = runner.builder;
-      await withQueryBuilder(builder);
-      return runner.findMany();
+      if (withQueryBuilder) {
+        await withQueryBuilder(runner.builder);
+      }
+      return runner.findMany(more);
     });
   }
 
-  findFirst(withQueryBuilder: (builder: QueryBuilder) => void | Promise<void>) {
+  findFirst(
+    withQueryBuilder?: (builder: QueryBuilder) => void | Promise<void>,
+    more?: Omit<estypes.SearchRequest, 'index' | 'query'>,
+  ) {
     return this.run(async (runner) => {
-      const builder = runner.builder;
-      await withQueryBuilder(builder);
-      return runner.findFirst();
+      if (withQueryBuilder) {
+        await withQueryBuilder(runner.builder);
+      }
+      return runner.findFirst(more);
+    });
+  }
+
+  count(
+    withQueryBuilder?: (builder: QueryBuilder) => void | Promise<void>,
+    more?: Omit<estypes.SearchRequest, 'index' | 'query'>,
+  ) {
+    return this.run(async (runner) => {
+      if (withQueryBuilder) {
+        await withQueryBuilder(runner.builder);
+      }
+      return runner.count(more);
     });
   }
 
@@ -788,15 +864,31 @@ export default class IndexManager<
     };
     try {
       const response = await this.client.bulk(request.body);
+      const errors: ErrorCause[] = [];
+      const report = response.items.map((item) => {
+        if (item.index.error) {
+          errors.push(item.index.error);
+        }
+        return {
+          status: item.index.status,
+          error: item.index.error,
+          effect: item.index.result,
+          version: item.index._version,
+        };
+      });
       return {
-        success: response.errors === null,
+        success: errors.length === 0,
+        errors,
+        report,
         request,
         took: Date.now() - start,
-        ...this._formatNonError(response),
+        ...more,
       };
     } catch (e) {
       return {
         success: false,
+        report: [],
+        errors: [],
         request,
         took: Date.now() - start,
         ...this._formatError(e as Error),
@@ -878,6 +970,30 @@ export default class IndexManager<
     }
   }
 
+  async deleteByQuery(builder: QueryBuilder) {
+    const start = Date.now();
+    const request = {
+      index: this.getAliasName(),
+      query: builder.getBody().query,
+    };
+    try {
+      const response = await this.client.deleteByQuery(request);
+      return {
+        success: true,
+        request,
+        took: Date.now() - start,
+        ...this._formatNonError(response),
+      };
+    } catch (e) {
+      return {
+        success: false,
+        request,
+        took: Date.now() - start,
+        ...this._formatError(e),
+      };
+    }
+  }
+
   /**
    * Remove all records from index
    */
@@ -917,26 +1033,33 @@ export default class IndexManager<
     const aliasName = this.getAliasName();
     const indexExists = await this.exists();
     const aliasExists = await this.aliasExists();
+    const needsCreation = await this.needsCreation();
+    const needsMigration = !needsCreation && (await this.needsMigration());
     return {
       took: Date.now() - start,
       fullName,
       aliasName,
       indexExists: indexExists.exists,
       aliasExists: aliasExists.exists,
-      needsMigration:
-        indexExists.exists === false || aliasExists.exists === false,
-      needsCreation: aliasExists.exists === false,
+      needsMigration,
+      needsCreation,
     };
   }
 
   async needsCreation() {
-    const status = await this.getStatus();
-    return status.needsCreation;
+    const indexExists = await this.exists();
+    return !indexExists;
   }
 
   async needsMigration() {
-    const status = await this.getStatus();
-    return status.needsMigration;
+    const siblings = await this.getSiblingIndexes();
+    return siblings.length > 0;
+  }
+
+  async getSiblingIndexes() {
+    const meta = await this.getAliasMetadata();
+    const fullName = this.getFullName();
+    return meta.indexes.filter((name) => name !== fullName);
   }
 
   /**
@@ -949,174 +1072,196 @@ export default class IndexManager<
    *   - If it doesn't create a new index, copy old data to new index, then update alias to point to the new index
    *   - Note that ElasticSearch may support an alias pointing to old and new indexes at the same time + deleting on copy
    */
-  async migrateIfNeeded() {
+  async migrateIfNeeded({
+    onProgress,
+    slices = 1,
+    pollInterval = 1000,
+  }: {
+    onProgress?: (details: MigrationProgressDetails) => void;
+    slices?: number;
+    pollInterval?: number;
+  } = {}) {
     const start = Date.now();
-    const currentIndexName = this.getFullName();
-    const aliasName = this.getAliasName();
+    const meta = {
+      recordsToMigrate: 0,
+      createdAlias: false,
+      createdIndex: false,
+      oldNames: [],
+      newName: this.getFullName(),
+    };
     try {
-      // Check if the index exists
-      const indexExists = await this.exists();
+      const status = await this.getStatus();
+      meta.newName = status.fullName;
 
-      if (!indexExists.exists) {
-        // There is no index at all OR the version number has changed
+      if (status.needsMigration) {
+        // we need to create new index, assign it an alias, and migrate from old index
+        const aliasInfo = await this.getAliasMetadata();
+        meta.oldNames = aliasInfo.indexes;
+        // check now if we have any data to migrate
+        const { count } = await this.client.count({
+          index: aliasInfo.indexes.join(','),
+        });
+        meta.recordsToMigrate = count;
+
+        await this.create();
+        meta.createdIndex = true;
+        await this.client.indices.updateAliases({
+          actions: [
+            {
+              add: {
+                index: status.fullName,
+                alias: status.aliasName,
+                // all new records will start writing to this new index
+                // this will stop writes to other indexes pointing to the alias
+                is_write_index: true,
+              },
+            },
+          ],
+        });
+        if (count === 0) {
+          // no records to migrate
+          for (const name of aliasInfo.indexes) {
+            if (name === status.fullName) {
+              // normally shouldn't happen unless alias was associated manually before
+              continue;
+            }
+            console.log('about to drop index', name);
+            await this.client.indices.delete({
+              index: name,
+            });
+            console.log('deleted index in loop', name);
+          }
+          for (const name of aliasInfo.indexes) {
+            onProgress?.({
+              oldIndex: name,
+              done: 0,
+              total: 0,
+              percent: 100,
+              taskId: '',
+              newIndex: status.fullName,
+              alias: status.aliasName,
+            });
+          }
+          return {
+            success: true,
+            ...meta,
+            took: Date.now() - start,
+            ...this._formatNonError({}),
+          };
+        }
+        const _kickoffReindex = async (oldIndex: string) => {
+          if (pollInterval < 200) {
+            pollInterval = 200;
+          }
+          const taskInfo = await this.client.reindex({
+            wait_for_completion: false,
+            conflicts: 'proceed',
+            source: { index: oldIndex },
+            dest: { index: status.fullName, op_type: 'index' },
+            slices,
+          });
+          while (true) {
+            await new Promise((r) => setTimeout(r, pollInterval));
+            const taskStatus = await this.client.tasks.get({
+              task_id: taskInfo.task,
+            });
+            const updatedCount = taskStatus.task.status.updated;
+            const createdCount = taskStatus.task.status.created;
+            const total = taskStatus.task.status.total;
+            const done = updatedCount + createdCount;
+            const percent = Math.floor(Math.max(99, (done / total) * 100));
+            if (taskStatus.completed) {
+              await this.flush();
+              try {
+                // note that conflicting records could still be in old index
+                // but we will consider new index to have canonical version
+                await this.client.indices.delete({
+                  index: oldIndex,
+                });
+              } catch (_) {
+                // doesn't matter if it fails
+              }
+              onProgress?.({
+                oldIndex,
+                done,
+                total,
+                percent: 100,
+                taskId: taskInfo.task,
+                newIndex: status.fullName,
+                alias: status.aliasName,
+              });
+              break;
+            } else {
+              onProgress?.({
+                oldIndex,
+                done,
+                total,
+                percent,
+                taskId: taskInfo.task,
+                newIndex: status.fullName,
+                alias: status.aliasName,
+              });
+            }
+          }
+        };
+        for (const name of aliasInfo.indexes) {
+          // typically there will be just one
+          _kickoffReindex(name);
+        }
+        return {
+          success: true,
+          ...meta,
+          took: Date.now() - start,
+          ...this._formatNonError({}),
+        };
+      } else if (status.needsCreation) {
+        // There is no index at all
         const createResult = await this.create();
+        meta.createdIndex = true;
 
         if (createResult.error !== null) {
           return {
             success: false,
+            ...meta,
             took: Date.now() - start,
-            code: 'ERROR_CREATING_INDEX',
-            oldName: null,
-            newName: currentIndexName,
-            error: createResult.error,
-            errorKind: createResult.errorKind,
-            response: createResult.response,
+            ...this._formatError(createResult),
           };
         }
 
-        // Get the index that the alias points to
-        const indexInfo = await this.getIndexMetadata();
-        const oldIndexName = indexInfo.name;
-
-        if (oldIndexName === null || oldIndexName === currentIndexName) {
-          // No index at all
+        // No alias previously
+        if (!status.aliasExists) {
           await this.createAlias();
-          return {
-            success: true,
-            took: Date.now() - start,
-            code: 'CREATED_INDEX',
-            oldName: null,
-            newName: currentIndexName,
-            ...this._formatNonError(createResult),
-          };
+          meta.createdAlias = true;
         }
-
-        // Get the current sequence number before starting reindex
-        const stats = await this.client.indices.stats({
-          index: oldIndexName,
+        onProgress?.({
+          oldIndex: '',
+          done: -1,
+          total: -1,
+          percent: 100,
+          taskId: '',
+          newIndex: status.fullName,
+          alias: status.aliasName,
         });
-        const maxSeqNo =
-          stats.indices?.[oldIndexName]?.total?.translog?.operations || 0;
-
-        // Version number has changed - perform initial reindex
-        await this.client.reindex({
-          wait_for_completion: true,
-          source: { index: oldIndexName },
-          dest: { index: currentIndexName },
-          conflicts: 'proceed',
-        });
-
-        try {
-          // Stop writes to old index
-          await this.client.indices.putSettings({
-            index: oldIndexName,
-            body: { 'index.blocks.write': true },
-          });
-
-          // Update alias to point to the new index atomically
-          await this.client.indices.updateAliases({
-            actions: [
-              {
-                remove: {
-                  index: oldIndexName,
-                  alias: aliasName,
-                },
-              },
-              {
-                add: {
-                  index: currentIndexName,
-                  alias: aliasName,
-                },
-              },
-            ],
-          });
-
-          const migrateChanges = async (batchSize = 100, from = 0) => {
-            // Fetch any documents that were updated/created during reindex
-            const changes = await this.client.search({
-              index: oldIndexName,
-              query: {
-                range: {
-                  _seq_no: { gt: maxSeqNo },
-                },
-              },
-              from,
-              size: batchSize,
-            });
-
-            // Migrate any other writes that happened during reindex
-            if (changes.hits.hits.length > 0) {
-              const bulkBody = [];
-              for (const hit of changes.hits.hits) {
-                bulkBody.push(
-                  { index: { _index: currentIndexName, _id: hit._id } },
-                  hit._source,
-                );
-              }
-              await this.client.bulk({
-                body: bulkBody,
-                refresh: true,
-              });
-            }
-
-            if (changes.hits.hits.length === batchSize) {
-              await migrateChanges(from + batchSize);
-            }
-          };
-
-          await migrateChanges();
-
-          // Allow writes to new index so we can delete
-          await this.client.indices.putSettings({
-            index: oldIndexName,
-            body: { 'index.blocks.write': null },
-          });
-
-          // We should be good to delete
-          await this.client.indices.delete({ index: oldIndexName });
-
-          return {
-            success: true,
-            took: Date.now() - start,
-            code: 'MIGRATED',
-            oldName: oldIndexName,
-            newName: currentIndexName,
-            ...this._formatNonError(indexExists),
-          };
-        } catch (e) {
-          return {
-            success: false,
-            took: Date.now() - start,
-            code: 'MIGRATION_FAILED',
-            oldName: oldIndexName,
-            newName: currentIndexName,
-            ...this._formatError(e),
-          };
-        } finally {
-          // Ensure we reinstate writes to old index upon error
-          await this.client.indices.putSettings({
-            index: oldIndexName,
-            body: { 'index.blocks.write': null },
-          });
-        }
+        return {
+          success: true,
+          ...meta,
+          took: Date.now() - start,
+          ...this._formatNonError(createResult),
+        };
+      } else {
+        // Alias already points to the correct index
+        return {
+          success: true,
+          ...meta,
+          took: Date.now() - start,
+          ...this._formatNonError(status.indexExists),
+        };
       }
-
-      // Alias already points to the correct index
-      return {
-        success: true,
-        took: Date.now() - start,
-        code: 'NO_CHANGE',
-        oldName: currentIndexName,
-        newName: currentIndexName,
-        ...this._formatNonError(indexExists),
-      };
     } catch (e) {
       return {
         success: false,
+        ...meta,
         took: Date.now() - start,
-        code: 'ERROR',
-        oldName: null,
-        newName: null,
         ...this._formatError(e),
       };
     }

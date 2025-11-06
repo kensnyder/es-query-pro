@@ -3,7 +3,7 @@
 [![NPM Link](https://badgen.net/npm/v/es-query-pro?v=3.0.0)](https://npmjs.com/package/es-query-pro)
 [![Language](https://badgen.net/static/language/TS?v=3.0.0)](https://github.com/search?q=repo:kensnyder/es-query-pro++language:TypeScript&type=code)
 [![Code Coverage](https://codecov.io/gh/kensnyder/es-query-pro/branch/main/graph/badge.svg?v=3.0.0)](https://codecov.io/gh/kensnyder/es-query-pro)
-![GzippedSize](https://badgen.net/static/size/10kb?v=3.0.0)
+![Minzipped Size](https://badgen.net/static/size/11kb?v=3.0.0)
 [![ISC License](https://badgen.net/static/license/ISC/green?v=3.0.0)](https://opensource.org/licenses/ISC)
 
 Powerful ElasticSearch query builder and Index Manager with consistent APIs
