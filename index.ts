@@ -17,13 +17,13 @@ export {
   type IndexInferRecordShape,
   type IndexInferSchema,
   type IndexMetadataShape,
-  type IndexMigrationReport,
-  type IndexMigrationReportCode,
   type IndexPatchResult,
   type IndexPutBulkResult,
   type IndexPutResult,
   type IndexRunShape,
   type IndexStatusReport,
+  type MigrationProgressDetails,
+  type StatusReport,
 } from './src/IndexManager/IndexManager';
 export { default as IndexNameManager } from './src/IndexNameManager/IndexNameManager';
 export { default as isEmptyObject } from './src/isEmptyObject/isEmptyObject';

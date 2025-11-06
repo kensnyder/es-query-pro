@@ -19,7 +19,7 @@ describe('isEmptyObject', () => {
   });
 
   it('should identify instances of empty functions', () => {
-    const f = () => {};
+    function f() {}
     expect(isEmptyObject(new f())).toBe(true);
   });
 });

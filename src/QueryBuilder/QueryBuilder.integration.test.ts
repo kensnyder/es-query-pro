@@ -272,7 +272,7 @@ describe('QueryBuilder - Integration', () => {
     qb.dateHistogram({ field: 'published_at', interval: 'year' });
     const result: any = await client.search(qb.getQuery());
     const buckets = result.aggregations.published_at.buckets;
-    const keys = buckets.map((b: any) => b.key_as_string);
+    const keys = buckets.map((b: any) => b.key.published_at);
     const counts = buckets.map((b: any) => b.doc_count);
     expect(keys).toEqual(['1998', '1999', '2018']);
     expect(counts).toEqual([1, 1, 1]);

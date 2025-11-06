@@ -2,7 +2,6 @@ import { estypes } from '@elastic/elasticsearch';
 import type IndexManager from '../IndexManager/IndexManager';
 import type {
   IndexDropResult,
-  IndexMigrationReport,
   IndexRecreateResult,
   IndexStatusReport,
   MigrationProgressDetails,

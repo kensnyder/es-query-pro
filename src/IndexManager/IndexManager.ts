@@ -56,9 +56,6 @@ export type IndexPatchResult = Awaited<ReturnType<IndexManager['patch']>>;
 export type IndexDeleteResult = Awaited<ReturnType<IndexManager['deleteById']>>;
 export type IndexStatusReport = Awaited<ReturnType<IndexManager['getStatus']>>;
 export type IndexRecreateResult = Awaited<ReturnType<IndexManager['recreate']>>;
-export type IndexMigrationReport = Awaited<
-  ReturnType<IndexManager['migrateIfNeeded']>
->;
 export type IndexInferSchema<T extends IndexManager<any>> =
   T extends IndexManager<infer S> ? S : never;
 export type IndexInferRecordShape<T extends IndexManager<any>> =

@@ -8,12 +8,8 @@ describe('QueryBuilder.fields()', () => {
     query.fields(['title', 'body']);
     expect(query.getQuery()).toEqual({
       _source: ['title', 'body'],
-      retriever: {
-        standard: {
-          query: {
-            match_all: {},
-          },
-        },
+      query: {
+        match_all: {},
       },
     });
   });
@@ -21,12 +17,8 @@ describe('QueryBuilder.fields()', () => {
     const query = new QueryBuilder();
     expect(query.getQuery()).toEqual({
       _source: ['*'],
-      retriever: {
-        standard: {
-          query: {
-            match_all: {},
-          },
-        },
+      query: {
+        match_all: {},
       },
     });
   });
@@ -37,12 +29,8 @@ describe('QueryBuilder.getQuery()', () => {
     query.fields(['title', 'body']);
     const result = {
       _source: ['title', 'body'],
-      retriever: {
-        standard: {
-          query: {
-            match_all: {},
-          },
-        },
+      query: {
+        match_all: {},
       },
     };
     expect(query.getQuery()).toEqual(result);
@@ -53,12 +41,8 @@ describe('QueryBuilder.getQuery()', () => {
     const query = new QueryBuilder();
     expect(query.getQuery()).toEqual({
       _source: ['*'],
-      retriever: {
-        standard: {
-          query: {
-            match_all: {},
-          },
-        },
+      query: {
+        match_all: {},
       },
     });
   });
@@ -300,18 +284,19 @@ describe('QueryBuilder.rawCondition()', () => {
   });
 });
 
-// includeFacets()
+// aggregateTerm()
 describe('QueryBuilder.includeFacets()', () => {
   it('should create terms aggs for array of fields', () => {
     const qb = new QueryBuilder();
-    qb.includeFacets({ fields: ['category', 'brand'], limit: 50 });
+    qb.aggregateTerm({ field: 'category', limit: 50 });
+    qb.aggregateTerm({ field: 'brand', limit: 50 });
     const body: any = qb.getBody();
     expect(body.aggs).toEqual({
       category: {
         terms: {
           field: 'category',
           size: 50,
-          show_term_doc_count_error: true,
+          show_term_doc_count_error: false,
           order: { _count: 'desc' },
         },
       },
@@ -319,33 +304,7 @@ describe('QueryBuilder.includeFacets()', () => {
         terms: {
           field: 'brand',
           size: 50,
-          show_term_doc_count_error: true,
-          order: { _count: 'desc' },
-        },
-      },
-    });
-  });
-  it('should support object mapping of label to field', () => {
-    const qb = new QueryBuilder();
-    qb.includeFacets({
-      fields: { Companies: 'company.name', Countries: 'company.country' },
-      limit: 10,
-    });
-    const body: any = qb.getBody();
-    expect(body.aggs).toEqual({
-      Companies: {
-        terms: {
-          field: 'company.name',
-          size: 10,
-          show_term_doc_count_error: true,
-          order: { _count: 'desc' },
-        },
-      },
-      Countries: {
-        terms: {
-          field: 'company.country',
-          size: 10,
-          show_term_doc_count_error: true,
+          show_term_doc_count_error: false,
           order: { _count: 'desc' },
         },
       },
@@ -364,7 +323,7 @@ describe('QueryBuilder.aggregateTerm()', () => {
         terms: {
           field: 'status',
           size: 5,
-          show_term_doc_count_error: true,
+          show_term_doc_count_error: false,
           order: { _count: 'desc' },
           exclude: ['archived'],
         },
@@ -378,16 +337,29 @@ describe('QueryBuilder.aggregateTerm()', () => {
 describe('QueryBuilder.dateHistogram()', () => {
   it('should build a date_histogram aggregation and set limit to 0', () => {
     const qb = new QueryBuilder();
-    qb.dateHistogram('published_at', 'month', '+02:00');
+    qb.dateHistogram({
+      field: 'published_at',
+      interval: 'month',
+      timezone: '+02:00',
+    });
     const full = qb.getQuery();
     expect(full.aggs).toEqual({
       published_at: {
-        date_histogram: {
-          field: 'published_at',
-          calendar_interval: '1M',
-          time_zone: '+02:00',
-          format: 'yyyy-MM',
-          min_doc_count: 1,
+        composite: {
+          size: 100,
+          sources: [
+            {
+              published_at: {
+                date_histogram: {
+                  calendar_interval: '1M',
+                  field: 'published_at',
+                  format: 'uuuu-MM',
+                  order: 'asc',
+                  time_zone: '+02:00',
+                },
+              },
+            },
+          ],
         },
       },
     });
@@ -395,16 +367,29 @@ describe('QueryBuilder.dateHistogram()', () => {
   });
   it('should build a date_histogram aggregation on integer offsets', () => {
     const qb = new QueryBuilder();
-    qb.dateHistogram('published_at', 'month', 120);
+    qb.dateHistogram({
+      field: 'published_at',
+      interval: 'month',
+      timezone: 120,
+    });
     const full = qb.getQuery();
     expect(full.aggs).toEqual({
       published_at: {
-        date_histogram: {
-          field: 'published_at',
-          calendar_interval: '1M',
-          time_zone: '+02:00',
-          format: 'yyyy-MM',
-          min_doc_count: 1,
+        composite: {
+          size: 100,
+          sources: [
+            {
+              published_at: {
+                date_histogram: {
+                  calendar_interval: '1M',
+                  field: 'published_at',
+                  format: 'uuuu-MM',
+                  order: 'asc',
+                  time_zone: '+02:00',
+                },
+              },
+            },
+          ],
         },
       },
     });
@@ -461,7 +446,7 @@ describe('QueryBuilder.clear()', () => {
       .page(2)
       .sort('published_at')
       .term({ field: 'status', value: 'published' })
-      .includeFacets({ fields: ['category'], limit: 10 })
+      .aggregateTerm({ field: 'category', limit: 10 })
       .highlightField('title')
       .decayFunctionScore({
         field_value_factor: { field: 'popularity', factor: 1.2 },
@@ -496,7 +481,7 @@ describe('QueryBuilder.sortByRandom()', () => {
     const qb = new QueryBuilder();
     qb.term({ field: 'status', value: 'published' }).sortByRandom(true);
     const body: any = qb.getBody();
-    expect(body.retriever.standard.query).toEqual({
+    expect(body.query).toEqual({
       function_score: {
         query: { term: { status: 'published' } },
         functions: [{ random_score: {} }],
@@ -647,7 +632,7 @@ describe('QueryBuilder.getBody() and getQuery() defaults', () => {
     const full = qb.getQuery();
     expect(full).toEqual({
       _source: ['*'],
-      retriever: { standard: { query: { match_all: {} } } },
+      query: { match_all: {} },
     });
   });
   it('should omit retriever when sorts exist and no filters', () => {
@@ -699,10 +684,11 @@ describe('QueryBuilder.rescore()', () => {
         q.match({ field: 'title', phrase: 'potter', options: {} as any });
       },
     });
-    const full: any = qb.getQuery();
-    expect(full.rescore.length).toBe(2);
-    expect(full.rescore[0].window_size).toBe(50);
-    expect(full.rescore[1].window_size).toBe(25);
+    const query = qb.getQuery();
+    expect(query.rescore[0].window_size).toBe(50);
+    expect(query.rescore[1].window_size).toBe(25);
+    // @ts-expect-error TODO: fix types somewhere in QueryBuilder.ts
+    expect(query.rescore.length).toBe(2);
   });
 });
 

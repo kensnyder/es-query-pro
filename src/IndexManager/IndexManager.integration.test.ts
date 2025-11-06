@@ -31,7 +31,13 @@ describe('QueryBuilder - Integration', () => {
   });
 
   afterAll(async () => {
-    await booksIndex.drop();
+    const indexes = await booksIndex.client.cat.indices({
+      index: 'test~english~books_*',
+      format: 'json',
+    });
+    for (const { index } of indexes) {
+      await booksIndex.client.indices.delete({ index });
+    }
   });
 
   it('should work with no criteria', async () => {
@@ -42,17 +48,6 @@ describe('QueryBuilder - Integration', () => {
     const ids = found.records.map((r) => r.id).sort();
     expect(ids).toEqual(['1', '2', '3']);
   });
-  //
-  // it('should match by phrase', async () => {
-  //   const found = await booksIndex.findByPhrase({
-  //     phrase: 'Potter',
-  //   });
-  //   if (found.error) {
-  //     throw new Error(found.error);
-  //   }
-  //   const ids = found.records.map((r) => r.id).sort();
-  //   expect(ids).toEqual(['1', '2']);
-  // });
 
   it('should get count', async () => {
     const res = await booksIndex.run((runner) => {

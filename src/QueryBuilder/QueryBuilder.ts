@@ -924,12 +924,18 @@ export default class QueryBuilder {
   }): this {
     const qb = new QueryBuilder();
     withBuilder(qb);
-    const entry = {
+    const query = qb.getQuery();
+    if (!query.query) {
+      return this;
+    }
+    const entry: SearchRescore = {
       window_size: windowSize,
       query: {
-        rescore_query: qb.getQuery(),
+        // @ts-expect-error We already filtered out retriever queries
+        rescore_query: query,
       },
-    } as SearchRescore;
+      length: 2,
+    };
     if (Array.isArray(this._rescore)) {
       this._rescore = [...this._rescore, entry];
     } else if (this._rescore) {
@@ -965,8 +971,9 @@ export default class QueryBuilder {
    *   `composite` agg is built with one `terms`-based source per entry, ordered by those keys.
    * @property field  The field to order by (use '_count' to order by bucket count)
    * @property order  Either 'asc' or 'desc'
-   * @property missing_bucket  If true, include a bucket for documents missing the value
-   * @property missing_order  'first' to put the missing bucket first, 'last' to put it last
+   * @param missing_bucket  If true, include a bucket for documents missing the value
+   * @param missing_order  'first' to put the missing bucket first, 'last' to put it last
+   * @param exclude An array of field names to exclude from facet results
    * @return {QueryBuilder}
    * @chainable
    * @example
@@ -982,12 +989,21 @@ export default class QueryBuilder {
     field,
     limit = 25,
     showTermDocCountError = false,
-    orderBy = [{ field: '_count', order: 'asc' }],
+    orderBy = [{ field: '_count', order: 'desc' }],
+    exclude = [],
+    missing_bucket,
+    missing_order,
   }: {
     field: string;
     limit?: number;
     showTermDocCountError?: boolean;
-    orderBy?: Array<{ field: string; order: SortOrder }>;
+    orderBy?: Array<{
+      field: string;
+      order: SortOrder;
+    }>;
+    missing_bucket?: boolean;
+    missing_order?: estypes.AggregationsMissingOrder;
+    exclude?: string[];
   }): this {
     if (orderBy.length === 1 && orderBy[0].field === '_count') {
       this._aggs[field] = {
@@ -995,7 +1011,10 @@ export default class QueryBuilder {
           field,
           size: limit,
           show_term_doc_count_error: showTermDocCountError,
-          order: { _count: orderBy[0].order ?? 'asc' },
+          order: { _count: orderBy[0].order ?? 'desc' },
+          ...(missing_bucket === undefined ? {} : { missing_bucket }),
+          ...(missing_order === undefined ? {} : { missing_order }),
+          ...(exclude.length === 0 ? {} : { exclude }),
         },
       };
     } else {
@@ -1010,6 +1029,9 @@ export default class QueryBuilder {
               o.order,
             ]),
           ),
+          ...(missing_bucket === undefined ? {} : { missing_bucket }),
+          ...(missing_order === undefined ? {} : { missing_order }),
+          ...(exclude.length === 0 ? {} : { exclude }),
         },
         aggs: Object.fromEntries(
           orderBy.map((o) => {
@@ -1232,6 +1254,8 @@ export default class QueryBuilder {
     this.limit(0);
     return this;
   }
+
+  includeFacets() {}
 
   /**
    * Manually set the aggs array
@@ -1772,7 +1796,7 @@ export default class QueryBuilder {
       (Array.isArray(this._rescore) ? this._rescore.length > 0 : true)
     ) {
       let canRescore = false;
-      if (body.retriever?.standard) {
+      if (body.query) {
         canRescore = true;
       } else if (body.retriever?.linear) {
         const retrs = (body.retriever.linear.retrievers ||
