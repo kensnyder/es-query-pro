@@ -73,6 +73,16 @@ export type MigrationProgressDetails = {
   newIndex: string;
   alias: string;
 };
+export type StatusReport = {
+  took: number;
+  fullName: string;
+  aliasName: string;
+  indexExists: any;
+  aliasExists: boolean;
+  needsMigration: boolean;
+  needsCreation: boolean;
+  summary: 'needsCreation' | 'needsMigration' | 'current';
+};
 
 /**
  * ElasticSearch index manager for creating, searching and saving data
@@ -140,6 +150,12 @@ export default class IndexManager<
     this.allFields = this.schema.getAllFields();
   }
 
+  /**
+   * Normalize errors thrown by the Elasticsearch client into a consistent shape.
+   * Distinguishes between response, connection, timeout, disconnected, and generic JS errors.
+   * @param e The error thrown by the client or runtime.
+   * @returns A normalized error object with `error`, `errorKind`, and optional `response`.
+   */
   _formatError(e: any) {
     if (e instanceof errors.ResponseError) {
       // Handle Elasticsearch response errors
@@ -178,6 +194,11 @@ export default class IndexManager<
     };
   }
 
+  /**
+   * Wrap a successful client response in a normalized shape.
+   * @param response The raw response from the Elasticsearch client.
+   * @returns An object with `error` and `errorKind` null plus the original response.
+   */
   _formatNonError<T>(response: T) {
     return {
       error: null,
@@ -359,8 +380,9 @@ export default class IndexManager<
   }
 
   /**
-   * Save the given records
-   * @param [more]  Additional body params
+   * Flush the index to ensure all operations are committed to disk.
+   * @param more Optional additional flush parameters.
+   * @returns Whether the flush succeeded (no shard failures) plus response metadata.
    */
   async flush(more?: Partial<FlushRequestParams>) {
     const start = Date.now();
@@ -390,6 +412,11 @@ export default class IndexManager<
     }
   }
 
+  /**
+   * Build the request payload to create this index with mappings and settings.
+   * @param more Optional additional create-index parameters to merge into the request.
+   * @returns A request descriptor containing method, endpoint and body.
+   */
   getCreateRequest(more?: Partial<IndexCreateParams>) {
     const sm = new SchemaManager(this.schema);
     return {
@@ -428,6 +455,11 @@ export default class IndexManager<
     }
   }
 
+  /**
+   * Create the index and then create its alias.
+   * If index creation fails, the alias step is skipped and the error is returned.
+   * @returns A result object including both index and alias responses, timing and error info.
+   */
   async createWithAlias() {
     const start = Date.now();
     const indexResponse = await this.create();
@@ -496,6 +528,11 @@ export default class IndexManager<
     }
   }
 
+  /**
+   * Drop and recreate the index, flushing afterwards.
+   * If the index exists, it will be deleted first; then a new one is created.
+   * @returns The result of the create operation.
+   */
   async recreate() {
     const exists = await this.exists();
     if (exists.exists) {
@@ -803,7 +840,12 @@ export default class IndexManager<
     }
   }
 
-  async getStatus() {
+  /**
+   * Retrieve a status snapshot for this index and alias.
+   * Includes names, existence flags, and whether creation or migration is needed.
+   * @returns An object containing timing, names, and status booleans.
+   */
+  async getStatus(): Promise<StatusReport> {
     const start = Date.now();
     const fullName = this.getFullName();
     const aliasName = this.getAliasName();
@@ -819,19 +861,36 @@ export default class IndexManager<
       aliasExists: aliasExists.exists,
       needsMigration,
       needsCreation,
+      summary: needsCreation
+        ? ('needsCreation' as const)
+        : needsMigration
+          ? ('needsMigration' as const)
+          : ('current' as const),
     };
   }
 
+  /**
+   * Determine whether the index needs to be created.
+   * @returns True if the index does not exist yet; otherwise false.
+   */
   async needsCreation() {
     const indexExists = await this.exists();
     return !indexExists;
   }
 
+  /**
+   * Determine whether a migration is required based on sibling indexes.
+   * @returns True if there are sibling indexes under the alias that are not the current full name.
+   */
   async needsMigration() {
     const siblings = await this.getSiblingIndexes();
     return siblings.length > 0;
   }
 
+  /**
+   * List sibling index names currently attached to this alias, excluding this index.
+   * @returns An array of index names other than the current full name.
+   */
   async getSiblingIndexes() {
     const meta = await this.getAliasMetadata();
     const fullName = this.getFullName();
@@ -1076,10 +1135,21 @@ export default class IndexManager<
     }
   }
 
+  /**
+   * Execute arbitrary operations with a `QueryRunner` instance.
+   * @param withQueryRunner Callback that receives a `QueryRunner` bound to this index.
+   * @returns The value returned by the callback.
+   */
   run<T>(withQueryRunner: (runner: QueryRunner<ThisSchema>) => T) {
     return withQueryRunner(new QueryRunner(this));
   }
 
+  /**
+   * Find many records using a `QueryBuilder` callback.
+   * @param withQueryBuilder Optional callback to configure the query.
+   * @param more Optional additional search request options (excluding `index` and `query`).
+   * @returns A search result from `QueryRunner.findMany`.
+   */
   findMany(
     withQueryBuilder?: (builder: QueryBuilder) => void | Promise<void>,
     more?: Omit<estypes.SearchRequest, 'index' | 'query'>,
@@ -1092,6 +1162,12 @@ export default class IndexManager<
     });
   }
 
+  /**
+   * Find the first record matching the built query.
+   * @param withQueryBuilder Optional callback to configure the query.
+   * @param more Optional additional search request options (excluding `index` and `query`).
+   * @returns The first matching record result from `QueryRunner.findFirst`.
+   */
   findFirst(
     withQueryBuilder?: (builder: QueryBuilder) => void | Promise<void>,
     more?: Omit<estypes.SearchRequest, 'index' | 'query'>,
@@ -1104,6 +1180,12 @@ export default class IndexManager<
     });
   }
 
+  /**
+   * Count documents matching the built query.
+   * @param withQueryBuilder Optional callback to configure the query.
+   * @param more Optional additional search request options (excluding `index` and `query`).
+   * @returns The count result from `QueryRunner.count`.
+   */
   count(
     withQueryBuilder?: (builder: QueryBuilder) => void | Promise<void>,
     more?: Omit<estypes.SearchRequest, 'index' | 'query'>,
@@ -1148,6 +1230,13 @@ export default class IndexManager<
     }
   }
 
+  /**
+   * Delete many documents that match a built query using `_delete_by_query`.
+   * Note: This is a potentially expensive operation; prefer targeted deletes when possible.
+   * @param withQueryBuilder Optional callback to configure the query.
+   * @param more Optional additional search request options (excluding `index` and `query`).
+   * @returns A result with success flag, request info, timing, and client response/error.
+   */
   async deleteMany(
     withQueryBuilder?: (builder: QueryBuilder) => void | Promise<void>,
     more?: Omit<estypes.SearchRequest, 'index' | 'query'>,

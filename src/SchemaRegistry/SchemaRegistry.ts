@@ -3,9 +3,10 @@ import type IndexManager from '../IndexManager/IndexManager';
 import type {
   IndexDropResult,
   IndexMigrationReport,
-  IndexMigrationReportCode,
   IndexRecreateResult,
   IndexStatusReport,
+  MigrationProgressDetails,
+  StatusReport,
 } from '../IndexManager/IndexManager';
 
 export type SchemaMigrationResultShape = Awaited<
@@ -44,49 +45,59 @@ export default class SchemaRegistry {
     return chunks;
   }
 
-  async migrateIfNeeded(concurrency = 2) {
+  async migrateIfNeeded({
+    onProgress,
+    onComplete,
+    slices = 1,
+    pollInterval = 1000,
+  }: {
+    onProgress?: (details: MigrationProgressDetails) => void;
+    onComplete?: (details: {
+      took: number;
+      report: StatusReport[];
+      summary: Record<string, StatusReport['summary']>;
+    }) => void;
+    slices?: number;
+    pollInterval?: number;
+  } = {}) {
     const start = Date.now();
     if (this.indexes.length === 0) {
-      throw new Error(
-        'No indexes registered in SchemaRegistry; cannot migrateIfNeeded',
-      );
+      return {
+        acknowledge: false,
+        error: new Error(
+          'No indexes registered in SchemaRegistry; cannot migrateIfNeeded',
+        ),
+      };
     }
-    const report: IndexMigrationReport[] = [];
-    const summary: Record<string, IndexMigrationReportCode> = {};
-    try {
-      const groups = this.chunkify(this.indexes, concurrency);
-      await Promise.all(
-        groups.map((group) => {
-          return (async () => {
-            for (const index of group) {
-              try {
-                const result = await index.migrateIfNeeded();
-                report.push(result);
-                summary[index.getFullName()] = result.code;
-              } catch (_error) {
-                summary[index.getFullName()] = 'ERROR';
+    const report: StatusReport[] = [];
+    const summary: Record<string, StatusReport['summary']> = {};
+    (async () => {
+      for (const index of this.indexes) {
+        const status = await index.getStatus();
+        await new Promise(async (resolve, reject) => {
+          const migration = await index.migrateIfNeeded({
+            slices,
+            pollInterval,
+            onProgress: (progress) => {
+              if (progress.percent === 100) {
+                report.push(status);
+                summary[index.getFullName()] = status.summary;
+                resolve('done');
               }
-            }
-          })();
-        }),
-      );
-      return {
-        success: true,
-        took: Date.now() - start,
-        report,
-        summary,
-        error: null,
-      };
-    } catch (e) {
-      console.error(e);
-      return {
-        success: false,
-        took: Date.now() - start,
-        report,
-        summary,
-        error: (e as Error).message,
-      };
-    }
+              onProgress(progress);
+            },
+          });
+          if (migration.error) {
+            reject(migration.error);
+          }
+        });
+      }
+      onComplete({ report, summary, took: Date.now() - start });
+    })();
+    return {
+      acknowledged: true,
+      error: null,
+    };
   }
 
   async recreateAll(concurrency = 2) {
@@ -165,11 +176,7 @@ export default class SchemaRegistry {
             for (const index of group) {
               const status = await index.getStatus();
               report.push(status);
-              summary[index.getFullName()] = status.needsCreation
-                ? 'needsCreation'
-                : status.needsMigration
-                  ? 'needsMigration'
-                  : 'current';
+              summary[index.getFullName()] = status.summary;
             }
           })();
         }),
