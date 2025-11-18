@@ -61,6 +61,13 @@ export type IndexInferSchema<T extends IndexManager<any>> =
 export type IndexInferRecordShape<T extends IndexManager<any>> =
   ElasticsearchRecord<IndexInferSchema<T>>;
 export type IndexRunShape<T extends IndexManager> = ReturnType<T['run']>;
+export type MigrationParams = {
+  onProgress?: (details: MigrationProgressDetails) => void;
+  onComplete?: (details: MigrationProgressDetails) => void;
+  onError?: (error: Error) => void;
+  slices?: number;
+  pollInterval?: number;
+};
 export type MigrationProgressDetails = {
   done: number;
   total: number;
@@ -906,13 +913,11 @@ export default class IndexManager<
    */
   async migrateIfNeeded({
     onProgress,
+    onComplete,
+    onError,
     slices = 1,
     pollInterval = 1000,
-  }: {
-    onProgress?: (details: MigrationProgressDetails) => void;
-    slices?: number;
-    pollInterval?: number;
-  } = {}) {
+  }: MigrationParams = {}) {
     const start = Date.now();
     const meta = {
       recordsToMigrate: 0,
@@ -982,58 +987,72 @@ export default class IndexManager<
           };
         }
         const _kickoffReindex = async (oldIndex: string) => {
-          if (pollInterval < 200) {
-            pollInterval = 200;
-          }
-          const taskInfo = await this.client.reindex({
-            wait_for_completion: false,
-            conflicts: 'proceed',
-            source: { index: oldIndex },
-            dest: { index: status.fullName, op_type: 'index' },
-            slices,
-          });
-          while (true) {
-            await new Promise((r) => setTimeout(r, pollInterval));
-            const taskStatus = await this.client.tasks.get({
-              task_id: taskInfo.task,
-            });
-            const updatedCount = taskStatus.task.status.updated;
-            const createdCount = taskStatus.task.status.created;
-            const total = taskStatus.task.status.total;
-            const done = updatedCount + createdCount;
-            const percent = Math.floor(Math.max(99, (done / total) * 100));
-            if (taskStatus.completed) {
-              await this.flush();
-              try {
-                // note that conflicting records could still be in old index
-                // but we will consider new index to have canonical version
-                await this.client.indices.delete({
-                  index: oldIndex,
-                });
-              } catch (_) {
-                // doesn't matter if it fails
-              }
-              onProgress?.({
-                oldIndex,
-                done,
-                total,
-                percent: 100,
-                taskId: taskInfo.task,
-                newIndex: status.fullName,
-                alias: status.aliasName,
-              });
-              break;
-            } else {
-              onProgress?.({
-                oldIndex,
-                done,
-                total,
-                percent,
-                taskId: taskInfo.task,
-                newIndex: status.fullName,
-                alias: status.aliasName,
-              });
+          try {
+            if (pollInterval < 200) {
+              pollInterval = 200;
             }
+            const taskInfo = await this.client.reindex({
+              wait_for_completion: false,
+              conflicts: 'proceed',
+              source: { index: oldIndex },
+              dest: { index: status.fullName, op_type: 'index' },
+              slices,
+            });
+            while (true) {
+              await new Promise((r) => setTimeout(r, pollInterval));
+              const taskStatus = await this.client.tasks.get({
+                task_id: taskInfo.task,
+              });
+              // TODO: check if there is a task error and abort
+              const updatedCount = taskStatus.task.status.updated;
+              const createdCount = taskStatus.task.status.created;
+              const total = taskStatus.task.status.total;
+              const done = updatedCount + createdCount;
+              const percent = Math.floor(Math.max(99, (done / total) * 100));
+              if (taskStatus.completed) {
+                await this.flush();
+                try {
+                  // note that conflicting records could still be in old index
+                  // but we will consider new index to have canonical version
+                  await this.client.indices.delete({
+                    index: oldIndex,
+                  });
+                } catch (_) {
+                  // doesn't matter if it fails
+                }
+                onProgress?.({
+                  oldIndex,
+                  done,
+                  total,
+                  percent: 100,
+                  taskId: taskInfo.task,
+                  newIndex: status.fullName,
+                  alias: status.aliasName,
+                });
+                onComplete?.({
+                  oldIndex,
+                  done,
+                  total,
+                  percent: 100,
+                  taskId: taskInfo.task,
+                  newIndex: status.fullName,
+                  alias: status.aliasName,
+                });
+                break;
+              } else {
+                onProgress?.({
+                  oldIndex,
+                  done,
+                  total,
+                  percent,
+                  taskId: taskInfo.task,
+                  newIndex: status.fullName,
+                  alias: status.aliasName,
+                });
+              }
+            }
+          } catch (e) {
+            onError?.(e);
           }
         };
         for (const name of aliasInfo.indexes) {
@@ -1074,6 +1093,15 @@ export default class IndexManager<
           newIndex: status.fullName,
           alias: status.aliasName,
         });
+        onComplete?.({
+          oldIndex: '',
+          done: -1,
+          total: -1,
+          percent: 100,
+          taskId: '',
+          newIndex: status.fullName,
+          alias: status.aliasName,
+        });
         return {
           success: true,
           ...meta,
@@ -1090,6 +1118,7 @@ export default class IndexManager<
         };
       }
     } catch (e) {
+      onError?.(e);
       return {
         success: false,
         ...meta,

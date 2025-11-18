@@ -76,6 +76,90 @@ export default class QueryRunner<ThisSchema extends SchemaShape> {
   //   // });
   // }
 
+  async updateMany(
+    newValues: Record<string, unknown>,
+    more: Omit<estypes.UpdateByQueryRequest, 'index' | 'query'> = {},
+  ) {
+    const body = this.builder.getBody();
+    if (!body.query) {
+      throw new Error(
+        'QueryRunner.updateMany requires plain criteria with a .query object',
+      );
+    }
+    // TODO: put in try-catch block with post-processing of result?
+    const scriptLines: string[] = [];
+    const params: Record<string, unknown> = {};
+    let i = 0;
+    for (const [field, value] of Object.entries(newValues)) {
+      const paramKey = `v${i++}`;
+      const targetPath = this.toPainlessSourcePath(field);
+      scriptLines.push(`${targetPath} = params['${paramKey}'];`);
+      params[paramKey] = value;
+    }
+    const request: estypes.UpdateByQueryRequest = {
+      index: this.index.getAliasName(),
+      query: body.query,
+      script: {
+        lang: 'painless',
+        source: scriptLines.join('\n'),
+        params,
+      },
+      ...more,
+    };
+    return this.index.client.updateByQuery(request);
+  }
+
+  toPainlessSourcePath(path: string): string {
+    const parts = path.split('.').filter(Boolean);
+    if (parts.length === 0) {
+      return `ctx._source`;
+    }
+    return `ctx._source${parts.map((p) => `['${p}']`).join('')}`;
+  }
+  /*
+  function toPainlessSourcePath(path: string): string {
+  const parts = path.split('.').filter(Boolean);
+  if (parts.length === 0) return `ctx._source`;
+  return `ctx._source${parts.map((p) => `['${p}']`).join('')}`;
+}
+
+export async function updateMany({
+  client,
+  index,
+  query,
+  updates,
+  options = {},
+}: UpdateManyArgs): Promise<UpdateManyResult> {
+  if (!updates || Object.keys(updates).length === 0) {
+    throw new Error('updateMany: "updates" must contain at least one field.');
+  }
+
+  // Build a static painless script assigning each field from params
+  // We avoid iterating over a map in Painless for clarity and performance.
+  const scriptLines: string[] = [];
+  const params: Record<string, unknown> = {};
+  let i = 0;
+  for (const [field, value] of Object.entries(updates)) {
+    const paramKey = `v${i++}`;
+    const targetPath = toPainlessSourcePath(field);
+    scriptLines.push(`${targetPath} = params['${paramKey}'];`);
+    params[paramKey] = value;
+  }
+
+  const body: any = {
+    index,
+    query,
+    script: {
+      lang: 'painless',
+      source: scriptLines.join('\n'),
+      params,
+    },
+    conflicts: options.conflicts ?? 'proceed',
+    refresh: options.refresh ?? true,
+  };
+
+   */
+
   /**
    * Run this builder and return results
    */

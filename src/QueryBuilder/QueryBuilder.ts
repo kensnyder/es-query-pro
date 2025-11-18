@@ -1,7 +1,7 @@
-import type { estypes } from '@elastic/elasticsearch'; // TypeScript needs estypes even if we don't use it
-import isDefined from '../isDefined/isDefined';
-import isEmptyObject from '../isEmptyObject/isEmptyObject';
-import { normalizeTimeZone } from '../normalizeTimeZone/normalizeTimeZone';
+import type { estypes } from "@elastic/elasticsearch"; // TypeScript needs estypes even if we don't use it
+import isDefined from "../isDefined/isDefined";
+import isEmptyObject from "../isEmptyObject/isEmptyObject";
+import { normalizeTimeZone } from "../normalizeTimeZone/normalizeTimeZone";
 import {
   type AggregationsAggregationContainer,
   type AggregationsCompositeAggregationSource,
@@ -29,7 +29,7 @@ import {
   type SortDirection,
   type SortOrder,
   type SortResults,
-} from '../types';
+} from "../types";
 
 /**
  * Get a default FVH highlighter configuration.
@@ -37,12 +37,12 @@ import {
  */
 export const getDefaultHighlighter = () =>
   ({
-    type: 'fvh',
+    type: "fvh",
     number_of_fragments: 3,
     fragment_size: 150,
-    tags_schema: 'styled',
+    tags_schema: "styled",
     fields: {},
-  }) as SearchRequest['highlight'];
+  }) as SearchRequest["highlight"];
 
 /**
  * ElasticSearch query builder (ElasticSearch 9 only)
@@ -52,7 +52,7 @@ export default class QueryBuilder {
   public _index: string;
 
   /** The fields to fetch */
-  public _fields: string[] = ['*'];
+  public _fields: string[] = ["*"];
 
   /** Fields to exclude from list */
   public _excludeFields: string[] = [];
@@ -61,13 +61,13 @@ export default class QueryBuilder {
   public _must: QueryDslQueryContainer[] = [];
 
   /** The "aggs" to add to the builder */
-  public _aggs: SearchRequest['aggs'] = {};
+  public _aggs: SearchRequest["aggs"] = {};
 
   /** The function score builder */
   public _functionScores: QueryDslDecayFunctionBase[] = [];
 
   /** The highlight definition */
-  public _highlighter: SearchRequest['highlight'] = getDefaultHighlighter();
+  public _highlighter: SearchRequest["highlight"] = getDefaultHighlighter();
 
   /** The max number of records to return */
   public _limit: number = null;
@@ -82,7 +82,7 @@ export default class QueryBuilder {
   public _retrievers: InnerRetriever[] = [];
 
   /** type of normalizer for retrievers */
-  public _normalizer: ScoreNormalizer = 'minmax';
+  public _normalizer: ScoreNormalizer = "minmax";
 
   /** The number of results to find before ranking */
   public _rankWindowSize = 50;
@@ -193,7 +193,7 @@ export default class QueryBuilder {
    *   qb.highlighterOptions({ type: 'fvh', number_of_fragments: 1, fragment_size: 100, fields: {} });
    */
   highlighterOptions(
-    options: Omit<SearchRequest['highlight'], 'fields'>,
+    options: Omit<SearchRequest["highlight"], "fields">,
   ): this {
     this._highlighter = {
       ...options,
@@ -222,7 +222,7 @@ export default class QueryBuilder {
    */
   highlightField(
     name: string,
-    overrideOptions: Omit<SearchRequest['highlight'], 'fields'> = {},
+    overrideOptions: Omit<SearchRequest["highlight"], "fields"> = {},
   ): this {
     this._highlighter.fields[name] = overrideOptions;
     return this;
@@ -364,15 +364,15 @@ export default class QueryBuilder {
    */
   range(field: string, operator: RangeOperator, range: RangeShape): this {
     const opMap: Record<string, string> = {
-      '<': 'lt',
-      lt: 'lt',
-      '<=': 'lte',
-      lte: 'lte',
-      '>': 'gt',
-      gt: 'gt',
-      '>=': 'gte',
-      gte: 'gte',
-      between: 'between',
+      "<": "lt",
+      lt: "lt",
+      "<=": "lte",
+      lte: "lte",
+      ">": "gt",
+      gt: "gt",
+      ">=": "gte",
+      gte: "gte",
+      between: "between",
     };
 
     const normalizedOp = operator.toLowerCase();
@@ -384,7 +384,7 @@ export default class QueryBuilder {
     }
 
     // Handle "between" specially
-    if (opName === 'between') {
+    if (opName === "between") {
       if (!Array.isArray(range) || range.length !== 2) {
         throw new TypeError('range(): "between" expects an array [min, max]');
       }
@@ -512,7 +512,7 @@ export default class QueryBuilder {
   }: {
     field: string;
     phrase: string;
-    options?: Prettify<Omit<QueryDslMultiMatchQuery, 'query' | 'fields'>>;
+    options?: Prettify<Omit<QueryDslMultiMatchQuery, "query" | "fields">>;
   }): this {
     this._must.push({
       match: {
@@ -543,7 +543,7 @@ export default class QueryBuilder {
   matchBoostedPhrase({
     field,
     phrase,
-    operators = ['exact', 'and'],
+    operators = ["exact", "and"],
     weights = [1, 3, 5],
   }: {
     field: string;
@@ -555,9 +555,9 @@ export default class QueryBuilder {
 
     for (let i = 0; i < operators.length; i++) {
       const op = operators[i];
-      const boost = typeof weights[i] === 'number' ? weights[i] : 1;
+      const boost = typeof weights[i] === "number" ? weights[i] : 1;
 
-      if (op === 'exact') {
+      if (op === "exact") {
         should.push({
           match_phrase: {
             [field]: {
@@ -566,22 +566,22 @@ export default class QueryBuilder {
             },
           },
         });
-      } else if (op === 'and') {
+      } else if (op === "and") {
         should.push({
           match: {
             [field]: {
               query: phrase,
-              operator: 'and',
+              operator: "and",
               boost: boost,
             },
           },
         });
-      } else if (op === 'or') {
+      } else if (op === "or") {
         should.push({
           match: {
             [field]: {
               query: phrase,
-              operator: 'or',
+              operator: "or",
               boost: boost,
             },
           },
@@ -594,6 +594,125 @@ export default class QueryBuilder {
     }
 
     return this;
+  }
+
+  /**
+   * Search with Reciprocal rank fusion
+   * @see https://www.elastic.co/docs/reference/elasticsearch/rest-apis/reciprocal-rank-fusion
+   *
+   * @param semanticField  The name of the semantic_text field
+   * @param standardField  The name of the text field containing equivalent content
+   * @param phrase  The phrase to search
+   * @param weight  The weight of this retriever block
+   * @example
+   *   qb.rrf({ semanticField: 'content_semantic', standardField: 'content', phrase: 'neural search', weight: 2 });
+   */
+  semanticMatch({
+    semanticField,
+    standardField,
+    boosts = [7, 5, 4, 2],
+    phrase,
+    weight = 1,
+  }: {
+    semanticField: string;
+    standardField: string;
+    boosts: [number, number, number, number];
+    phrase: string;
+    weight: number;
+  }): this {
+    this._retrievers.push({
+      retriever: {
+        rrf: {
+          retrievers: [
+            {
+              standard: {
+                query: {
+                  bool: {
+                    should: [
+                      {
+                        term: {
+                          "verseText.raw": {
+                            value: "only begotten in the flesh",
+                            boost: 5.0,
+                          },
+                        },
+                      },
+                      {
+                        match_phrase: {
+                          verseText: {
+                            query: "only begotten in the flesh",
+                            boost: 3.0,
+                          },
+                        },
+                      },
+                      {
+                        match: {
+                          verseText: {
+                            query: "only begotten in the flesh",
+                            boost: 2.0,
+                          },
+                        },
+                      },
+                    ],
+                  },
+                },
+              },
+            },
+            {
+              standard: {
+                query: {
+                  semantic: {
+                    field: "verseTextSemantic",
+                    query: "only begotten in the flesh",
+                  },
+                },
+              },
+            },
+          ],
+          rank_window_size: 100,
+          rank_constant: 10,
+        },
+      },
+      weight: 3,
+      normalizer: "minmax",
+    });
+    //     rrf: {
+    //       retrievers: [
+    //         // Lexical (standard) retriever on the standardField
+    //         {
+    //           standard: {
+    //             query: {
+    //               term: {
+    //                 [`${standardField}.raw`]: {
+    //                   value: phrase,
+    //                   boost: boosts[0],
+    //                 },
+    //               },
+    //             },
+    //           },
+    //           weight: boosts[0],
+    //         },
+    //         // Semantic retriever on the semanticField
+    //         {
+    //           standard: {
+    //             query: {
+    //               semantic: {
+    //                 field: semanticField,
+    //                 query: phrase,
+    //               },
+    //             },
+    //           },
+    //         },
+    //       ],
+    //       rank_window_size: this._rankWindowSize,
+    //       rank_constant: this._rankConstant,
+    //     },
+    //   },
+    //   weight,
+    //   normalizer: this._normalizer,
+    // });
+
+    return this; // Enable chaining
   }
 
   /**
@@ -712,8 +831,8 @@ export default class QueryBuilder {
    *   qb.term('tag', 'music');
    */
   term(field: string | { field: string; value: string }, value?: string): this {
-    const effectiveName = typeof field === 'string' ? field : field.field;
-    const effectiveValue = typeof field === 'string' ? value : field.value;
+    const effectiveName = typeof field === "string" ? field : field.field;
+    const effectiveValue = typeof field === "string" ? value : field.value;
     this._must.push({
       term: {
         [effectiveName]: effectiveValue,
@@ -731,7 +850,7 @@ export default class QueryBuilder {
    *   qb.exists('publisher');
    */
   exists(field: string | { field: string }): this {
-    const effectiveField = typeof field === 'string' ? field : field.field;
+    const effectiveField = typeof field === "string" ? field : field.field;
     this._must.push({ exists: { field: effectiveField } });
     return this;
   }
@@ -757,9 +876,9 @@ export default class QueryBuilder {
         },
     queryString?: string,
   ): this {
-    const effectiveName = typeof field === 'string' ? field : field.field;
+    const effectiveName = typeof field === "string" ? field : field.field;
     const effectiveValue =
-      typeof field === 'string' ? queryString : field.queryString;
+      typeof field === "string" ? queryString : field.queryString;
     this._must.push({
       query_string: {
         fields: [effectiveName],
@@ -867,7 +986,7 @@ export default class QueryBuilder {
     similarity?: number | InferenceCohereSimilarityType;
   }): this {
     const knnDef: Partial<
-      Omit<KnnRetriever, 'similarity'> & {
+      Omit<KnnRetriever, "similarity"> & {
         similarity?: number | InferenceCohereSimilarityType;
       }
     > = {
@@ -876,7 +995,7 @@ export default class QueryBuilder {
       k,
     };
 
-    if (typeof numCandidates === 'number') {
+    if (typeof numCandidates === "number") {
       knnDef.num_candidates = numCandidates;
     }
 
@@ -886,7 +1005,7 @@ export default class QueryBuilder {
       knnDef.filter = filter;
     }
 
-    if (typeof similarity === 'number' || typeof similarity === 'string') {
+    if (typeof similarity === "number" || typeof similarity === "string") {
       knnDef.similarity = similarity;
     }
 
@@ -912,16 +1031,19 @@ export default class QueryBuilder {
    * Add a rescore phase for the query. Multiple calls will append additional rescore entries.
    * @see https://www.elastic.co/guide/en/elasticsearch/reference/9.x/filter-search-results.html#rescore
    * @example
-
-   *   qb.rescore({ windowSize: 50, withBuilder: (q) => { q.match({ field: 'title', phrase: 'elasticsearch' }); } });
+   *   qb.rescore(
+   *     (q) => { q.match({ field: 'title', phrase: 'elasticsearch' }); },
+   *     { windowSize: 50 }
+   *   );
    */
-  rescore({
-    windowSize,
-    withBuilder,
-  }: {
-    windowSize: number;
-    withBuilder: (qb: QueryBuilder) => void;
-  }): this {
+  rescore(
+    withBuilder: (qb: QueryBuilder) => void,
+    {
+      windowSize,
+    }: {
+      windowSize: number;
+    },
+  ): this {
     const qb = new QueryBuilder();
     withBuilder(qb);
     const query = qb.getQuery();
@@ -989,7 +1111,7 @@ export default class QueryBuilder {
     field,
     limit = 25,
     showTermDocCountError = false,
-    orderBy = [{ field: '_count', order: 'desc' }],
+    orderBy = [{ field: "_count", order: "desc" }],
     exclude = [],
     missing_bucket,
     missing_order,
@@ -1005,13 +1127,13 @@ export default class QueryBuilder {
     missing_order?: estypes.AggregationsMissingOrder;
     exclude?: string[];
   }): this {
-    if (orderBy.length === 1 && orderBy[0].field === '_count') {
+    if (orderBy.length === 1 && orderBy[0].field === "_count") {
       this._aggs[field] = {
         terms: {
           field,
           size: limit,
           show_term_doc_count_error: showTermDocCountError,
-          order: { _count: orderBy[0].order ?? 'desc' },
+          order: { _count: orderBy[0].order ?? "desc" },
           ...(missing_bucket === undefined ? {} : { missing_bucket }),
           ...(missing_order === undefined ? {} : { missing_order }),
           ...(exclude.length === 0 ? {} : { exclude }),
@@ -1025,7 +1147,7 @@ export default class QueryBuilder {
           show_term_doc_count_error: showTermDocCountError,
           order: Object.fromEntries(
             orderBy.map((o) => [
-              o.field === field ? '_key' : o.field, // Map field name to _key when it matches the aggregation field
+              o.field === field ? "_key" : o.field, // Map field name to _key when it matches the aggregation field
               o.order,
             ]),
           ),
@@ -1036,7 +1158,7 @@ export default class QueryBuilder {
         aggs: Object.fromEntries(
           orderBy.map((o) => {
             const field = o.field;
-            const dir = o.order === 'desc' ? 'min' : 'max';
+            const dir = o.order === "desc" ? "min" : "max";
             return [field, { [dir]: { field } }];
           }),
         ) as Record<string, AggregationsAggregationContainer>,
@@ -1079,14 +1201,14 @@ export default class QueryBuilder {
     field: string;
     interval: number;
     limit?: number;
-    orderBy?: Array<AggregationsCompositeAggregationSource['histogram']>;
+    orderBy?: Array<AggregationsCompositeAggregationSource["histogram"]>;
   }): this {
     const sources: Array<
       Record<string, AggregationsCompositeAggregationSource>
     > =
       orderBy && orderBy.length > 0
         ? orderBy.map((o) => ({ [o.field]: { histogram: o } }))
-        : [{ [field]: { histogram: { field, interval, order: 'asc' } } }];
+        : [{ [field]: { histogram: { field, interval, order: "asc" } } }];
 
     this._aggs[field] = {
       composite: {
@@ -1141,7 +1263,7 @@ export default class QueryBuilder {
     timeZone,
     format,
     offset,
-    order = 'asc',
+    order = "asc",
     orderBy,
   }: {
     field: string;
@@ -1151,8 +1273,8 @@ export default class QueryBuilder {
     timeZone?: string;
     format?: string;
     offset?: string;
-    order?: 'asc' | 'desc';
-    orderBy?: Array<AggregationsCompositeAggregationSource['date_histogram']>;
+    order?: "asc" | "desc";
+    orderBy?: Array<AggregationsCompositeAggregationSource["date_histogram"]>;
   }): this {
     let sources: Array<Record<string, AggregationsCompositeAggregationSource>>;
 
@@ -1160,7 +1282,7 @@ export default class QueryBuilder {
       sources = orderBy.map((o) => ({ [o.field]: { date_histogram: o } }));
     } else {
       // Build a single date_histogram source from the provided params
-      const src: AggregationsCompositeAggregationSource['date_histogram'] = {
+      const src: AggregationsCompositeAggregationSource["date_histogram"] = {
         field,
         order,
         ...(calendarInterval ? { calendar_interval: calendarInterval } : {}),
@@ -1171,7 +1293,7 @@ export default class QueryBuilder {
       };
       if (!src.calendar_interval && !src.fixed_interval) {
         throw new Error(
-          'aggregateDateHistogram: require either calendarInterval or fixedInterval.',
+          "aggregateDateHistogram: require either calendarInterval or fixedInterval.",
         );
       }
       sources = [{ [field]: { date_histogram: src } }];
@@ -1217,15 +1339,15 @@ export default class QueryBuilder {
     precision,
     limit = 25,
     bounds,
-    order = 'asc',
+    order = "asc",
     orderBy,
   }: {
     field: string;
     precision: number;
     limit?: number;
     bounds?: { top_left: string; bottom_right: string };
-    order?: 'asc' | 'desc';
-    orderBy?: Array<AggregationsCompositeAggregationSource['geotile_grid']>;
+    order?: "asc" | "desc";
+    orderBy?: Array<AggregationsCompositeAggregationSource["geotile_grid"]>;
   }): this {
     const sources: Array<
       Record<string, AggregationsCompositeAggregationSource>
@@ -1261,7 +1383,7 @@ export default class QueryBuilder {
    * Manually set the aggs array
    * @param aggs
    */
-  aggs(aggs: SearchRequest['aggs']): this {
+  aggs(aggs: SearchRequest["aggs"]): this {
     this._aggs = aggs;
     return this;
   }
@@ -1296,47 +1418,47 @@ export default class QueryBuilder {
     interval,
     limit = 100,
     offset = null,
-    timezone = 'UTC',
+    timezone = "UTC",
   }: {
     field: string;
     interval:
-      | 'year'
-      | 'quarter'
-      | 'month'
-      | 'week'
-      | 'day'
-      | 'hour'
-      | 'minute'
-      | 'second';
+      | "year"
+      | "quarter"
+      | "month"
+      | "week"
+      | "day"
+      | "hour"
+      | "minute"
+      | "second";
     limit?: number;
     offset?: string | null;
     timezone?: string | number;
   }): this {
     // Map human-friendly interval names to ES9 calendar/fixed intervals and output formats (Java time)
     const intervals: Record<
-      | 'year'
-      | 'quarter'
-      | 'month'
-      | 'week'
-      | 'day'
-      | 'hour'
-      | 'minute'
-      | 'second',
-      { code: string; format: string; kind: 'calendar' | 'fixed' }
+      | "year"
+      | "quarter"
+      | "month"
+      | "week"
+      | "day"
+      | "hour"
+      | "minute"
+      | "second",
+      { code: string; format: string; kind: "calendar" | "fixed" }
     > = {
-      year: { code: '1y', format: 'uuuu', kind: 'calendar' },
-      quarter: { code: '1q', format: "uuuu-'Q'Q", kind: 'calendar' },
-      month: { code: '1M', format: 'uuuu-MM', kind: 'calendar' },
-      week: { code: '1w', format: "YYYY-'W'ww", kind: 'calendar' }, // ISO week-based year/week
-      day: { code: '1d', format: 'uuuu-MM-dd', kind: 'calendar' },
-      hour: { code: '1h', format: "uuuu-MM-dd'T'HH", kind: 'fixed' },
-      minute: { code: '1m', format: "uuuu-MM-dd'T'HH:mm", kind: 'fixed' },
-      second: { code: '1s', format: "uuuu-MM-dd'T'HH:mm:ss", kind: 'fixed' },
+      year: { code: "1y", format: "uuuu", kind: "calendar" },
+      quarter: { code: "1q", format: "uuuu-'Q'Q", kind: "calendar" },
+      month: { code: "1M", format: "uuuu-MM", kind: "calendar" },
+      week: { code: "1w", format: "YYYY-'W'ww", kind: "calendar" }, // ISO week-based year/week
+      day: { code: "1d", format: "uuuu-MM-dd", kind: "calendar" },
+      hour: { code: "1h", format: "uuuu-MM-dd'T'HH", kind: "fixed" },
+      minute: { code: "1m", format: "uuuu-MM-dd'T'HH:mm", kind: "fixed" },
+      second: { code: "1s", format: "uuuu-MM-dd'T'HH:mm:ss", kind: "fixed" },
     } as const;
 
     const intv = intervals[interval];
     if (!intv) {
-      const supported = Object.keys(intervals).join(', ');
+      const supported = Object.keys(intervals).join(", ");
       throw new Error(
         `QueryBuilder.dateHistogram(): interval not supported. Supported intervals are ${supported}.`,
       );
@@ -1357,12 +1479,12 @@ export default class QueryBuilder {
     return this.aggregateDateHistogram({
       field,
       limit,
-      fixedInterval: intv.kind === 'fixed' ? intv.code : undefined,
-      calendarInterval: intv.kind === 'calendar' ? intv.code : undefined,
+      fixedInterval: intv.kind === "fixed" ? intv.code : undefined,
+      calendarInterval: intv.kind === "calendar" ? intv.code : undefined,
       format: intv.format,
       timeZone, // pass through; ES uses "time_zone"
       offset: offset ?? undefined,
-      order: 'asc',
+      order: "asc",
     });
   }
 
@@ -1431,10 +1553,10 @@ export default class QueryBuilder {
    */
   sort(field: SortCombinations, maybeDirection?: SortDirection): this {
     // DESC string such as "-created_at"
-    if (typeof field === 'string' && field.slice(0, 1) === '-') {
-      this._sorts.push({ [field.slice(1)]: { order: 'desc' } });
-    } else if (typeof field === 'string') {
-      this._sorts.push({ [field]: { order: maybeDirection || 'asc' } });
+    if (typeof field === "string" && field.slice(0, 1) === "-") {
+      this._sorts.push({ [field.slice(1)]: { order: "desc" } });
+    } else if (typeof field === "string") {
+      this._sorts.push({ [field]: { order: maybeDirection || "asc" } });
     } else if (Array.isArray(field)) {
       field.forEach((f) => {
         const field = Object.keys(f)[0];
@@ -1469,62 +1591,62 @@ export default class QueryBuilder {
    */
   reset(field: FieldTypeOrTypes = null): this {
     const all: FieldTypeOrTypes = [
-      'fields',
-      'excludeFields',
-      'must',
-      'aggs',
-      'functionScores',
-      'highlighter',
-      'sorts',
-      'retrievers',
-      'normalizer',
-      'rankWindowSize',
-      'rankConstant',
-      'rescore',
-      'minScore',
-      'searchAfter',
-      'trackTotalHits',
-      'page',
-      'limit',
+      "fields",
+      "excludeFields",
+      "must",
+      "aggs",
+      "functionScores",
+      "highlighter",
+      "sorts",
+      "retrievers",
+      "normalizer",
+      "rankWindowSize",
+      "rankConstant",
+      "rescore",
+      "minScore",
+      "searchAfter",
+      "trackTotalHits",
+      "page",
+      "limit",
     ];
     const fields =
       field === null ? all : Array.isArray(field) ? field : [field];
     const empty = new QueryBuilder();
     for (const field of fields) {
-      if (field === 'fields') {
+      if (field === "fields") {
         this._fields = empty.getFields();
-      } else if (field === 'excludeFields') {
+      } else if (field === "excludeFields") {
         this._excludeFields = empty.getExcludeFields();
-      } else if (field === 'must') {
+      } else if (field === "must") {
         this._must = empty.getMust();
-      } else if (field === 'aggs') {
+      } else if (field === "aggs") {
         this._aggs = empty.getAggs();
-      } else if (field === 'functionScores') {
+      } else if (field === "functionScores") {
         this._functionScores = empty.getFunctionScores();
-      } else if (field === 'highlighter') {
+      } else if (field === "highlighter") {
         this._highlighter = empty.getHighlighter();
-      } else if (field === 'sorts') {
+      } else if (field === "sorts") {
         this._sorts = empty.getSort();
         this._shouldSortByRandom = empty.getSortByRandom();
-      } else if (field === 'retrievers') {
+      } else if (field === "retrievers") {
         this._retrievers = empty.getRetrievers();
-      } else if (field === 'normalizer') {
+      } else if (field === "normalizer") {
         this._normalizer = empty.getNormalizer();
-      } else if (field === 'rankWindowSize') {
+      } else if (field === "rankWindowSize") {
         this._rankWindowSize = empty.getRankWindowSize();
-      } else if (field === 'rankConstant') {
+      } else if (field === "rankConstant") {
         this._rankConstant = empty.getRankConstant();
-      } else if (field === 'rescore') {
+      } else if (field === "rescore") {
         this._rescore = empty.getRescore();
-      } else if (field === 'minScore') {
+      } else if (field === "minScore") {
         this._minScore = empty.getMinScore();
-      } else if (field === 'searchAfter') {
+      } else if (field === "searchAfter") {
         this._searchAfter = empty.getSearchAfter();
-      } else if (field === 'trackTotalHits') {
+      } else if (field === "trackTotalHits") {
         this._trackTotalHits = empty.getTrackTotalHits();
-      } else if (field === 'page') {
+      } else if (field === "page") {
         this._page = empty.getPage();
-      } else if (field === 'limit') {
+      } else if (field === "limit") {
         this._limit = empty.getLimit();
       }
     }
@@ -1601,34 +1723,40 @@ export default class QueryBuilder {
    * branch. All branches are combined under a bool.should with an optional
    * minimum_should_match.
    *
+   * @param {Array<Function>} withBuilders   Callbacks, invoked with (qb, idx), used to build each branch
    * @param {Object} params                     The configuration object
-   * @param {Array<Function>} params.branches   Callbacks, invoked with (qb, idx), used to build each branch
-   * @param {number} [params.minimumShouldMatch=1]  Minimum number of branches that must match
+   * @property {number} [params.minimumShouldMatch=1]  Minimum number of branches that must match
    * @returns {this} This QueryBuilder instance for chaining
    * @chainable
    * @see https://www.elastic.co/guide/en/elasticsearch/reference/9.x/query-dsl-bool-query.html#query-dsl-bool-query-should
    * @example
    * // Match documents that satisfy at least one branch
-   * qb.should({
-   *   branches: [
-   *     (q) => { q.term("status", "published"); },
-   *     (q) => { q.range("created_at", { gte: "now-7d" }); },
+   * query.should(
+   *   [
+   *     (qb) => { qb.term("status", "published"); },
+   *     (qb) => { qb.range("created_at", { gte: "now-7d" }); },
    *   ],
-   *   minimumShouldMatch: 1, // or "50%"
-   * });
+   *   {
+   *     minimumShouldMatch: 1, // or "50%"
+   *   }
+   * );
    */
-  should({
-    withBuilders,
-    minimumShouldMatch = 1,
-  }: {
-    withBuilders: Array<(qb: QueryBuilder, idx: number) => any>;
-    minimumShouldMatch?: number | string;
-  }): this {
+  should(
+    withBuilders: Array<(qb: QueryBuilder, idx: number) => any>,
+    {
+      minimumShouldMatch = 1,
+    }: {
+      minimumShouldMatch?: number | string;
+    } = {},
+  ): this {
     if (withBuilders.length === 1) {
       // just a single condition - treat like must
       const qb = new QueryBuilder();
       withBuilders[0](qb, 0);
-      this._must.push(qb.getMust()[0]);
+      const musts = qb.getMust();
+      if (musts.length > 0) {
+        this._must.push(musts[0]);
+      }
       return this;
     }
     const bool: any = { should: [], minimum_should_match: minimumShouldMatch };
@@ -1653,6 +1781,8 @@ export default class QueryBuilder {
   /**
    * Get a Query Builder to add a negative condition
    * @param withBuilder  A function that takes a QueryBuilder to allow adding conditions
+   * @example
+   * query.mustNot(qb => qb.term('visibility', 'hidden'))
    */
   mustNot(withBuilder: (qb: QueryBuilder) => any): this {
     const qb = new QueryBuilder();
@@ -1662,28 +1792,59 @@ export default class QueryBuilder {
   }
 
   /**
+   * Get a Query Builder to add a negative condition such as
+   * "exclude documents that match at least k of these clauses"
+   * @param withBuilders  An array of functions that each take a QueryBuilder to allow adding conditions
+   * @param shouldOptions
+   * @property minimumShouldMatch  Number of negative conditions that must match
+   * @example
+   * query.shouldNot([
+   *   qb => qb.term('visibility', 'hidden'),
+   *   qb => qb.term('color', 'red'),
+   *   qb => qb.term('disabled', true),
+   * ], {
+   *   minimumShouldMatch: 2
+   * })
+   */
+  shouldNot(
+    withBuilders: Array<(qb: QueryBuilder) => any>,
+    shouldOptions: {
+      minimumShouldMatch: number | string;
+    },
+  ): this {
+    return this.mustNot((qb) => {
+      qb.should(withBuilders, shouldOptions);
+    });
+  }
+
+  /**
    * Add a nested condition
-   * @param withBuilder  A function that takes a QueryBuilder to allow adding conditions
+   * @param query  A function that takes a QueryBuilder to allow adding conditions
    * @param path  The path to this nesting layer
    * @param scoreMode  score_mode=avg
    * @param innerHits  inner_hits=undefined
    * @param ignoreUnmapped  ignoreUnmapped=false
+   * @example
+   * query.nested({
+   *   path: 'tags',
+   *   query: qb => qb.term('name', 'health'),
+   * })
    */
   nested({
-    withBuilder,
+    query,
     path,
-    scoreMode = 'avg',
+    scoreMode = "avg",
     innerHits = undefined,
     ignoreUnmapped = false,
   }: {
-    withBuilder: (qb: QueryBuilder) => void;
+    query: (qb: QueryBuilder) => void;
     path: string;
     scoreMode?: QueryDslChildScoreMode;
     innerHits?: SearchInnerHits;
     ignoreUnmapped?: boolean;
   }): this {
     const qb = new QueryBuilder();
-    withBuilder(qb);
+    query(qb);
     this._must.push({
       nested: {
         path,
@@ -1730,33 +1891,20 @@ export default class QueryBuilder {
       // LINEAR RETRIEVER PATH
       const retrievers = [...this._retrievers];
 
-      // Include a simple retriever for must/must_not criteria if present
-      if (hasFilters) {
-        let query = this._buildBoolQuery();
-        if (this._shouldSortByRandom) {
-          query = this._wrapWithRandomScore(query);
-        }
-        retrievers.push({
-          retriever: {
-            standard: {
-              query,
-            },
-          },
-          weight: 1,
-          normalizer: this._normalizer,
-        });
-      }
-
       // Only use linear if we have multiple retrievers
-      if (retrievers.length === 1) {
-        body.retriever = retrievers[0].retriever;
-      } else {
+      if (retrievers.length > 1 || hasFilters) {
         body.retriever = {
           linear: {
             retrievers,
             normalizer: this._normalizer,
+            rank_window_size: this._rankWindowSize,
           },
         };
+        if (hasFilters) {
+          body.retriever.linear.filter = [this._buildBoolQuery()];
+        }
+      } else {
+        body.retriever = retrievers[0].retriever;
       }
     } else if (hasFilters) {
       // STANDARD RETRIEVER PATH (with query)
@@ -1839,7 +1987,7 @@ export default class QueryBuilder {
             random_score: {},
           },
         ],
-        boost_mode: 'replace',
+        boost_mode: "replace",
       },
     };
   }
@@ -1851,7 +1999,7 @@ export default class QueryBuilder {
   getOptions() {
     const options: Pick<
       SearchRequest,
-      'size' | 'from' | 'min_score' | 'search_after' | 'track_total_hits'
+      "size" | "from" | "min_score" | "search_after" | "track_total_hits"
     > = {};
     if (this._limit !== null) {
       options.size = this._limit;
@@ -1859,15 +2007,15 @@ export default class QueryBuilder {
         options.from = this._limit * (this._page - 1);
       }
     }
-    if (typeof this._minScore === 'number') {
+    if (typeof this._minScore === "number") {
       options.min_score = this._minScore;
     }
     if (Array.isArray(this._searchAfter) && this._searchAfter.length > 0) {
       options.search_after = this._searchAfter;
     }
     if (
-      typeof this._trackTotalHits === 'boolean' ||
-      typeof this._trackTotalHits === 'number'
+      typeof this._trackTotalHits === "boolean" ||
+      typeof this._trackTotalHits === "number"
     ) {
       options.track_total_hits = this._trackTotalHits;
     }
@@ -1880,7 +2028,7 @@ export default class QueryBuilder {
    * @return {Object}
    */
   getQuery(overrides: Partial<SearchRequest> = {}): SearchRequest {
-    const source: Pick<SearchRequest, '_source' | '_source_excludes'> = {};
+    const source: Pick<SearchRequest, "_source" | "_source_excludes"> = {};
     if (this._fields.length > 0) {
       source._source = this._fields;
     }

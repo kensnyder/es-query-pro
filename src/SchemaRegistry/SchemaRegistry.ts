@@ -1,9 +1,11 @@
 import { estypes } from '@elastic/elasticsearch';
+import type { Merge } from 'type-fest';
 import type IndexManager from '../IndexManager/IndexManager';
 import type {
   IndexDropResult,
   IndexRecreateResult,
   IndexStatusReport,
+  MigrationParams,
   MigrationProgressDetails,
   StatusReport,
 } from '../IndexManager/IndexManager';
@@ -47,18 +49,20 @@ export default class SchemaRegistry {
   async migrateIfNeeded({
     onProgress,
     onComplete,
+    onAllComplete,
+    onError,
     slices = 1,
     pollInterval = 1000,
-  }: {
-    onProgress?: (details: MigrationProgressDetails) => void;
-    onComplete?: (details: {
-      took: number;
-      report: StatusReport[];
-      summary: Record<string, StatusReport['summary']>;
-    }) => void;
-    slices?: number;
-    pollInterval?: number;
-  } = {}) {
+  }: Merge<
+    MigrationParams,
+    {
+      onAllComplete?: (details: {
+        took: number;
+        report: StatusReport[];
+        summary: Record<string, StatusReport['summary']>;
+      }) => void;
+    }
+  > = {}) {
     const start = Date.now();
     if (this.indexes.length === 0) {
       return {
@@ -77,13 +81,15 @@ export default class SchemaRegistry {
           const migration = await index.migrateIfNeeded({
             slices,
             pollInterval,
+            onComplete,
+            onError,
             onProgress: (progress) => {
               if (progress.percent === 100) {
                 report.push(status);
                 summary[index.getFullName()] = status.summary;
                 resolve('done');
               }
-              onProgress(progress);
+              onProgress?.(progress);
             },
           });
           if (migration.error) {
@@ -91,7 +97,7 @@ export default class SchemaRegistry {
           }
         });
       }
-      onComplete({ report, summary, took: Date.now() - start });
+      onAllComplete?.({ report, summary, took: Date.now() - start });
     })();
     return {
       acknowledged: true,
