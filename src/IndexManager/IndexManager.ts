@@ -87,6 +87,9 @@ export type StatusReport = {
   needsCreation: boolean;
   summary: 'needsCreation' | 'needsMigration' | 'current';
 };
+export type QueryBuilderProvider = (
+  builder: QueryBuilder,
+) => void | QueryBuilder | Promise<QueryBuilder> | Promise<void>;
 
 /**
  * ElasticSearch index manager for creating, searching and saving data
@@ -436,9 +439,9 @@ export default class IndexManager<
   }
 
   /**
-   * Create a new index with these specifications
+   * Create a new index with these specifications (no alias)
    */
-  async create(more?: Partial<IndexCreateParams>) {
+  async createOnly(more?: Partial<IndexCreateParams>) {
     const start = Date.now();
     const request = this.getCreateRequest(more || {});
     try {
@@ -464,9 +467,9 @@ export default class IndexManager<
    * If index creation fails, the alias step is skipped and the error is returned.
    * @returns A result object including both index and alias responses, timing and error info.
    */
-  async createWithAlias() {
+  async create() {
     const start = Date.now();
-    const indexResponse = await this.create();
+    const indexResponse = await this.createOnly();
     if (indexResponse.error) {
       return {
         success: false,
@@ -631,31 +634,16 @@ export default class IndexManager<
         success: false,
         took: Date.now() - start,
         request: res.request,
-        code: 'ERROR',
+        code: 'EXISTS_CHECK_ERROR',
         error: res.error,
         errorKind: res.errorKind,
       };
     } else {
       const res = await this.create();
-      if (res.index === null) {
-        return {
-          success: false,
-          took: Date.now() - start,
-          request: res.request,
-          code: 'ERROR',
-          error: res.error,
-          errorKind: res.errorKind,
-        };
-      } else {
-        return {
-          success: true,
-          code: 'CREATED',
-          request: res.request,
-          took: Date.now() - start,
-          error: null,
-          errorKind: null,
-        };
-      }
+      return {
+        code: res.error ? 'CREATE_ERROR' : 'CREATED',
+        ...res,
+      };
     }
   }
 
@@ -1177,7 +1165,7 @@ export default class IndexManager<
    * @returns A search result from `QueryRunner.findMany`.
    */
   findMany(
-    withQueryBuilder?: (builder: QueryBuilder) => void | Promise<void>,
+    withQueryBuilder?: QueryBuilderProvider,
     more?: Omit<estypes.SearchRequest, 'index' | 'query'>,
   ) {
     return this.run(async (runner) => {
@@ -1195,7 +1183,7 @@ export default class IndexManager<
    * @returns The first matching record result from `QueryRunner.findFirst`.
    */
   findFirst(
-    withQueryBuilder?: (builder: QueryBuilder) => void | Promise<void>,
+    withQueryBuilder?: QueryBuilderProvider,
     more?: Omit<estypes.SearchRequest, 'index' | 'query'>,
   ) {
     return this.run(async (runner) => {
@@ -1213,7 +1201,7 @@ export default class IndexManager<
    * @returns The count result from `QueryRunner.count`.
    */
   count(
-    withQueryBuilder?: (builder: QueryBuilder) => void | Promise<void>,
+    withQueryBuilder?: QueryBuilderProvider,
     more?: Omit<estypes.SearchRequest, 'index' | 'query'>,
   ) {
     return this.run(async (runner) => {
@@ -1264,7 +1252,9 @@ export default class IndexManager<
    * @returns A result with success flag, request info, timing, and client response/error.
    */
   async deleteMany(
-    withQueryBuilder?: (builder: QueryBuilder) => void | Promise<void>,
+    withQueryBuilder?: (
+      builder: QueryBuilder,
+    ) => void | QueryBuilder | Promise<void | QueryBuilder>,
     more?: Omit<estypes.SearchRequest, 'index' | 'query'>,
   ) {
     const start = Date.now();
