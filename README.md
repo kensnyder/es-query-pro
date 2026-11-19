@@ -12,7 +12,10 @@ Powerful ElasticSearch query builder and Index Manager with consistent APIs
 
 ## Installation
 
-`npm install es-builder-pro`
+`npm install es-query-pro @elastic/elasticsearch`
+
+`@elastic/elasticsearch` (version 9) is a peer dependency. The package is ESM
+only.
 
 ## Basic usage
 
