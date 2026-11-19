@@ -708,7 +708,9 @@ export default class IndexManager<
       body: {
         index: this.getAliasName(),
         id: String(id),
-        body,
+        // `document` is the client's name for the record. A key the client
+        // does not know (such as `body`) may be sent as part of the record.
+        document: body,
       },
     };
     try {
@@ -752,7 +754,7 @@ export default class IndexManager<
       endpoint: `/_bulk`,
       body: {
         index,
-        body: bulkBody,
+        operations: bulkBody,
         ...(more || {}),
       },
     };
@@ -791,14 +793,14 @@ export default class IndexManager<
   }
 
   /**
-   * Save the given partial record (uses updateRecord())
+   * Merge the given fields into an existing record (uses POST _update)
    * @param id  The record id
-   * @param body  The record to save
+   * @param body  The fields to change; other fields keep their values
    * @param [more]  Additional body params
    */
   async patch(
     id: string,
-    body: ElasticsearchRecord<ThisSchema>,
+    body: Partial<ElasticsearchRecord<ThisSchema>>,
     more?: Partial<PatchRequestParams>,
   ) {
     const start = Date.now();
@@ -808,7 +810,8 @@ export default class IndexManager<
       body: {
         index: this.getAliasName(),
         id,
-        body,
+        // Elasticsearch merges the fields given under `doc` into the record
+        doc: body,
         ...(more || {}),
       },
     };
@@ -843,8 +846,8 @@ export default class IndexManager<
     const aliasName = this.getAliasName();
     const indexExists = await this.exists();
     const aliasExists = await this.aliasExists();
-    const needsCreation = await this.needsCreation();
-    const needsMigration = !needsCreation && (await this.needsMigration());
+    const needsMigration = await this.needsMigration();
+    const needsCreation = !indexExists.exists && !needsMigration;
     return {
       took: Date.now() - start,
       fullName,
@@ -996,7 +999,7 @@ export default class IndexManager<
               const createdCount = taskStatus.task.status.created;
               const total = taskStatus.task.status.total;
               const done = updatedCount + createdCount;
-              const percent = Math.floor(Math.max(99, (done / total) * 100));
+              const percent = Math.floor(Math.min(99, (done / total) * 100));
               if (taskStatus.completed) {
                 await this.flush();
                 try {

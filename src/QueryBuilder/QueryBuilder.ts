@@ -2,75 +2,85 @@ import type { estypes } from "@elastic/elasticsearch"; // TypeScript needs estyp
 import isDefined from "../isDefined/isDefined";
 import isEmptyObject from "../isEmptyObject/isEmptyObject";
 import { normalizeTimeZone } from "../normalizeTimeZone/normalizeTimeZone";
-import {
-  type AggregationsAggregationContainer,
-  type AggregationsCompositeAggregationSource,
-  type BoostOperator,
-  type FieldTypeOrTypes,
-  type InferenceCohereSimilarityType,
-  type InnerRetriever,
-  IntervalType,
-  type KnnRetriever,
-  type MoreLikeThisLikeParams,
-  type MoreLikeThisOptions,
-  type Prettify,
-  type QueryDslChildScoreMode,
-  type QueryDslDecayFunctionBase,
-  type QueryDslMultiMatchQuery,
-  type QueryDslQueryContainer,
-  type RangeOperator,
-  type RangeShape,
-  type RetrieverContainer,
-  type ScoreNormalizer,
-  type SearchInnerHits,
-  type SearchRequest,
-  type SearchRescore,
-  type SortCombinations,
-  type SortDirection,
-  type SortOrder,
-  type SortResults,
+import type {
+  AggregationsAggregationContainer,
+  AggregationsCompositeAggregationSource,
+  BoostOperator,
+  FieldTypeOrTypes,
+  InferenceCohereSimilarityType,
+  InnerRetriever,
+  KnnRetriever,
+  MoreLikeThisLikeParams,
+  MoreLikeThisOptions,
+  QueryDslChildScoreMode,
+  QueryDslFunctionScoreContainer,
+  QueryDslFunctionScoreQuery,
+  QueryDslMatchQuery,
+  QueryDslMultiMatchQuery,
+  QueryDslQueryContainer,
+  RangeOperator,
+  RangeShape,
+  RetrieverContainer,
+  ScoreNormalizer,
+  SearchInnerHits,
+  SearchRequest,
+  SearchRescore,
+  SortCombinations,
+  SortDirection,
+  SortOrder,
+  SortResults,
 } from "../types";
 
 /**
  * Get a default FVH highlighter configuration.
  * @returns A highlight config suitable for use with QueryBuilder.
  */
-export const getDefaultHighlighter = () =>
-  ({
-    type: "fvh",
-    number_of_fragments: 3,
-    fragment_size: 150,
-    tags_schema: "styled",
-    fields: {},
-  }) as SearchRequest["highlight"];
+export const getDefaultHighlighter = (): HighlightDefinition => ({
+  type: "fvh",
+  number_of_fragments: 3,
+  fragment_size: 150,
+  tags_schema: "styled",
+  fields: {},
+});
+
+/** A highlight definition whose `fields` is always a keyed object */
+export type HighlightDefinition = Omit<
+  NonNullable<SearchRequest["highlight"]>,
+  "fields"
+> & { fields: Record<string, estypes.SearchHighlightField> };
+
+/** A composite aggregation source that names the field it buckets on */
+type CompositeSourceWithField<
+  K extends keyof AggregationsCompositeAggregationSource,
+> = NonNullable<AggregationsCompositeAggregationSource[K]> & { field: string };
 
 /**
  * ElasticSearch query builder (ElasticSearch 9 only)
  */
 export default class QueryBuilder {
   /** The index to query from - used by getQuery() */
-  public _index: string;
+  public _index: string | undefined;
 
   /** The fields to fetch */
   public _fields: string[] = ["*"];
 
-  /** Fields to exclude from list */
+  /** Fields to exclude from the fetch list */
   public _excludeFields: string[] = [];
 
-  /** The must filters */
+  /** The "must" filters */
   public _must: QueryDslQueryContainer[] = [];
 
   /** The "aggs" to add to the builder */
-  public _aggs: SearchRequest["aggs"] = {};
+  public _aggs: Record<string, AggregationsAggregationContainer> = {};
 
   /** The function score builder */
-  public _functionScores: QueryDslDecayFunctionBase[] = [];
+  public _functionScores: QueryDslFunctionScoreContainer[] = [];
 
   /** The highlight definition */
-  public _highlighter: SearchRequest["highlight"] = getDefaultHighlighter();
+  public _highlighter: HighlightDefinition = getDefaultHighlighter();
 
   /** The max number of records to return */
-  public _limit: number = null;
+  public _limit: number | null = null;
 
   /** The page of records to fetch */
   public _page: number = 1;
@@ -91,16 +101,16 @@ export default class QueryBuilder {
   public _rankConstant = 20;
 
   /** Optional rescore phase */
-  public _rescore: SearchRescore[] = undefined;
+  public _rescore: SearchRescore[] | undefined = undefined;
 
   /** Optional minimum score */
-  public _minScore: number = undefined;
+  public _minScore: number | undefined = undefined;
 
   /** Optional search_after sort values for deep pagination */
-  public _searchAfter: SortResults = undefined;
+  public _searchAfter: SortResults | undefined = undefined;
 
   /** Optional track_total_hits control */
-  public _trackTotalHits: boolean | number = undefined;
+  public _trackTotalHits: boolean | number | undefined = undefined;
 
   /** If true, use "random_score" for a function score */
   public _shouldSortByRandom: boolean = false;
@@ -192,9 +202,7 @@ export default class QueryBuilder {
    * @example
    *   qb.highlighterOptions({ type: 'fvh', number_of_fragments: 1, fragment_size: 100, fields: {} });
    */
-  highlighterOptions(
-    options: Omit<SearchRequest["highlight"], "fields">,
-  ): this {
+  highlighterOptions(options: Omit<HighlightDefinition, "fields">): this {
     this._highlighter = {
       ...options,
       fields: this._highlighter.fields,
@@ -222,7 +230,7 @@ export default class QueryBuilder {
    */
   highlightField(
     name: string,
-    overrideOptions: Omit<SearchRequest["highlight"], "fields"> = {},
+    overrideOptions: estypes.SearchHighlightField = {},
   ): this {
     this._highlighter.fields[name] = overrideOptions;
     return this;
@@ -438,26 +446,26 @@ export default class QueryBuilder {
    * Add a full-text phrase matching condition
    * @param field  The name of the field to search
    * @param phrase  A phrase string containing multipe words
-   * @param options  Options for phrase matching (e.g., slop for word proximity)
+   * @param slop  Word proximity allowed between phrase terms (default 0)
    * @return {QueryBuilder}
    * @chainable
    * @example
-   *   qb.matchPhrase({ field: 'title', phrase: 'elasticsearch guide', options: { slop: 1 } });
+   *   qb.matchPhrase({ field: 'title', phrase: 'elasticsearch guide', slop: 1 });
    */
   matchPhrase({
     field,
     phrase,
-    options = {},
+    slop = 0,
   }: {
     field: string;
     phrase: string;
-    options?: { slop?: number };
+    slop?: number;
   }): this {
     this._must.push({
       match_phrase: {
         [field]: {
           query: phrase,
-          slop: options.slop || 0,
+          slop,
         },
       },
     });
@@ -468,26 +476,26 @@ export default class QueryBuilder {
    * Add a full-text phrase matching condition
    * @param field  The name of the field to search
    * @param phrase  A phrase string containing multipe words
-   * @param options  Options for phrase matching (e.g., slop for word proximity)
+   * @param options  Any other match_phrase_prefix options (e.g., slop, max_expansions)
    * @return {QueryBuilder}
    * @chainable
    * @example
-   *   qb.matchPhrasePrefix({ field: 'title', phrase: 'elastic sea', options: { slop: 1 } });
+   *   qb.matchPhrasePrefix({ field: 'title', phrase: 'elastic sea', slop: 1 });
    */
   matchPhrasePrefix({
     field,
     phrase,
-    options = {},
-  }: {
+    ...options
+  }: Omit<estypes.QueryDslMatchPhrasePrefixQuery, "query"> & {
     field: string;
     phrase: string;
-    options?: { slop?: number };
   }): this {
     this._must.push({
       match_phrase_prefix: {
         [field]: {
+          ...options,
+          slop: options.slop ?? 0,
           query: phrase,
-          slop: options.slop || 0,
         },
       },
     });
@@ -500,26 +508,53 @@ export default class QueryBuilder {
    * See the "Combining OR, AND, and match phrase queries" section of https://www.elastic.co/blog/how-to-improve-elasticsearch-search-relevance-with-boolean-queries.
    * @param field The field to search
    * @param phrase  The value to match on
-   * @param options  Additional options, including `type`, `analyzer`, `boost`, `operator`, `minimum_should_match`, `fuzziness`, `lenient`, `prefix_length`, `max_expansions`, `fuzzy_rewrite`, `zero_terms_query`, `cutoff_frequency`, and `fuzzy_transpositions`
+   * @param options  Any other match options, including `analyzer`, `boost`, `operator`, `minimum_should_match`, `fuzziness`, `lenient`, `prefix_length`, `max_expansions`, `fuzzy_rewrite`, `zero_terms_query`, `cutoff_frequency`, and `fuzzy_transpositions`
    * @chainable
    * @example
-   *   qb.match({ field: 'title', phrase: 'elastic', options: { operator: 'and' } });
+   *   qb.match({ field: 'title', phrase: 'elastic', operator: 'and' });
    */
   match({
     field,
     phrase,
-    options = {},
-  }: {
-    field: string;
+    ...options
+  }: Omit<QueryDslMatchQuery, "query"> & {
     phrase: string;
-    options?: Prettify<Omit<QueryDslMultiMatchQuery, "query" | "fields">>;
+    field: string;
   }): this {
     this._must.push({
       match: {
         [field]: {
-          query: phrase,
           ...options,
+          query: phrase,
         },
+      },
+    });
+    return this;
+  }
+
+  /**
+   * Create a basic multi_match clause and add any of the available options
+   * @param fields The field to search
+   * @param phrase  The value to match on
+   * @param options  Additional options, including `analyzer`, `auto_generate_synonyms_phrase_query`, `cutoff_frequency`, `fuzziness`, `fuzzy_rewrite`, `fuzzy_transpositions`, `lenient`, `max_expansions`, `minimum_should_match`, `operator`, `prefix_length`, `slop`, `tie_breaker`, `type`, `zero_terms_query`
+   * @chainable
+   * @example
+   *   qb.multiMatch({
+   *     fields: ['title^2','summary],
+   *     phrase: 'elastic',
+   *     operator: 'and'
+   *   });
+   */
+  multiMatch({
+    fields,
+    phrase,
+    ...options
+  }: Omit<QueryDslMultiMatchQuery, "query"> & { phrase: string }): this {
+    this._must.push({
+      multi_match: {
+        fields,
+        ...options,
+        query: phrase,
       },
     });
     return this;
@@ -597,28 +632,35 @@ export default class QueryBuilder {
   }
 
   /**
-   * Search with Reciprocal rank fusion
+   * Search with Reciprocal rank fusion especially for semantic_text fields
    * @see https://www.elastic.co/docs/reference/elasticsearch/rest-apis/reciprocal-rank-fusion
    *
    * @param semanticField  The name of the semantic_text field
    * @param standardField  The name of the text field containing equivalent content
    * @param phrase  The phrase to search
+   * @param boosts  An array of four integers representing boost of exact match, phrase match, match, semantic match
    * @param weight  The weight of this retriever block
    * @example
-   *   qb.rrf({ semanticField: 'content_semantic', standardField: 'content', phrase: 'neural search', weight: 2 });
+   *   qb.weightedSemantic({
+   *     semanticField: 'content_semantic',
+   *     standardField: 'content',
+   *     phrase: 'neural network',
+   *     boosts: [5, 3, 1, 4],
+   *     weight: 2
+   *   });
    */
-  semanticMatch({
+  weightedSemantic({
     semanticField,
     standardField,
-    boosts = [7, 5, 4, 2],
+    boosts = [6, 4, 1, 2],
     phrase,
     weight = 1,
   }: {
     semanticField: string;
     standardField: string;
-    boosts: [number, number, number, number];
+    boosts?: [number, number, number, number];
     phrase: string;
-    weight: number;
+    weight?: number;
   }): this {
     this._retrievers.push({
       retriever: {
@@ -630,26 +672,30 @@ export default class QueryBuilder {
                   bool: {
                     should: [
                       {
-                        term: {
-                          "verseText.raw": {
-                            value: "only begotten in the flesh",
-                            boost: 5.0,
+                        wildcard: {
+                          // exact text contained in standard field
+                          [`${standardField}.raw`]: {
+                            value: `*${this.escapeWildcards(phrase)}*`,
+                            case_insensitive: true,
+                            boost: boosts[0],
                           },
                         },
                       },
                       {
                         match_phrase: {
-                          verseText: {
-                            query: "only begotten in the flesh",
-                            boost: 3.0,
+                          // unpunctuated, stemmed text contained in standard field
+                          [standardField]: {
+                            query: phrase,
+                            boost: boosts[1],
                           },
                         },
                       },
                       {
                         match: {
-                          verseText: {
-                            query: "only begotten in the flesh",
-                            boost: 2.0,
+                          // flexible word matching on text contained in standard field
+                          [standardField]: {
+                            query: phrase,
+                            boost: boosts[2],
                           },
                         },
                       },
@@ -662,8 +708,10 @@ export default class QueryBuilder {
               standard: {
                 query: {
                   semantic: {
-                    field: "verseTextSemantic",
-                    query: "only begotten in the flesh",
+                    // semantic meaning on semantic field
+                    field: semanticField,
+                    query: phrase,
+                    boost: boosts[3],
                   },
                 },
               },
@@ -673,46 +721,18 @@ export default class QueryBuilder {
           rank_constant: 10,
         },
       },
-      weight: 3,
+      weight,
       normalizer: "minmax",
     });
-    //     rrf: {
-    //       retrievers: [
-    //         // Lexical (standard) retriever on the standardField
-    //         {
-    //           standard: {
-    //             query: {
-    //               term: {
-    //                 [`${standardField}.raw`]: {
-    //                   value: phrase,
-    //                   boost: boosts[0],
-    //                 },
-    //               },
-    //             },
-    //           },
-    //           weight: boosts[0],
-    //         },
-    //         // Semantic retriever on the semanticField
-    //         {
-    //           standard: {
-    //             query: {
-    //               semantic: {
-    //                 field: semanticField,
-    //                 query: phrase,
-    //               },
-    //             },
-    //           },
-    //         },
-    //       ],
-    //       rank_window_size: this._rankWindowSize,
-    //       rank_constant: this._rankConstant,
-    //     },
-    //   },
-    //   weight,
-    //   normalizer: this._normalizer,
-    // });
 
     return this; // Enable chaining
+  }
+
+  escapeWildcards(text: string) {
+    return text
+      .replace(/\\/g, "\\\\") // Escape backslashes first
+      .replace(/\*/g, "\\*") // Escape asterisks
+      .replace(/\?/g, "\\?"); // Escape question marks
   }
 
   /**
@@ -830,12 +850,102 @@ export default class QueryBuilder {
    *   qb.term({ field: 'status', value: 'active' });
    *   qb.term('tag', 'music');
    */
-  term(field: string | { field: string; value: string }, value?: string): this {
+  term(field: string | { field: string; value: any }, value?: any): this {
     const effectiveName = typeof field === "string" ? field : field.field;
     const effectiveValue = typeof field === "string" ? value : field.value;
     this._must.push({
       term: {
         [effectiveName]: effectiveValue,
+      },
+    });
+    return this;
+  }
+
+  /**
+   * Add a wildcard matching condition
+   *
+   * @param field  The name of the field to search OR an object {field:name, value:value, caseSensitive:bool}
+   * @param value  A string to match
+   * @return {QueryBuilder}
+   * @chainable
+   * @example
+   *   qb.wildcard({ field: 'description.keyword', value: '*United Airlines*', caseSensitive: false });
+   *   qb.wildcard('description.keyword', '*United Airlines*');
+   */
+  wildcard(
+    field: string | { field: string; value: string; caseSensitive?: boolean },
+    value?: string,
+  ): this {
+    const effectiveName = typeof field === "string" ? field : field.field;
+    const effectiveValue = typeof field === "string" ? value : field.value;
+    this._must.push({
+      wildcard: {
+        [effectiveName]: {
+          value: effectiveValue,
+          case_insensitive:
+            typeof field === "string" ? true : !field.caseSensitive,
+        },
+      },
+    });
+    return this;
+  }
+
+  /**
+   * Require field to contain the exact phrase
+   *
+   * @param field  The name of the field to search OR an object {field:name, value:value, caseSensitive:bool}
+   * @param value  A string to match
+   * @return {QueryBuilder}
+   * @chainable
+   * @example
+   *   qb.containExact({ field: 'description.keyword', value: 'United Airlines' });
+   *   qb.containExact('description.keyword', 'United Airlines');
+   */
+  containsExact(
+    field: string | { field: string; value: string; caseSensitive?: boolean },
+    value?: string,
+  ): this {
+    const effectiveName = typeof field === "string" ? field : field.field;
+    const effectiveValue =
+      typeof field === "string" ? (value ?? "") : field.value;
+    const escaped = this.escapeWildcards(effectiveValue);
+    this._must.push({
+      wildcard: {
+        [effectiveName]: {
+          value: `*${escaped}*`,
+          case_insensitive:
+            typeof field === "string" ? true : !field.caseSensitive,
+        },
+      },
+    });
+    return this;
+  }
+
+  /**
+   * Add a regular expression matching condition
+   *
+   * @param field  The name of the field to search OR an object {field:name, value:value, caseSensitive:bool}
+   * @param value  A string to match
+   * @return {QueryBuilder}
+   * @chainable
+   * @example
+   *   qb.rexgep({ field: 'description.keyword', value: 'iP(od|ad|hone) \d+', caseSensitive: true });
+   *   qb.rexgep('description.keyword', 'iP(od|ad|hone) \d+');
+   */
+  rexgep(
+    field: string | { field: string; value: string; caseSensitive?: boolean },
+    value?: string,
+  ): this {
+    const effectiveName = typeof field === "string" ? field : field.field;
+    const effectiveValue =
+      typeof field === "string" ? (value ?? "") : field.value;
+    this._must.push({
+      regexp: {
+        [effectiveName]: {
+          value: effectiveValue,
+          case_insensitive:
+            typeof field === "string" ? false : !field.caseSensitive,
+        },
       },
     });
     return this;
@@ -878,7 +988,7 @@ export default class QueryBuilder {
   ): this {
     const effectiveName = typeof field === "string" ? field : field.field;
     const effectiveValue =
-      typeof field === "string" ? queryString : field.queryString;
+      typeof field === "string" ? (queryString ?? "") : field.queryString;
     this._must.push({
       query_string: {
         fields: [effectiveName],
@@ -901,17 +1011,16 @@ export default class QueryBuilder {
   moreLikeThis({
     field,
     like,
-    options = {},
-  }: {
+    ...options
+  }: MoreLikeThisOptions & {
     field: string;
     like: MoreLikeThisLikeParams;
-    options: MoreLikeThisOptions;
   }): this {
     this._must.push({
       more_like_this: {
         fields: [field],
         like,
-        ...(options ?? {}),
+        ...options,
       },
     });
 
@@ -1058,13 +1167,7 @@ export default class QueryBuilder {
       },
       length: 2,
     };
-    if (Array.isArray(this._rescore)) {
-      this._rescore = [...this._rescore, entry];
-    } else if (this._rescore) {
-      this._rescore = [this._rescore, entry];
-    } else {
-      this._rescore = [entry];
-    }
+    this._rescore = [...(this._rescore ?? []), entry];
     return this;
   }
 
@@ -1201,7 +1304,7 @@ export default class QueryBuilder {
     field: string;
     interval: number;
     limit?: number;
-    orderBy?: Array<AggregationsCompositeAggregationSource["histogram"]>;
+    orderBy?: Array<CompositeSourceWithField<"histogram">>;
   }): this {
     const sources: Array<
       Record<string, AggregationsCompositeAggregationSource>
@@ -1274,7 +1377,7 @@ export default class QueryBuilder {
     format?: string;
     offset?: string;
     order?: "asc" | "desc";
-    orderBy?: Array<AggregationsCompositeAggregationSource["date_histogram"]>;
+    orderBy?: Array<CompositeSourceWithField<"date_histogram">>;
   }): this {
     let sources: Array<Record<string, AggregationsCompositeAggregationSource>>;
 
@@ -1347,7 +1450,7 @@ export default class QueryBuilder {
     limit?: number;
     bounds?: { top_left: string; bottom_right: string };
     order?: "asc" | "desc";
-    orderBy?: Array<AggregationsCompositeAggregationSource["geotile_grid"]>;
+    orderBy?: Array<CompositeSourceWithField<"geotile_grid">>;
   }): this {
     const sources: Array<
       Record<string, AggregationsCompositeAggregationSource>
@@ -1383,7 +1486,7 @@ export default class QueryBuilder {
    * Manually set the aggs array
    * @param aggs
    */
-  aggs(aggs: SearchRequest["aggs"]): this {
+  aggs(aggs: Record<string, AggregationsAggregationContainer> = {}): this {
     this._aggs = aggs;
     return this;
   }
@@ -1654,25 +1757,30 @@ export default class QueryBuilder {
   }
 
   /**
-   * Create a copy of this instance
+   * Create a deep copy of this instance. All accumulated state is cloned
+   * with structuredClone so that mutating the copy (or the original) does
+   * not affect the other.
    */
   clone(): QueryBuilder {
     const copy = new QueryBuilder({ index: this._index });
-    copy._fields = this._fields;
-    copy._excludeFields = this._excludeFields;
-    copy._must = this._must;
-    copy._aggs = this._aggs;
-    copy._functionScores = this._functionScores;
-    copy._highlighter = this._highlighter;
-    copy._sorts = this._sorts;
-    copy._retrievers = this._retrievers;
+    copy._fields = structuredClone(this._fields);
+    copy._excludeFields = structuredClone(this._excludeFields);
+    copy._must = structuredClone(this._must);
+    copy._aggs = structuredClone(this._aggs);
+    copy._functionScores = structuredClone(this._functionScores);
+    copy._highlighter = structuredClone(this._highlighter);
+    copy._limit = this._limit;
+    copy._page = this._page;
+    copy._sorts = structuredClone(this._sorts);
+    copy._retrievers = structuredClone(this._retrievers);
     copy._normalizer = this._normalizer;
     copy._rankWindowSize = this._rankWindowSize;
     copy._rankConstant = this._rankConstant;
-    copy._rescore = this._rescore;
+    copy._rescore = structuredClone(this._rescore);
     copy._minScore = this._minScore;
-    copy._searchAfter = this._searchAfter;
+    copy._searchAfter = structuredClone(this._searchAfter);
     copy._trackTotalHits = this._trackTotalHits;
+    copy._shouldSortByRandom = this._shouldSortByRandom;
     return copy;
   }
 
@@ -1694,18 +1802,22 @@ export default class QueryBuilder {
   }
 
   /**
-   * Add a decay function score builder
+   * Add a function score definition (e.g. gauss/exp/linear decay,
+   * field_value_factor, script_score). All added functions are applied to
+   * the final query inside a single `function_score` wrapper when
+   * getBody()/getQuery() is called. Function scores only apply when the
+   * query is built on the standard query path; when retrievers (kNN, RRF,
+   * semantic) are in use the functions are ignored.
    * @see https://www.elastic.co/guide/en/elasticsearch/reference/9.x/query-dsl-function-score-query.html#function-decay
    * @chainable
    * @example
-
    *   qb.decayFunctionScore({
    *     gauss: {
-   *       "created_at": { origin: "now", scale: "7d", decay: 0.5 }
+   *       created_at: { origin: "now", scale: "7d", decay: 0.5 }
    *     }
    *   });
    */
-  decayFunctionScore(functionScore: QueryDslDecayFunctionBase): this {
+  decayFunctionScore(functionScore: QueryDslFunctionScoreContainer): this {
     this._functionScores.push(functionScore);
     return this;
   }
@@ -1788,6 +1900,15 @@ export default class QueryBuilder {
     const qb = new QueryBuilder();
     withBuilder(qb);
     this._must.push({ bool: { must_not: qb.getMust() } });
+    return this;
+  }
+
+  /**
+   * Add a custom match condition, perhaps not supported by the QueryBuilder
+   * @param customMust
+   */
+  must(customMust: QueryDslQueryContainer) {
+    this._must.push(customMust);
     return this;
   }
 
@@ -1893,36 +2014,27 @@ export default class QueryBuilder {
 
       // Only use linear if we have multiple retrievers
       if (retrievers.length > 1 || hasFilters) {
-        body.retriever = {
-          linear: {
-            retrievers,
-            normalizer: this._normalizer,
-            rank_window_size: this._rankWindowSize,
-          },
+        const linear: NonNullable<RetrieverContainer["linear"]> = {
+          retrievers,
+          normalizer: this._normalizer,
+          rank_window_size: this._rankWindowSize,
         };
         if (hasFilters) {
-          body.retriever.linear.filter = [this._buildBoolQuery()];
+          linear.filter = [this._buildBoolQuery()];
         }
+        body.retriever = { linear };
       } else {
         body.retriever = retrievers[0].retriever;
       }
     } else if (hasFilters) {
       // STANDARD RETRIEVER PATH (with query)
-      let query = this._buildBoolQuery();
-
-      if (this._shouldSortByRandom) {
-        query = this._wrapWithRandomScore(query);
-      }
+      body.query = this._applyScoreFunctions(this._buildBoolQuery());
       if (this._sorts.length > 0) {
         body.sort = this._sorts;
       }
-
-      body.query = query;
     } else {
       // match all documents
-      body.query = this._shouldSortByRandom
-        ? this._wrapWithRandomScore({ match_all: {} })
-        : { match_all: {} };
+      body.query = this._applyScoreFunctions({ match_all: {} });
       if (this._sorts.length > 0) {
         body.sort = this._sorts;
       }
@@ -1939,10 +2051,7 @@ export default class QueryBuilder {
     }
 
     // Add rescore if specified and supported (requires a standard query retriever)
-    if (
-      this._rescore &&
-      (Array.isArray(this._rescore) ? this._rescore.length > 0 : true)
-    ) {
+    if (this._rescore && this._rescore.length > 0) {
       let canRescore = false;
       if (body.query) {
         canRescore = true;
@@ -1974,22 +2083,28 @@ export default class QueryBuilder {
   }
 
   /**
-   * Wrap a query with random score function
+   * Wrap a query in a function_score containing any functions added via
+   * decayFunctionScore() plus a random_score function if sortByRandom()
+   * is enabled. Returns the query untouched when there is nothing to apply.
    */
-  private _wrapWithRandomScore(
+  private _applyScoreFunctions(
     query: QueryDslQueryContainer,
   ): QueryDslQueryContainer {
-    return {
-      function_score: {
-        query,
-        functions: [
-          {
-            random_score: {},
-          },
-        ],
-        boost_mode: "replace",
-      },
-    };
+    const functions: QueryDslFunctionScoreContainer[] = [
+      ...this._functionScores,
+    ];
+    if (this._shouldSortByRandom) {
+      functions.push({ random_score: {} });
+    }
+    if (functions.length === 0) {
+      return query;
+    }
+    const functionScore: QueryDslFunctionScoreQuery = { query, functions };
+    if (this._shouldSortByRandom) {
+      // random_score should fully replace the relevance score
+      functionScore.boost_mode = "replace";
+    }
+    return { function_score: functionScore };
   }
 
   /**

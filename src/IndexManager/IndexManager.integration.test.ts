@@ -59,6 +59,40 @@ describe('QueryBuilder - Integration', () => {
     expect(res.total).toEqual(1);
   });
 
+  it('should put a record and read it back unchanged', async () => {
+    const record = {
+      id: 900001,
+      title: 'Put Round Trip',
+      premise: 'A record goes in and the same record comes out',
+      country: 'US',
+    };
+    const put = await booksIndex.put(record.id, record);
+    expect(put.error).toBe(null);
+    expect(put.result).toBe('created');
+    const found = await booksIndex.findById(String(record.id));
+    expect(found.error).toBe(null);
+    expect(found.record).toEqual(record);
+    await booksIndex.deleteById(String(record.id));
+  });
+
+  it('should patch only the given fields', async () => {
+    const record = {
+      id: 900002,
+      title: 'Patch Round Trip',
+      premise: 'Before',
+      country: 'US',
+    };
+    await booksIndex.put(record.id, record);
+    const patched = await booksIndex.patch(String(record.id), {
+      premise: 'After',
+    });
+    expect(patched.error).toBe(null);
+    expect(patched.success).toBe(true);
+    const found = await booksIndex.findById(String(record.id));
+    expect(found.record).toEqual({ ...record, premise: 'After' });
+    await booksIndex.deleteById(String(record.id));
+  });
+
   it('should migrate data', async () => {
     expect((await booksIndex.count()).total).toBe(3);
     booksIndex.index.version = 2;

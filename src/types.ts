@@ -100,12 +100,23 @@ export type FieldType =
 
 // Elasticsearch types
 export type FieldTypeOrTypes = FieldType | FieldType[] | null;
-export type RangeShape = string | [string, string] | number | [number, number];
+export type RangeBound<T> = T | null | undefined;
+export type RangeShape =
+  | string
+  | number
+  | [RangeBound<string>, RangeBound<string>]
+  | [RangeBound<number>, RangeBound<number>];
 export type QueryDslQueryContainer = estypes.QueryDslQueryContainer;
+export type QueryDslMatchQuery = estypes.QueryDslMatchQuery;
 export type QueryDslMultiMatchQuery = estypes.QueryDslMultiMatchQuery;
+export type QueryDslMatchPhrasePrefixQuery =
+  estypes.QueryDslMatchPhrasePrefixQuery;
 export type SortOrder = estypes.SortOrder;
 export type SortCombinations = Prettify<estypes.SortCombinations>;
 export type QueryDslDecayFunctionBase = estypes.QueryDslDecayFunctionBase;
+export type QueryDslFunctionScoreContainer =
+  estypes.QueryDslFunctionScoreContainer;
+export type QueryDslFunctionScoreQuery = estypes.QueryDslFunctionScoreQuery;
 export type SearchRequest = Prettify<estypes.SearchRequest>;
 export type IndexSettings = Prettify<estypes.IndicesCreateRequest['settings']>;
 export type MappingProperty = Prettify<estypes.MappingProperty>;
