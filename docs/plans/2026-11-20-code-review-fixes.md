@@ -3,7 +3,7 @@
 **Date:** 2026-11-20
 **Source:** [`docs/reports/2026-11-19-src-code-review.md`](../reports/2026-11-19-src-code-review.md) (108 bugs `B-001…B-108`, 63 suggestions `S-001…S-063`)
 **Executors:** one orchestrator session plus Opus subagents (`Agent` tool, `model: "opus"`), one subagent per task below.
-**Status:** not started. Section 2 lists decisions to confirm before kickoff.
+**Status:** not started. The decisions in section 2 were confirmed by the maintainer on 2026-11-20.
 **Revised:** 2026-11-20, after [`2026-11-20-index-manager-create-request.md`](./2026-11-20-index-manager-create-request.md) was implemented (its decision D7). That work deleted `SchemaManager` and `getEsClient`, replaced the string schema with an `estypes.IndicesCreateRequest`, and fixed several findings along the way. Findings and task parts that no longer have code were removed from this plan; section 8.3 lists each one and why.
 
 Every remaining finding is assigned to exactly one owning task (a few are split across two tasks, each part named). Section 8 is the coverage matrix.
@@ -57,7 +57,7 @@ Maximum parallelism is three subagents (F1/F2/F3, or QB-lane + SR + QR).
 2. Three files are edited by exactly one task each, to remove any chance of collision:
    - `src/types.ts` → **F1** only. Later tasks declare new types in their own source file.
    - `index.ts`, `README.md`, `CHANGELOG.md`, `AGENTS.md`, `ROADMAP.md`, `src/publicExports.spec.ts`, `src/readmeSamples.spec.ts` → **DOCS** only. `publicExports.spec.ts` pins the exact export list and `readmeSamples.spec.ts` compiles every README sample, so a task that needs a new export or a README change leaves it in its handoff note.
-   - `package.json`, `.github/workflows/tests.yml`, `src/testFixtures/*` → **P0-A / P0-B** only (DOCS may touch `package.json` for the CJS build, after everything else is done).
+   - `package.json`, `.github/workflows/tests.yml`, `src/testFixtures/*` → **P0-A / P0-B** only (DOCS may touch `package.json` for the `exports` map, after everything else is done).
 3. New tests go in **new files named for the task's topic**, e.g. `src/QueryBuilder/QueryBuilder.sort.spec.ts` and `src/QueryBuilder/QueryBuilder.sort.integration.test.ts`. This keeps test files small and gives each task its own.
 4. The pre-existing test files (`QueryBuilder.spec.ts`, `QueryBuilder.fields.spec.ts`, `IndexManager.spec.ts`, `IndexManager.fields.spec.ts`, `SchemaRegistry.spec.ts`, and the two existing integration tests) belong to their lane. The active lane task may edit them, but only to correct assertions that lock in a bug it is fixing (e.g. B-045, B-048).
 5. Subagents never run git write commands (`add`, `commit`, `stash`, `checkout`). The orchestrator commits after each task passes its gate, staging only that task's owned files.
@@ -67,23 +67,23 @@ Maximum parallelism is three subagents (F1/F2/F3, or QB-lane + SR + QR).
 
 ---
 
-## 2. Decisions to confirm before kickoff
+## 2. Decisions
 
-The review leaves several design choices open. The defaults below are what the tasks assume. The package is at `3.0.0-beta.2`, so breaking changes are acceptable; each one must be recorded in the task's handoff note for the CHANGELOG.
+The review leaves several design choices open. The maintainer confirmed the decisions below on 2026-11-20. The package is at `3.0.0-beta.2`, so breaking changes are acceptable; each one must be recorded in the task's handoff note for the CHANGELOG.
 
-| # | Finding(s) | Default chosen | Alternative |
-|---|---|---|---|
-| D1 | S-003, B-002, B-037, B-083 | **Migration design deviates from S-003 steps 3–4.** Reindex into a new index that is *not yet in the alias*, using `dest.version_type: 'external'`; run a catch-up pass; swap the alias in one atomic `updateAliases`; run a final catch-up; verify; then remove the old index. Reads, `findById`, `put` and `patch` keep working against the old index for the whole reindex, re-running is idempotent, and a crash leaves a consistent state. S-003 as written (new index becomes the write index first, `op_type: 'create'`) still has duplicate reads, failing `findById` and failing `patch` during the reindex. Full detail in task IM5. | Follow S-003 literally. |
-| D2 | B-002 (deletes) | Deletes made on the old index during the reindex window can reappear in the new index. This is **documented as a known limitation**; no tombstone mechanism. | Add a tombstone/lock document scheme (significant extra scope). |
-| D3 | B-012, B-044 | The library no longer generates mappings, so only the query side remains. Default highlighter becomes `unified` (it needs no term vectors). `weightedSemantic`'s contains clause targets a configurable `exactField`, defaulting to `${standardField}.raw` as today; the README states that the mapping must declare that keyword sub-field. | Keep `fvh` as the default highlighter and document the `term_vector` requirement. |
-| D5 | S-019, S-057 | Filter context is **opt-in**: new `filter(cb)` method that puts the callback's clauses in `bool.filter`. Existing methods keep emitting `bool.must`. On the retriever path, `must` clauses remain filters (required so that non-matching docs stay excluded); this is documented. | Move `term`/`range`/etc. to `bool.filter` by default. |
-| D6 | B-034, S-032 | `deleteMany()` with no conditions returns an error envelope unless `{ all: true }` is passed. `SchemaRegistry.dropAll()` requires `{ confirm: true }`. | Warn only. |
-| D8 | S-010 | Add a real CJS build (`dist/index.cjs` plus a `require` export condition), since AGENTS.md describes the package as dual ESM/CJS. | Keep ESM-only and correct AGENTS.md. |
-| D9 | B-054 | Composite helpers gain an `after` option. `dateHistogram()` switches to a plain `date_histogram` with `min_doc_count: 0` (response shape changes). | Keep composite and add `after` only. |
-| D10 | B-018 | `count()` on a builder with retrievers returns `{ total: null, error }` saying retrievers are unsupported. | Count using the filter clauses only. |
-| D11 | B-040, B-058, S-021, S-027 | `getBody()` raises `rank_window_size` to cover `from + size` unless the caller set it explicitly, and **throws a descriptive error** for combinations ES rejects (retriever with `min_score`/`search_after`/`sort`, rescore with a non-`_score` sort). Rescore on the retriever path uses the `rescorer` retriever if the server accepts it. | Silently drop the conflicting options. |
-| D12 | S-059 | Remove `QueryBuilder.valueOf()`. | Keep and document. |
-| D13 | S-003 scope | The migration implementation moves to a new internal module `src/IndexManager/migrate.ts`; `IndexManager.migrateIfNeeded()` stays as the public entry point and delegates. This keeps `IndexManager.ts` readable and the migration unit-testable. | Keep it inline. |
+| # | Finding(s) | Decision |
+|---|---|---|
+| D1 | S-003, B-002, B-037, B-083 | **Migration design deviates from S-003 steps 3–4.** Reindex into a new index that is *not yet in the alias*, using `dest.version_type: 'external'`; run a catch-up pass; swap the alias in one atomic `updateAliases`; run a final catch-up; verify; then remove the old index. Reads, `findById`, `put` and `patch` keep working against the old index for the whole reindex, re-running is idempotent, and a crash leaves a consistent state. Do not implement S-003's steps 3–4 as the report writes them (new index becomes the write index first, `op_type: 'create'`): that still has duplicate reads, failing `findById` and failing `patch` during the reindex. Full detail in task IM5. |
+| D2 | B-002 (deletes) | Deletes made on the old index during the reindex window can reappear in the new index. This is **documented as a known limitation**; there is no tombstone mechanism. |
+| D3 | B-012, B-044 | The library no longer generates mappings, so only the query side remains. Default highlighter becomes `unified` (it needs no term vectors). `weightedSemantic`'s contains clause targets a configurable `exactField`, defaulting to `${standardField}.raw` as today; the README states that the mapping must declare that keyword sub-field. |
+| D5 | S-019, S-057 | Filter context is **opt-in**: new `filter(cb)` method that puts the callback's clauses in `bool.filter`. Existing methods keep emitting `bool.must`. On the retriever path, `must` clauses remain filters (required so that non-matching docs stay excluded); this is documented. |
+| D6 | B-034, S-032 | **No confirmation and no warning**, matching Elasticsearch itself, where `_delete_by_query` with `match_all` and `DELETE /<index>` run without a guard. `deleteMany()` with no callback, or with a builder that has no conditions, deletes every document. `SchemaRegistry.dropAll()` drops every registered index. Both behaviors are stated in the JSDoc and README. Two parts of the findings remain: `deleteMany()` returns an error envelope when the builder produces no `query` (a retriever-only builder), since the server rejects that request; and `dropAll()` documents that it drops only `getFullName()`, leaving older versioned indexes in place. |
+| D8 | S-010 | The package **stays ESM-only**. No CJS build is added. AGENTS.md is corrected where it says "dual ESM/CJS" and where it lists `cjs` in the build steps. |
+| D9 | B-054 | Composite helpers gain an `after` option. `dateHistogram()` switches to a plain `date_histogram` with `min_doc_count: 0` (response shape changes). |
+| D10 | B-018 | `count()` on a builder with retrievers returns `{ total: null, error }` saying retrievers are unsupported. |
+| D11 | B-040, B-058, S-021, S-027 | `getBody()` raises `rank_window_size` to cover `from + size` unless the caller set it explicitly, and **throws a descriptive error** for combinations ES rejects (retriever with `min_score`/`search_after`/`sort`, rescore with a non-`_score` sort). Rescore on the retriever path uses the `rescorer` retriever if the server accepts it. |
+| D12 | S-059 | Remove `QueryBuilder.valueOf()`. |
+| D13 | S-003 scope | The migration implementation moves to a new internal module `src/IndexManager/migrate.ts`; `IndexManager.migrateIfNeeded()` stays as the public entry point and delegates. This keeps `IndexManager.ts` readable and the migration unit-testable. |
 
 D4 and D7 were removed with the code they concerned (automatic `nested` mapping; `ES_VERSION` in `getEsClient`). The remaining numbers are unchanged so references elsewhere still hold.
 
@@ -201,7 +201,7 @@ All tasks own `src/IndexManager/IndexManager.ts` plus their own new test files. 
 - **Methods:** `put`, `putBulk`, `patch`, `findById`, `findMany`, `findFirst`, `count`, `deleteById`, `deleteMany`.
 - **Findings:** B-033, B-034, B-039, B-085, B-086, B-087, S-014, S-015, S-016, S-017 (CRUD part), plus the `IndexManager.count()` `more` type change from B-017.
 - **Notes:** Decision D6. B-086: `record` is already typed `MappingRecord<Create> | null`; the envelope and not-found parts remain. B-039: the id is now `id ? String(id) : crypto.randomUUID()`, which still replaces `0` and `''`.
-- **Integration tests** (`IndexManager.crud.integration.test.ts`): `putBulk` with id `0` and `''`, generated ids returned, empty array, a batch larger than the chunk size, and a batch with one bad document (aggregated error, good rows stored); `patch` reporting `noop` and `created`; `findById` hit and miss; `put`/`deleteById` with `refresh` and `if_seq_no`; `deleteMany` honoring `conflicts`/`refresh`, refusing an empty builder, and deleting everything with `{ all: true }`; a throwing builder callback returns an envelope.
+- **Integration tests** (`IndexManager.crud.integration.test.ts`): `putBulk` with id `0` and `''`, generated ids returned, empty array, a batch larger than the chunk size, and a batch with one bad document (aggregated error, good rows stored); `patch` reporting `noop` and `created`; `findById` hit and miss; `put`/`deleteById` with `refresh` and `if_seq_no`; `deleteMany` honoring `conflicts`/`refresh`, deleting every document when called with no callback, and returning an error envelope (nothing deleted) for a retriever-only builder; a throwing builder callback returns an envelope.
 
 #### IM4 — Status
 - **Depends on:** IM3, F2.
@@ -302,8 +302,8 @@ All tasks own `src/QueryBuilder/QueryBuilder.ts` plus their own new test files. 
 - **Depends on:** IM5.
 - **Owns:** `src/SchemaRegistry/*`.
 - **Findings:** B-016, B-062, B-063, B-064, B-105, B-106, B-107, S-007, S-031, S-032, S-061 (registry side: consume `completion`, add `timeout`), S-062, S-063 (registry part).
-- **Notes:** One shared `runLimited(items, concurrency, fn)` helper replaces the three duplicated lane loops. Decision D6 for `dropAll`. S-063 (registry part): the runtime `import { estypes }` is already removed; the rest remains.
-- **Integration tests** (`SchemaRegistry.integration.test.ts`): three real indexes; `migrateIfNeeded()` creates them, then migrates a version bump on two of them while the third is current; `getStatus()` in registration order; one index made to fail (strict mapping conflict) yields `success: false` with the others completed; `recreateAll()`; `dropAll()` refused without `confirm` and complete with it. Maximum in-flight count is checked with fakes in the unit spec.
+- **Notes:** One shared `runLimited(items, concurrency, fn)` helper replaces the three duplicated lane loops. Decision D6 for `dropAll`: no confirmation option; document that only `getFullName()` is dropped. S-063 (registry part): the runtime `import { estypes }` is already removed; the rest remains.
+- **Integration tests** (`SchemaRegistry.integration.test.ts`): three real indexes; `migrateIfNeeded()` creates them, then migrates a version bump on two of them while the third is current; `getStatus()` in registration order; one index made to fail (strict mapping conflict) yields `success: false` with the others completed; `recreateAll()`; `dropAll()` with no options drops all three; an older versioned index left behind an alias is still there afterward (D6). Maximum in-flight count is checked with fakes in the unit spec.
 
 #### QR — QueryRunner
 - **Depends on:** IM5 (lane complete), QB1. Uses only public `QueryBuilder` methods.
@@ -318,8 +318,8 @@ All tasks own `src/QueryBuilder/QueryBuilder.ts` plus their own new test files. 
 - **Depends on:** every task above. Reads all handoff notes.
 - **Owns:** `index.ts`, `README.md`, `CHANGELOG.md`, `AGENTS.md`, `ROADMAP.md`, `package.json` (build/exports only), `import-test.ts`, `src/publicExports.spec.ts`, `src/readmeSamples.spec.ts`, `docs/consumers/*`.
 - **Findings:** B-094, B-099 (README part), S-010, S-026 (README part), plus every documentation note left in handoff files.
-- **Work:** export review and CJS build (D8), updating `publicExports.spec.ts` to the new list (S-010: `QueryBuilderProvider` is already exported; the rest remains); README function table and examples match real signatures (`readmeSamples.spec.ts` already compiles every sample that imports from `es-query-pro`; make the quick-reference table's examples compile the same way); CHANGELOG lists each breaking change from the handoff notes; a consumer upgrade guide in `docs/consumers/` in the style of `upgrading-to-beta-3.md`; AGENTS.md updated for the new migration flow, `migrate.ts`, test kit and scripts.
-- **Integration tests:** `import-test` runs against the built ESM and CJS bundles.
+- **Work:** export review (the package stays ESM-only, D8), updating `publicExports.spec.ts` to the new list (S-010: `QueryBuilderProvider` is already exported; the rest remains); README function table and examples match real signatures (`readmeSamples.spec.ts` already compiles every sample that imports from `es-query-pro`; make the quick-reference table's examples compile the same way); CHANGELOG lists each breaking change from the handoff notes; a consumer upgrade guide in `docs/consumers/` in the style of `upgrading-to-beta-3.md`; AGENTS.md updated for the new migration flow, `migrate.ts`, test kit and scripts, and corrected to describe an ESM-only package (D8).
+- **Integration tests:** `import-test` runs against the built ESM bundle.
 
 #### E2E — Cross-module scenarios
 - **Depends on:** every task except DOCS; runs in parallel with DOCS.
@@ -350,7 +350,7 @@ A task that fails its gate goes back to the **same** subagent (via `SendMessage`
 
 ## 6. Orchestrator protocol
 
-1. Confirm section 2 with the maintainer. Create a working branch.
+1. Create a working branch. Section 2 is already confirmed; do not reopen it.
 2. Launch tasks per section 1.2. For each task, send the prompt in section 7 with the task block pasted in.
 3. Keep the orchestrator's own context small: do not read subagent diffs in full. Rely on the gates, the handoff note, and a `git diff --stat` check that only owned files changed. If a file outside the owned list changed, reject the task result.
 4. After a task passes: commit its owned files with a message naming the task and finding IDs, then start the lane's next task.
