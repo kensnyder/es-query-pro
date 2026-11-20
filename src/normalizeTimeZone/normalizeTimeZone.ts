@@ -4,18 +4,19 @@ const pad2 = (n: number) => {
 };
 
 /**
- * Get a timezone string from integer offset
+ * Get a timezone string from an integer offset in minutes
+ * (positive is east of UTC)
  * @example
- *    360 => -06:00
- *    -300 => +05:00
+ *    -360 => -06:00
+ *    330 => +05:30
  *    0 => +00:00
  * @param offset
  */
 export function offsetMinutesToString(offset: number) {
-  const timezone = offset * -1;
-  const sign = offset < 1 ? "-" : "+";
-  const hour = Math.floor(timezone / 60);
-  const min = timezone % 60;
+  const sign = offset < 0 ? "-" : "+";
+  const minutes = Math.abs(offset);
+  const hour = Math.floor(minutes / 60);
+  const min = minutes % 60;
   return `${sign}${pad2(hour)}:${pad2(min)}`;
 }
 
@@ -28,7 +29,7 @@ export function normalizeTimeZone(tz: string | number): string {
     return "Z";
   }
   // IANA zone (very loose check), or explicit ±HH:MM
-  const ianaLikely = /^[A-Za-z]+(?:\/[A-Za-z_+-]+)+$/.test(tz);
+  const ianaLikely = /^[A-Za-z]+(?:\/[A-Za-z0-9_+-]+)+$/.test(tz);
   const offsetLike = /^[+-]\d{2}:\d{2}$/.test(tz);
   if (ianaLikely || offsetLike) {
     return tz;

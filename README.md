@@ -1,4 +1,4 @@
-# es-builder-pro
+# es-query-pro
 
 [![NPM Link](https://badgen.net/npm/v/es-query-pro?v=3.0.0-beta.2)](https://npmjs.com/package/es-query-pro)
 [![Language](https://badgen.net/static/language/TS?v=3.0.0-beta.2)](https://github.com/search?q=repo:kensnyder/es-query-pro++language:TypeScript&type=code)
@@ -22,7 +22,7 @@ only.
 Query Builder
 
 ```ts
-import { QueryBuilder } from "es-builder-pro";
+import { QueryBuilder } from "es-query-pro";
 
 const builder = new QueryBuilder();
 builder.term({ field: "author", value: 15 });
@@ -39,7 +39,7 @@ builder.page(2);
 Index Manager
 
 ```ts
-import { IndexManager, SchemaRegistry } from "es-builder-pro";
+import { IndexManager, SchemaRegistry } from "es-query-pro";
 
 const schemaRegistry = new SchemaRegistry();
 
@@ -120,10 +120,15 @@ export const booksIndex = new IndexManager({
   },
 });
 
-schemaRegistry.add(booksIndex);
+schemaRegistry.register(booksIndex);
 
-schemaManager.createOrMigrate();
+// create or migrate every registered index
+const { completion } = await schemaRegistry.migrateIfNeeded();
+const { success, summary } = await completion;
 ```
+
+See [SchemaRegistry.migrateIfNeeded](#schemaregistrymigrateifneededoptions)
+for the full result payload.
 
 ## Table of Contents
 
@@ -226,7 +231,7 @@ Real‑world examples:
 Code examples:
 
 ```ts
-import { QueryBuilder } from "es-builder-pro";
+import { QueryBuilder } from "es-query-pro";
 
 // Example 1: get recent or highly upvoted
 const qb1 = new QueryBuilder();
@@ -262,7 +267,7 @@ Real‑world examples:
 Code examples:
 
 ```ts
-import { QueryBuilder } from "es-builder-pro";
+import { QueryBuilder } from "es-query-pro";
 
 // Example 1: default (minimumShouldMatch = 1)
 const qb1 = new QueryBuilder();
@@ -311,7 +316,7 @@ Real‑world examples:
 Code examples:
 
 ```ts
-import { QueryBuilder } from "es-builder-pro";
+import { QueryBuilder } from "es-query-pro";
 
 const qb = new QueryBuilder();
 qb.mustNot((b) => {
@@ -324,6 +329,97 @@ qb.mustNot((b) => {
 ### must — omitted
 
 All conditions you add by default are `must` clauses. There is no explicit `must()` function; when you call builder methods like `term`, `match`, `range`, etc., they are placed under `bool.must` automatically. This keeps the API concise while covering the most common case (conjunction/AND of conditions).
+
+### SchemaRegistry.migrateIfNeeded(options)
+
+Create or migrate every registered index, one at a time, in registration order. An index that does not exist is created with its alias; an index whose alias points at an older version is created, reindexed in the background, and the old index is dropped; an index that is already current is left alone.
+
+The call resolves as soon as the work is kicked off. To get the outcome, await the returned `completion` promise or pass `onAllComplete` — both receive the same payload.
+
+```ts
+const { acknowledged, error, completion } =
+  await schemaRegistry.migrateIfNeeded({
+    slices: 1, // reindex slices per index (default 1)
+    pollInterval: 1000, // ms between reindex progress checks (default 1000)
+    onProgress: ({ alias, oldIndex, newIndex, done, total, percent }) => {},
+    onComplete: (progress) => {}, // one index finished creating/reindexing
+    onError: (error) => {},
+    onAllComplete: (details) => {}, // same payload as `completion`
+  });
+
+const details = await completion;
+if (!details.success) {
+  console.error(details.summary);
+}
+```
+
+Immediate return value:
+
+| Property     | Description                                                 |
+| ------------ | ----------------------------------------------------------- |
+| acknowledged | `false` only when no indexes are registered                 |
+| error        | An `Error` when no indexes are registered; otherwise `null` |
+| completion   | Promise of the payload below; never rejects                 |
+
+Payload from `completion` / `onAllComplete` (type `SchemaMigrationDetails`):
+
+| Property | Description                                                                      |
+| -------- | -------------------------------------------------------------------------------- |
+| success  | `true` when no index failed                                                      |
+| took     | Total milliseconds                                                               |
+| report   | One entry per registered index, in registration order (see below)                |
+| summary  | Outcome keyed by full index name, e.g. `{ "prod~english~books~v2": "migrated" }` |
+
+Each `report` entry (type `SchemaMigrationReport`):
+
+| Property  | Description                                                                        |
+| --------- | ---------------------------------------------------------------------------------- |
+| fullName  | Versioned index name, e.g. `prod~english~books~v2`                                 |
+| aliasName | Alias name, e.g. `prod~english~books`                                              |
+| outcome   | `"created"`, `"migrated"`, `"unchanged"` or `"failed"`                             |
+| before    | `IndexManager.getStatus()` result before migrating; `null` if it could not be read |
+| after     | `IndexManager.getStatus()` result after migrating; `null` if it could not be read  |
+| error     | The first `Error` hit for this index; otherwise `null`                             |
+| took      | Milliseconds spent on this index                                                   |
+
+Example payload:
+
+```ts
+{
+  success: false,
+  took: 5210,
+  report: [
+    {
+      fullName: "prod~english~books~v2",
+      aliasName: "prod~english~books",
+      outcome: "migrated",
+      before: { summary: "needsMigration", needsMigration: true, /* ... */ },
+      after: { summary: "current", needsMigration: false, /* ... */ },
+      error: null,
+      took: 4980,
+    },
+    {
+      fullName: "prod~english~authors~v1",
+      aliasName: "prod~english~authors",
+      outcome: "failed",
+      before: { summary: "needsCreation", needsCreation: true, /* ... */ },
+      after: { summary: "needsCreation", needsCreation: true, /* ... */ },
+      error: new Error("..."),
+      took: 230,
+    },
+  ],
+  summary: {
+    "prod~english~books~v2": "migrated",
+    "prod~english~authors~v1": "failed",
+  },
+}
+```
+
+Error handling:
+
+- A failed index does not stop the run; the remaining indexes are still processed and the failure is listed in `report` and `summary` with `outcome: "failed"`.
+- `onError` is called once per distinct error. If an index has already failed, a further failure reading its `after` status is not reported.
+- Exceptions thrown by `onError` or `onAllComplete` are logged with `console.error` and do not interrupt the run.
 
 ## Roadmap
 
