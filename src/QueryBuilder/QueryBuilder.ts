@@ -32,16 +32,60 @@ import type {
 } from '../types';
 
 /**
- * Get a default FVH highlighter configuration.
+ * Get the default highlighter configuration: the `unified` highlighter,
+ * which works on any text or keyword field and uses term vectors or
+ * offsets when the mapping provides them.
  * @returns A highlight config suitable for use with QueryBuilder.
  */
 export const getDefaultHighlighter = (): HighlightDefinition => ({
-  type: 'fvh',
+  type: 'unified',
   number_of_fragments: 3,
   fragment_size: 150,
   tags_schema: 'styled',
   fields: {},
 });
+
+/**
+ * Throw unless `value` is a finite number, optionally an integer `>= min`.
+ * @throws TypeError when `value` is not a number
+ * @throws RangeError when `value` is non-finite, fractional or too small
+ */
+function assertNumber(
+  method: string,
+  value: unknown,
+  { min, integer = false }: { min?: number; integer?: boolean } = {},
+): asserts value is number {
+  if (typeof value !== 'number') {
+    throw new TypeError(`${method}() expects a number, got ${typeof value}`);
+  }
+  if (!Number.isFinite(value)) {
+    throw new RangeError(`${method}() expects a finite number, got ${value}`);
+  }
+  if (integer && !Number.isInteger(value)) {
+    throw new RangeError(`${method}() expects an integer, got ${value}`);
+  }
+  if (min !== undefined && value < min) {
+    throw new RangeError(`${method}() expects a value >= ${min}, got ${value}`);
+  }
+}
+
+/**
+ * Copy a list of field names, throwing unless it is an array of strings.
+ * @throws TypeError when `fields` is not an array of strings
+ */
+function copyFieldList(method: string, fields: unknown): string[] {
+  if (!Array.isArray(fields)) {
+    throw new TypeError(`${method}() expects an array of field names`);
+  }
+  for (const field of fields) {
+    if (typeof field !== 'string') {
+      throw new TypeError(
+        `${method}() expects field names to be strings, got ${typeof field}`,
+      );
+    }
+  }
+  return [...fields];
+}
 
 /** A highlight definition whose `fields` is always a keyed object */
 export type HighlightDefinition = Omit<
@@ -97,7 +141,7 @@ export default class QueryBuilder<Field extends string = string> {
   /** The number of results to find before ranking */
   public _rankWindowSize = 50;
 
-  /** How much to consider lower ranking content, on a scale of 0-100 */
+  /** The rrf rank_constant (an integer >= 1; higher values flatten ranks) */
   public _rankConstant = 20;
 
   /** Optional rescore phase */
@@ -149,14 +193,17 @@ export default class QueryBuilder<Field extends string = string> {
   }
 
   /**
-   * Set the fields to fetch
-   * @param fields  The fields to select
+   * Set the fields to fetch in `_source`. Patterns such as `'publishing.*'`
+   * are allowed. An empty list fetches no `_source` at all (`_source: false`).
+   * The list is copied; later changes to the array do not affect the builder.
+   * @param fields  The fields to select (default `['*']`)
    * @return This instance
+   * @throws TypeError when `fields` is not an array of strings
    * @example
    *   qb.fields(['id', 'name']);
    */
   fields(fields: string[]): this {
-    this._fields = fields;
+    this._fields = copyFieldList('fields', fields);
     return this;
   }
 
@@ -166,19 +213,22 @@ export default class QueryBuilder<Field extends string = string> {
    *   qb.sourceIncludes(['title', 'author']);
    */
   sourceIncludes(fields: string[]): this {
-    this._fields = fields;
+    this._fields = copyFieldList('sourceIncludes', fields);
     return this;
   }
 
   /**
-   * Set the fields to exclude
+   * Set the fields to leave out of `_source`. Patterns are allowed. Combined
+   * with `fields()`, the result is the included fields minus the excluded.
+   * The list is copied; later changes to the array do not affect the builder.
    * @param fields  The fields to exclude
    * @return This instance
+   * @throws TypeError when `fields` is not an array of strings
    * @example
    *   qb.excludeFields(['internal.notes']);
    */
   excludeFields(fields: string[]): this {
-    this._excludeFields = fields;
+    this._excludeFields = copyFieldList('excludeFields', fields);
     return this;
   }
 
@@ -188,41 +238,53 @@ export default class QueryBuilder<Field extends string = string> {
    *   qb.sourceExcludes(['private.*']);
    */
   sourceExcludes(fields: string[]): this {
-    this._excludeFields = fields;
+    this._excludeFields = copyFieldList('sourceExcludes', fields);
     return this;
   }
 
   /**
-   * Pass a highlight definition to use
-   * @param options  The global Highlighter options
+   * Set global highlight options. They are **merged** into the current
+   * options (initially `getDefaultHighlighter()`); pass a key as `undefined`
+   * to remove it. Fields are added with `highlightField()`, not here.
+   * @param options  The global highlighter options
    * @return {QueryBuilder}
    * @chainable
    * @see https://www.elastic.co/guide/en/elasticsearch/reference/9.x/highlighting.html
    * @see https://www.elastic.co/guide/en/elasticsearch/reference/9.x/term-vector.html
    * @example
-   *   qb.highlighterOptions({ type: 'fvh', number_of_fragments: 1, fragment_size: 100, fields: {} });
+   *   qb.highlighterOptions({ number_of_fragments: 1, fragment_size: 100 });
    */
   highlighterOptions(options: Omit<HighlightDefinition, 'fields'>): this {
-    this._highlighter = {
-      ...options,
-      fields: this._highlighter.fields,
-    };
+    const merged: Record<string, unknown> = { ...this._highlighter };
+    for (const [key, value] of Object.entries(structuredClone(options))) {
+      if (key === 'fields') {
+        continue;
+      }
+      if (value === undefined) {
+        delete merged[key];
+      } else {
+        merged[key] = value;
+      }
+    }
+    this._highlighter = merged as HighlightDefinition;
     return this;
   }
 
   /**
-   * Get the current global highlighter configuration.
+   * Get a copy of the current highlighter configuration.
    * @returns The highlight options that will be applied to the query.
    * @example
    *   qb.highlightField('title');
    *   const hl = qb.getHighlighter();
    */
-  getHighlighter() {
-    return this._highlighter;
+  getHighlighter(): HighlightDefinition {
+    return structuredClone(this._highlighter);
   }
 
   /**
-   * Convenience helper to add FVH highlighting for one or more fields.
+   * Highlight a field. The default `unified` highlighter works on any text
+   * or keyword field; use `{ type: 'fvh' }` only on fields mapped with
+   * `term_vector: 'with_positions_offsets'`. The options are copied.
    * @param name  The name of the field to highlight
    * @param overrideOptions  Options to override global highlight options
    * @example
@@ -232,88 +294,105 @@ export default class QueryBuilder<Field extends string = string> {
     name: Field,
     overrideOptions: estypes.SearchHighlightField = {},
   ): this {
-    this._highlighter.fields[name] = overrideOptions;
+    this._highlighter.fields[name] = structuredClone(overrideOptions);
     return this;
   }
 
   /**
-   * Return the fields we will fetch
+   * Return a copy of the fields we will fetch
    * @example
    *   qb.fields(['id']);
    *   const fields = qb.getFields();
    */
-  getFields() {
-    return this._fields;
+  getFields(): string[] {
+    return [...this._fields];
   }
 
   /**
-   * Get the list of fields to exclude from _source in the response.
+   * Get a copy of the list of fields to exclude from _source.
    * @returns An array of field paths to exclude.
    * @example
    *   qb.excludeFields(['secret']);
    *   const excluded = qb.getExcludeFields();
    */
-  getExcludeFields() {
-    return this._excludeFields;
+  getExcludeFields(): string[] {
+    return [...this._excludeFields];
   }
 
   /**
    * @alias getFields
    */
-  getSourceIncludes() {
-    return this._fields;
+  getSourceIncludes(): string[] {
+    return this.getFields();
   }
 
   /**
    * @alias getExcludeFields
    */
-  getSourceExcludes() {
-    return this._excludeFields;
+  getSourceExcludes(): string[] {
+    return this.getExcludeFields();
   }
 
   /**
-   * Set rank_window_size - The number of results to find before ranking
-   * @param size
+   * Set rank_window_size: the number of results each retriever finds
+   * before they are combined (rrf and linear retrievers)
+   * @param size  An integer >= 1 (default 50)
+   * @throws TypeError when `size` is not a number
+   * @throws RangeError when `size` is not an integer >= 1
    * @example
    *   qb.rankWindowSize(100);
    */
   rankWindowSize(size: number): this {
+    assertNumber('rankWindowSize', size, { min: 1, integer: true });
     this._rankWindowSize = size;
     return this;
   }
 
   /**
-   * Get the reciprocal rank fusion window size used by the rank feature.
-   * @returns The window size if set, otherwise undefined.
+   * Get the rank_window_size used by rrf and linear retrievers.
+   * @returns The window size (default 50).
    * @example
    *   qb.rankWindowSize(75);
    *   const size = qb.getRankWindowSize();
    */
-  getRankWindowSize() {
+  getRankWindowSize(): number {
     return this._rankWindowSize;
   }
 
   /**
-   * Set rank_constant - How much to consider lower ranking content, on a scale of 0-100
-   * @param constant
+   * Set the rrf rank_constant: how much documents in lower ranks of each
+   * result set count. Elasticsearch requires an integer >= 1 and has no upper
+   * limit; its own default is 60, this builder's default is 20.
+   * @param constant  An integer >= 1
+   * @throws TypeError when `constant` is not a number
+   * @throws RangeError when `constant` is not an integer >= 1
+   * @example
+   *   qb.rankConstant(60);
    */
   rankConstant(constant: number): this {
+    assertNumber('rankConstant', constant, { min: 1, integer: true });
     this._rankConstant = constant;
     return this;
   }
 
   /**
-   * Get the rank_constant value used by the rank feature.
-   * @returns The rank constant if set, otherwise undefined.
+   * Get the rrf rank_constant.
+   * @returns The rank constant (default 20).
    */
-  getRankConstant() {
+  getRankConstant(): number {
     return this._rankConstant;
   }
 
   /**
    * Set a minimum score threshold for hits
+   * @param score  Any finite number
+   * @throws TypeError when `score` is not a number
+   * @throws RangeError when `score` is NaN or infinite
+   * @example
+   *   qb.minScore(0.5);
    */
   minScore(score: number): this {
+    assertNumber('minScore', score);
     this._minScore = score;
     return this;
   }
@@ -327,32 +406,49 @@ export default class QueryBuilder<Field extends string = string> {
   }
 
   /**
-   * Use search_after for deep pagination
+   * Use search_after for deep pagination. The values are copied.
+   * @param values  The `sort` values of the last hit of the previous page
+   * @throws TypeError when `values` is not an array
+   * @example
+   *   qb.sort('published_at').searchAfter(lastHit.sort);
    */
   searchAfter(values: SortResults): this {
-    this._searchAfter = values;
+    if (!Array.isArray(values)) {
+      throw new TypeError('searchAfter() expects an array of sort values');
+    }
+    this._searchAfter = structuredClone(values);
     return this;
   }
 
   /**
-   * Get the search_after cursor used for deep pagination.
+   * Get a copy of the search_after cursor used for deep pagination.
    * @returns The sort values to resume from, if set.
    */
   getSearchAfter() {
-    return this._searchAfter;
+    return structuredClone(this._searchAfter);
   }
 
   /**
-   * Control track_total_hits (boolean or number)
+   * Control track_total_hits
+   * @param value  true for an exact count, false to skip counting, or an
+   *   integer >= 0 to count accurately up to that many hits
+   * @throws TypeError when `value` is not a boolean or number
+   * @throws RangeError when `value` is a number but not an integer >= 0
+   * @example
+   *   qb.trackTotalHits(true);
    */
   trackTotalHits(value: boolean | number): this {
+    if (typeof value !== 'boolean') {
+      assertNumber('trackTotalHits', value, { min: 0, integer: true });
+    }
     this._trackTotalHits = value;
     return this;
   }
 
   /**
    * Get the current track_total_hits setting.
-   * @returns A boolean to enable/disable exact hit counts, or a number limit.
+   * @returns A boolean to enable/disable exact hit counts, a number limit, or
+   *   undefined if not set.
    */
   getTrackTotalHits() {
     return this._trackTotalHits;
@@ -2042,7 +2138,7 @@ export default class QueryBuilder<Field extends string = string> {
 
     // Add highlighting if specified
     if (!isEmptyObject(this._highlighter.fields)) {
-      body.highlight = this._highlighter;
+      body.highlight = structuredClone(this._highlighter);
     }
 
     // Add aggregations if specified
@@ -2126,7 +2222,7 @@ export default class QueryBuilder<Field extends string = string> {
       options.min_score = this._minScore;
     }
     if (Array.isArray(this._searchAfter) && this._searchAfter.length > 0) {
-      options.search_after = this._searchAfter;
+      options.search_after = structuredClone(this._searchAfter);
     }
     if (
       typeof this._trackTotalHits === 'boolean' ||
@@ -2143,20 +2239,30 @@ export default class QueryBuilder<Field extends string = string> {
    * @return {Object}
    */
   getQuery(overrides: Partial<SearchRequest> = {}): SearchRequest {
-    const source: Pick<SearchRequest, '_source' | '_source_excludes'> = {};
-    if (this._fields.length > 0) {
-      source._source = this._fields;
-    }
-    if (this._excludeFields.length > 0) {
-      source._source_excludes = this._excludeFields;
-    }
     return {
       ...(this._index ? { index: this._index } : {}),
-      ...source,
+      _source: this._getSource(),
       ...this.getBody(),
       ...this.getOptions(),
       ...overrides,
     };
+  }
+
+  /**
+   * Build the body's `_source`: `false` when `fields([])` was set, the
+   * includes array when nothing is excluded, otherwise one object with both
+   * lists. Excludes always go in the body: the client would send a separate
+   * `_source_excludes` key as a URL parameter, which makes Elasticsearch
+   * ignore the body's includes, and Kibana rejects it as a body key.
+   */
+  private _getSource(): NonNullable<SearchRequest['_source']> {
+    if (this._fields.length === 0) {
+      return false;
+    }
+    if (this._excludeFields.length === 0) {
+      return [...this._fields];
+    }
+    return { includes: [...this._fields], excludes: [...this._excludeFields] };
   }
 
   /**
