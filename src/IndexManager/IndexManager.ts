@@ -26,7 +26,17 @@ import type {
   PatchRequestParams,
 } from '../types';
 
-export type IndexErrorShape = IndexManager['_formatError'];
+/**
+ * The error half of every result envelope: what `_formatError()` returns and
+ * what every public method spreads into its result when a request fails
+ */
+export type IndexErrorShape = {
+  /** The thrown value; non-`Error` values are wrapped (see `cause`) */
+  error: Error;
+  errorKind: IndexErrorKind;
+  /** The response metadata (`statusCode`, `body`, ...) of a `ResponseError` */
+  response: ErrorMeta | null;
+};
 export type IndexExistsShape = Awaited<ReturnType<IndexManager['exists']>>;
 export type AliasExistsShape = Awaited<ReturnType<IndexManager['aliasExists']>>;
 export type IndexMetadataShape = Awaited<
@@ -62,7 +72,10 @@ export type IndexInferCreate<T> = T extends IndexManager<infer C> ? C : never;
 export type IndexInferRecordShape<T> = MappingRecord<IndexInferCreate<T>>;
 /** The field paths a query may name for an `IndexManager` */
 export type IndexInferFields<T> = MappingFieldPath<IndexInferCreate<T>>;
-export type IndexRunShape<T extends IndexManager> = ReturnType<T['run']>;
+/** The `QueryRunner` that `run()` passes to its callback */
+export type IndexRunShape<T extends IndexManager> = QueryRunner<
+  IndexInferCreate<T>
+>;
 export type MigrationParams = {
   onProgress?: (details: MigrationProgressDetails) => void;
   onComplete?: (details: MigrationProgressDetails) => void;
@@ -124,14 +137,27 @@ export type ManageOptions = {
 };
 
 /**
- * How a failed request failed: a response from Elasticsearch, a connection
- * problem, a timeout, no living nodes, or anything else (`javascript`)
+ * How a failed request failed, from the client error's `name`:
+ * - `response`: Elasticsearch answered with an error status (`ResponseError`)
+ * - `connection`: the server could not be reached (`ConnectionError`)
+ * - `timeout`: no answer in time (`TimeoutError`)
+ * - `disconnected`: no living node to send to (`NoLivingConnectionsError`)
+ * - `aborted`: the request was aborted (`RequestAbortedError`)
+ * - `serialization`: a body could not be encoded or decoded
+ *   (`SerializationError`, `DeserializationError`)
+ * - `product`: the server is not Elasticsearch (`ProductNotSupportedError`)
+ * - `configuration`: the client is misconfigured (`ConfigurationError`)
+ * - `javascript`: anything else, e.g. a bug or a thrown non-client error
  */
 export type IndexErrorKind =
   | 'response'
   | 'connection'
   | 'timeout'
   | 'disconnected'
+  | 'aborted'
+  | 'serialization'
+  | 'product'
+  | 'configuration'
   | 'javascript';
 
 /**
@@ -237,20 +263,18 @@ export default class IndexManager<
 
   /**
    * Normalize errors thrown by the Elasticsearch client into a consistent shape.
-   * Distinguishes between response, connection, timeout, disconnected, and generic JS errors.
-   * Errors are recognized by their `name`, so errors thrown by another copy
-   * of the client package are classified the same way.
+   * `errorKind` says how the request failed (see `IndexErrorKind`). Errors are
+   * recognized by their `name`, so errors thrown by another copy of the
+   * client package are classified the same way.
    * @param e The error thrown by the client or runtime.
-   * @returns A normalized error object with `error`, `errorKind`, and optional `response`.
+   * @returns `error` (always an `Error`; anything else is wrapped with the
+   *   thrown value as its `cause`), `errorKind`, and `response`, the response
+   *   metadata of a `ResponseError` (null for other kinds).
    */
-  _formatError(e: unknown): {
-    error: Error;
-    errorKind: IndexErrorKind;
-    response: ErrorMeta | null;
-  } {
+  _formatError(e: unknown): IndexErrorShape {
     const errorKind = getErrorKind(e);
     return {
-      error: e as Error,
+      error: toError(e),
       errorKind,
       // only Elasticsearch response errors carry response metadata
       response: errorKind === 'response' ? getErrorMeta(e) : null,
@@ -262,7 +286,11 @@ export default class IndexManager<
    * @param response The raw response from the Elasticsearch client.
    * @returns An object with `error` and `errorKind` null plus the original response.
    */
-  _formatNonError<T>(response: T) {
+  _formatNonError<T>(response: T): {
+    error: null;
+    errorKind: null;
+    response: T;
+  } {
     return {
       error: null,
       errorKind: null,
@@ -275,13 +303,14 @@ export default class IndexManager<
    */
   async exists(more?: Partial<IndexExistParams>) {
     const start = Date.now();
+    const body = {
+      index: this.getFullName(),
+      ...(more || {}),
+    };
     const request = {
       method: 'HEAD',
-      endpoint: `/${this.getFullName()}`,
-      body: {
-        index: this.getFullName(),
-        ...(more || {}),
-      },
+      endpoint: `/${toPathPart(body.index)}`,
+      body,
     };
     try {
       const exists = await this.client.indices.exists(request.body);
@@ -322,13 +351,14 @@ export default class IndexManager<
    */
   async aliasExists(more?: Partial<AliasExistParams>) {
     const start = Date.now();
+    const body = {
+      name: this.getAliasName(),
+      ...(more || {}),
+    };
     const request = {
       method: 'HEAD',
-      endpoint: `/_alias/${this.getAliasName()}`,
-      body: {
-        name: this.getAliasName(),
-        ...(more || {}),
-      },
+      endpoint: getAliasEndpoint(body),
+      body,
     };
     try {
       const exists = await this.client.indices.existsAlias(request.body);
@@ -339,14 +369,13 @@ export default class IndexManager<
         ...this._formatNonError(exists),
       };
     } catch (e) {
-      console.log('aliasExists error', e);
-      const meta = getErrorMeta(e);
-      if (meta?.statusCode === 404) {
+      // the client resolves a HEAD 404 to false; this covers clients that throw
+      if (isResponseStatus(e, 404)) {
         return {
           exists: false,
           request,
           took: Date.now() - start,
-          ...this._formatNonError(meta),
+          ...this._formatNonError(false),
         };
       }
       return {
@@ -363,13 +392,14 @@ export default class IndexManager<
    */
   async getIndexMetadata(more?: Partial<IndexMetadataParams>) {
     const start = Date.now();
+    const body = {
+      index: this.getFullName(),
+      ...(more || {}),
+    };
     const request = {
       method: 'GET',
-      endpoint: `/${this.getFullName()}`,
-      body: {
-        index: this.getFullName(),
-        ...(more || {}),
-      },
+      endpoint: `/${toPathPart(body.index)}`,
+      body,
     };
     try {
       const response = await this.client.indices.get(request.body);
@@ -382,7 +412,6 @@ export default class IndexManager<
         ...this._formatNonError(response),
       };
     } catch (e) {
-      // const exists = e.statusCode === 404;
       return {
         name: null,
         request,
@@ -393,17 +422,21 @@ export default class IndexManager<
   }
 
   /**
-   * Get metadata for the alias
+   * Get metadata for the alias: the indexes it points at. A missing alias is
+   * not an error (`success: true, indexes: []`); a missing `more.index` is.
+   * When `more.name` lists several aliases and only some exist, `indexes`
+   * lists the indexes of those that do.
    */
   async getAliasMetadata(more?: Partial<AliasMetadataParams>) {
     const start = Date.now();
+    const body = {
+      name: this.getAliasName(),
+      ...(more || {}),
+    };
     const request = {
       method: 'GET',
-      endpoint: `/_alias/${this.getAliasName()}`,
-      body: {
-        name: this.getAliasName(),
-        ...(more || {}),
-      },
+      endpoint: getAliasEndpoint(body),
+      body,
     };
     try {
       const response = await this.client.indices.getAlias(request.body);
@@ -424,13 +457,14 @@ export default class IndexManager<
         ...this._formatNonError(response),
       };
     } catch (e) {
-      if (getErrorMeta(e)?.statusCode === 404) {
+      const found = getMissingAliasEntries(e);
+      if (found) {
         return {
           success: true,
-          indexes: [],
+          indexes: Object.keys(found),
           request,
           took: Date.now() - start,
-          ...this._formatNonError({}),
+          ...this._formatNonError(found),
         };
       }
       return {
@@ -461,7 +495,8 @@ export default class IndexManager<
   }
 
   /**
-   * Flush the index to ensure all operations are committed to disk.
+   * Flush the index to ensure all operations are committed to disk. Targets
+   * the full (versioned) index name, so it works before the alias exists.
    * Elastic Cloud Serverless manages durability itself and rejects `_flush`;
    * there the call is a successful no-op with `skipped: true`. To skip the
    * request entirely, pass `serverless: true` or set `ES_SERVERLESS=true`.
@@ -471,13 +506,14 @@ export default class IndexManager<
    */
   async flush(more?: Partial<FlushRequestParams>) {
     const start = Date.now();
+    const body = {
+      index: this.getFullName(),
+      ...(more || {}),
+    };
     const request = {
       method: 'POST',
-      endpoint: `/${this.getAliasName()}/_flush`,
-      body: {
-        index: this.getAliasName(),
-        ...(more || {}),
-      },
+      endpoint: `/${toPathPart(body.index)}/_flush`,
+      body,
     };
     if (this.isServerless()) {
       return {
@@ -609,8 +645,8 @@ export default class IndexManager<
         ...(more || {}),
       },
     };
-    const { exists } = await this.aliasExists();
     try {
+      const { exists } = await this.aliasExists();
       const response = await this.client.indices.delete(request.body);
       if (response.acknowledged && exists) {
         await this.client.indices.deleteAlias({
@@ -1451,6 +1487,15 @@ function getErrorKind(e: unknown): IndexErrorKind {
       return 'timeout';
     case 'NoLivingConnectionsError':
       return 'disconnected';
+    case 'RequestAbortedError':
+      return 'aborted';
+    case 'SerializationError':
+    case 'DeserializationError':
+      return 'serialization';
+    case 'ProductNotSupportedError':
+      return 'product';
+    case 'ConfigurationError':
+      return 'configuration';
     default:
       return 'javascript';
   }
@@ -1471,13 +1516,85 @@ function getErrorMeta(e: unknown): ErrorMeta | null {
 }
 
 /**
- * The thrown value as an `Error` (wrapped when it is not one)
+ * The thrown value as an `Error`. Anything else is wrapped in one that keeps
+ * the value as `cause` and, for error-like objects, its `name` and `message`.
  */
-function toError(e: unknown) {
+function toError(e: unknown): Error {
   if (e instanceof Error) {
     return e;
   }
-  return new Error(String(e));
+  let message = String(e);
+  if (typeof e === 'object' && e !== null && 'message' in e) {
+    message = String(e.message);
+  }
+  const error = new Error(message, { cause: e });
+  const name = getErrorName(e);
+  if (name) {
+    error.name = name;
+  }
+  return error;
+}
+
+/**
+ * Whether the thrown value is a `ResponseError` with the given status code
+ */
+function isResponseStatus(e: unknown, statusCode: number) {
+  if (getErrorName(e) !== 'ResponseError') {
+    return false;
+  }
+  return getErrorMeta(e)?.statusCode === statusCode;
+}
+
+/**
+ * For the 404 that `GET _alias/<name>` answers when a named alias does not
+ * exist (`{ error: 'alias [x] missing', status: 404, ...found }`), the
+ * entries of the aliases that were found (often none). Null for any other
+ * error, including the 404 for a missing index, whose `error` is an object
+ * (`index_not_found_exception`).
+ */
+function getMissingAliasEntries(e: unknown) {
+  if (!isResponseStatus(e, 404)) {
+    return null;
+  }
+  const body = getErrorMeta(e)?.body;
+  if (typeof body !== 'object' || body === null) {
+    return null;
+  }
+  if (!('error' in body) || typeof body.error !== 'string') {
+    return null;
+  }
+  const found: estypes.IndicesGetAliasResponse = {};
+  for (const [key, value] of Object.entries(body)) {
+    if (key !== 'error' && key !== 'status') {
+      found[key] = value as estypes.IndicesGetAliasIndexAliases;
+    }
+  }
+  return found;
+}
+
+/**
+ * Index or alias names as one path part (`a,b` for a list)
+ */
+function toPathPart(names: string | string[] | undefined) {
+  if (Array.isArray(names)) {
+    return names.join(',');
+  }
+  return names ?? '';
+}
+
+/**
+ * The endpoint of an alias request: `/<index>/_alias/<name>` or
+ * `/_alias/<name>`
+ */
+function getAliasEndpoint(body: {
+  name?: string | string[];
+  index?: string | string[];
+}) {
+  const name = toPathPart(body.name);
+  if (body.index === undefined) {
+    return `/_alias/${name}`;
+  }
+  return `/${toPathPart(body.index)}/_alias/${name}`;
 }
 
 /**
