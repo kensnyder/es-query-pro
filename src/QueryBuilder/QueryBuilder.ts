@@ -219,6 +219,151 @@ const BOOSTED_PHRASE_DEFAULTS: Record<BoostOperator, number> = {
   or: 1,
 };
 
+/** A value a `term` query can match: a string, number or boolean */
+export type TermValue = Exclude<estypes.FieldValue, null>;
+
+/** Options of `QueryBuilder.term()` */
+export type TermOptions = Pick<estypes.QueryDslTermQuery, 'boost'> & {
+  /** Match case exactly (default `true`, as in Elasticsearch) */
+  caseSensitive?: boolean;
+};
+
+/** Options of `QueryBuilder.wildcard()` and `QueryBuilder.containsExact()` */
+export type WildcardOptions = Pick<
+  estypes.QueryDslWildcardQuery,
+  'boost' | 'rewrite'
+> & {
+  /** Match case exactly (default `false`) */
+  caseSensitive?: boolean;
+};
+
+/** Options of `QueryBuilder.regexp()` */
+export type RegexpOptions = Pick<
+  estypes.QueryDslRegexpQuery,
+  'boost' | 'rewrite' | 'flags' | 'max_determinized_states'
+> & {
+  /** Match case exactly (default `false`) */
+  caseSensitive?: boolean;
+};
+
+/** Options of `QueryBuilder.queryString()` (everything but the query) */
+export type QueryStringOptions = Omit<
+  estypes.QueryDslQueryStringQuery,
+  'query' | 'fields' | 'default_field'
+>;
+
+/** Options of `QueryBuilder.simpleQueryString()` */
+export type SimpleQueryStringOptions = Omit<
+  estypes.QueryDslSimpleQueryStringQuery,
+  'query' | 'fields'
+>;
+
+/** Arguments of `QueryBuilder.termsSet()` */
+export type TermsSetOptions<Field extends string = string> = {
+  /** The field to search */
+  field: Field;
+  /** The terms to look for */
+  terms: TermValue[];
+  /** How many terms must match, e.g. `2` or `'75%'` */
+  minimumShouldMatch?: estypes.MinimumShouldMatch;
+  /** A numeric field holding the number of terms each document must match */
+  minimumShouldMatchField?: Field;
+  /** A script returning the number of terms that must match */
+  script?: string | estypes.Script;
+  boost?: number;
+};
+
+/**
+ * Split the two call forms of the term-level methods, `(field, value,
+ * options?)` and `({ field, value, ...options })`, into their parts.
+ * @throws TypeError when `field` is neither a string nor an object
+ */
+function splitTermArgs<O extends object>(
+  method: string,
+  field: unknown,
+  value: unknown,
+  options: O | undefined,
+): { name: string; value: unknown; options: Partial<O> } {
+  if (typeof field === 'string') {
+    return { name: field, value, options: options ?? {} };
+  }
+  if (field === null || typeof field !== 'object') {
+    throw new TypeError(
+      `${method}() expects a field name or an object with a field`,
+    );
+  }
+  const {
+    field: name,
+    value: objectValue,
+    ...rest
+  } = field as Record<string, unknown>;
+  if (typeof name !== 'string') {
+    throw new TypeError(`${method}() expects field to be a string`);
+  }
+  return { name, value: objectValue, options: rest as Partial<O> };
+}
+
+/**
+ * Copy the given keys of `options` that are not `undefined`.
+ */
+function pickDefined<O extends object>(
+  options: O,
+  keys: readonly (keyof O)[],
+): Partial<O> {
+  const picked: Partial<O> = {};
+  for (const key of keys) {
+    if (options[key] !== undefined) {
+      picked[key] = options[key];
+    }
+  }
+  return picked;
+}
+
+/**
+ * Get `case_insensitive` for a `caseSensitive` option, using `fallback` when
+ * the option is `undefined`.
+ * @throws TypeError when `caseSensitive` is set but not a boolean
+ */
+function caseInsensitive(
+  method: string,
+  caseSensitive: unknown,
+  fallback: boolean,
+): boolean {
+  if (caseSensitive === undefined) {
+    return !fallback;
+  }
+  if (typeof caseSensitive !== 'boolean') {
+    throw new TypeError(
+      `${method}() expects caseSensitive to be a boolean, got ${typeof caseSensitive}`,
+    );
+  }
+  return !caseSensitive;
+}
+
+/**
+ * Throw unless `value` is a string.
+ * @throws TypeError when `value` is not a string
+ */
+function assertString(
+  method: string,
+  name: string,
+  value: unknown,
+): asserts value is string {
+  if (typeof value !== 'string') {
+    throw new TypeError(
+      `${method}() expects ${name} to be a string, got ${describeType(value)}`,
+    );
+  }
+}
+
+/** `typeof`, but `'null'` for null and `'array'` for arrays */
+function describeType(value: unknown): string {
+  if (value === null) {
+    return 'null';
+  }
+  return Array.isArray(value) ? 'array' : typeof value;
+}
+
 /** A highlight definition whose `fields` is always a keyed object */
 export type HighlightDefinition = Omit<
   NonNullable<SearchRequest['highlight']>,
@@ -1105,116 +1250,233 @@ export default class QueryBuilder<Field extends string = string> {
   }
 
   /**
-   * Add an exact matching condition
+   * Add an exact-value condition (`term` query). Without options the clause
+   * is the shorthand `{ term: { field: value } }`. Use it on `keyword`,
+   * numeric, boolean or date fields; a `text` field holds analyzed tokens, so
+   * an exact value rarely matches there.
    * @see https://www.elastic.co/docs/reference/query-languages/query-dsl/query-dsl-term-query
    *
-   * @param field  The name of the field to search OR an object {field:name, value:value}
-   * @param value  A string to match
+   * @param field  The name of the field to search, or an object
+   *   `{ field, value, ...options }`
+   * @param value  The string, number or boolean to match
+   * @param options  `caseSensitive` (default `true`; `false` sends
+   *   `case_insensitive: true`, for `keyword` fields) and `boost`
    * @return {QueryBuilder}
+   * @throws TypeError when `value` is missing, `null`, an array or an
+   *   object (use `rawCondition({ terms })` for several values), or when
+   *   `caseSensitive` is not a boolean
+   * @throws RangeError when `value` is a non-finite number
    * @chainable
    * @example
-   *   qb.term({ field: 'status', value: 'active' });
    *   qb.term('tag', 'music');
+   *   qb.term({ field: 'status', value: 'Active', caseSensitive: false });
+   *   qb.term('author', 'tolkien', { boost: 2 });
    */
-  term(field: Field | { field: Field; value: any }, value?: any): this {
-    const effectiveName = typeof field === 'string' ? field : field.field;
-    const effectiveValue = typeof field === 'string' ? value : field.value;
-    this._must.push({
-      term: {
-        [effectiveName]: effectiveValue,
-      },
-    });
+  term(field: Field, value: TermValue, options?: TermOptions): this;
+  /**
+   * Add an exact-value condition (`term` query); see the positional form.
+   * @example
+   *   qb.term({ field: 'status', value: 'active', boost: 2 });
+   */
+  term(field: { field: Field; value: TermValue } & TermOptions): this;
+  term(
+    field: Field | ({ field: Field; value: TermValue } & TermOptions),
+    value?: TermValue,
+    options?: TermOptions,
+  ): this {
+    const args = splitTermArgs('term', field, value, options);
+    const termValue = args.value;
+    if (
+      typeof termValue !== 'string' &&
+      typeof termValue !== 'number' &&
+      typeof termValue !== 'boolean'
+    ) {
+      throw new TypeError(
+        `term() expects a string, number or boolean value, got ${describeType(termValue)}`,
+      );
+    }
+    if (typeof termValue === 'number') {
+      assertNumber('term', termValue);
+    }
+    const { caseSensitive, ...rest } = args.options;
+    const extra = pickDefined(rest, ['boost']);
+    if (caseSensitive === undefined && isEmptyObject(extra)) {
+      this._must.push({ term: { [args.name]: termValue } });
+      return this;
+    }
+    const clause: estypes.QueryDslTermQuery = { value: termValue };
+    if (caseSensitive !== undefined) {
+      clause.case_insensitive = caseInsensitive('term', caseSensitive, true);
+    }
+    this._must.push({ term: { [args.name]: { ...clause, ...extra } } });
     return this;
   }
 
   /**
-   * Add a wildcard matching condition
+   * Add a wildcard pattern condition (`wildcard` query): `*` matches any
+   * characters and `?` one character. Case-insensitive by default. Use it on
+   * `keyword` fields; to match literal text, see `containsExact()` or
+   * `QueryBuilder.escapeWildcards()`.
+   * @see https://www.elastic.co/docs/reference/query-languages/query-dsl/query-dsl-wildcard-query
    *
-   * @param field  The name of the field to search OR an object {field:name, value:value, caseSensitive:bool}
-   * @param value  A string to match
+   * @param field  The name of the field to search, or an object
+   *   `{ field, value, ...options }`
+   * @param value  The pattern to match
+   * @param options  `caseSensitive` (default `false`), `boost` and `rewrite`
    * @return {QueryBuilder}
+   * @throws TypeError when `value` is not a string or `caseSensitive` is not
+   *   a boolean
    * @chainable
    * @example
-   *   qb.wildcard({ field: 'description.keyword', value: '*United Airlines*', caseSensitive: false });
-   *   qb.wildcard('description.keyword', '*United Airlines*');
+   *   qb.wildcard('sku', 'WM-2025-*');
+   *   qb.wildcard({ field: 'sku', value: 'wm-*', caseSensitive: true });
    */
+  wildcard(field: Field, value: string, options?: WildcardOptions): this;
+  /**
+   * Add a wildcard pattern condition; see the positional form.
+   * @example
+   *   qb.wildcard({ field: 'sku', value: 'WM-*', caseSensitive: true });
+   */
+  wildcard(field: { field: Field; value: string } & WildcardOptions): this;
   wildcard(
-    field: Field | { field: Field; value: string; caseSensitive?: boolean },
+    field: Field | ({ field: Field; value: string } & WildcardOptions),
     value?: string,
+    options?: WildcardOptions,
   ): this {
-    const effectiveName = typeof field === 'string' ? field : field.field;
-    const effectiveValue = typeof field === 'string' ? value : field.value;
-    this._must.push({
-      wildcard: {
-        [effectiveName]: {
-          value: effectiveValue,
-          case_insensitive:
-            typeof field === 'string' ? true : !field.caseSensitive,
-        },
-      },
-    });
+    const args = splitTermArgs('wildcard', field, value, options);
+    assertString('wildcard', 'value', args.value);
+    this._pushPattern('wildcard', args.name, args.value, args.options);
     return this;
   }
 
   /**
-   * Require field to contain the exact phrase
+   * Require a field to contain the given text anywhere in its value, as
+   * written: a `wildcard` query `*text*` with `*`, `?` and `\` escaped.
+   * Case-insensitive by default. Meant for `keyword` fields (or a keyword
+   * sub-field of a text field); on a `text` field it matches single tokens
+   * only. A blank value (empty, whitespace only, `null` or `undefined`) adds
+   * nothing, so an empty search box does not filter.
    *
-   * @param field  The name of the field to search OR an object {field:name, value:value, caseSensitive:bool}
-   * @param value  A string to match
+   * @param field  The name of the field to search, or an object
+   *   `{ field, value, ...options }`
+   * @param value  The text to look for
+   * @param options  `caseSensitive` (default `false`), `boost` and `rewrite`
    * @return {QueryBuilder}
+   * @throws TypeError when `value` is set but not a string, or
+   *   `caseSensitive` is not a boolean
    * @chainable
    * @example
-   *   qb.containExact({ field: 'description.keyword', value: 'United Airlines' });
-   *   qb.containExact('description.keyword', 'United Airlines');
+   *   qb.containsExact('title.raw', 'United Airlines');
+   *   qb.containsExact({ field: 'sku', value: '50%*', caseSensitive: true });
    */
+  containsExact(field: Field, value: string, options?: WildcardOptions): this;
+  /**
+   * Require a field to contain the given text; see the positional form.
+   * @example
+   *   qb.containsExact({ field: 'title.raw', value: 'United Airlines' });
+   */
+  containsExact(field: { field: Field; value: string } & WildcardOptions): this;
   containsExact(
-    field: Field | { field: Field; value: string; caseSensitive?: boolean },
+    field: Field | ({ field: Field; value: string } & WildcardOptions),
     value?: string,
+    options?: WildcardOptions,
   ): this {
-    const effectiveName = typeof field === 'string' ? field : field.field;
-    const effectiveValue =
-      typeof field === 'string' ? (value ?? '') : field.value;
-    const escaped = this.escapeWildcards(effectiveValue);
-    this._must.push({
-      wildcard: {
-        [effectiveName]: {
-          value: `*${escaped}*`,
-          case_insensitive:
-            typeof field === 'string' ? true : !field.caseSensitive,
-        },
-      },
-    });
+    const args = splitTermArgs('containsExact', field, value, options);
+    if (isBlankPhrase(args.value)) {
+      return this;
+    }
+    assertString('containsExact', 'value', args.value);
+    const escaped = QueryBuilder.escapeWildcards(args.value);
+    this._pushPattern('containsExact', args.name, `*${escaped}*`, args.options);
     return this;
   }
 
   /**
-   * Add a regular expression matching condition
+   * Add a regular expression condition (`regexp` query). The pattern must
+   * match the whole value (it is anchored) and uses Lucene syntax.
+   * Case-insensitive by default in both call forms. Use it on `keyword`
+   * fields.
+   * @see https://www.elastic.co/docs/reference/query-languages/query-dsl/query-dsl-regexp-query
    *
-   * @param field  The name of the field to search OR an object {field:name, value:value, caseSensitive:bool}
-   * @param value  A string to match
+   * @param field  The name of the field to search, or an object
+   *   `{ field, value, ...options }`
+   * @param value  The regular expression
+   * @param options  `caseSensitive` (default `false`), `flags` (e.g.
+   *   `'COMPLEMENT|INTERVAL'`, `'ALL'`, `'NONE'`),
+   *   `max_determinized_states` (integer >= 1), `rewrite` and `boost`
    * @return {QueryBuilder}
+   * @throws TypeError when `value` is not a string or `caseSensitive` is not
+   *   a boolean
+   * @throws RangeError when `max_determinized_states` is not an integer >= 1
    * @chainable
    * @example
-   *   qb.rexgep({ field: 'description.keyword', value: 'iP(od|ad|hone) \d+', caseSensitive: true });
-   *   qb.rexgep('description.keyword', 'iP(od|ad|hone) \d+');
+   *   qb.regexp('model', 'iP(od|ad|hone) \\d+');
+   *   qb.regexp({ field: 'model', value: 'ip.*', caseSensitive: true });
+   *   qb.regexp('code', '<1-100>', { flags: 'INTERVAL' });
    */
-  rexgep(
-    field: Field | { field: Field; value: string; caseSensitive?: boolean },
+  regexp(field: Field, value: string, options?: RegexpOptions): this;
+  /**
+   * Add a regular expression condition; see the positional form.
+   * @example
+   *   qb.regexp({ field: 'model', value: 'ip.*', caseSensitive: true });
+   */
+  regexp(field: { field: Field; value: string } & RegexpOptions): this;
+  regexp(
+    field: Field | ({ field: Field; value: string } & RegexpOptions),
     value?: string,
+    options?: RegexpOptions,
   ): this {
-    const effectiveName = typeof field === 'string' ? field : field.field;
-    const effectiveValue =
-      typeof field === 'string' ? (value ?? '') : field.value;
-    this._must.push({
-      regexp: {
-        [effectiveName]: {
-          value: effectiveValue,
-          case_insensitive:
-            typeof field === 'string' ? false : !field.caseSensitive,
-        },
-      },
-    });
+    const args = splitTermArgs('regexp', field, value, options);
+    assertString('regexp', 'value', args.value);
+    const states = args.options.max_determinized_states;
+    if (states !== undefined) {
+      assertNumber('regexp', states, { min: 1, integer: true });
+    }
+    this._pushPattern('regexp', args.name, args.value, args.options);
     return this;
+  }
+
+  /**
+   * @deprecated Misspelled; use `regexp()`, which takes the same arguments.
+   */
+  rexgep(field: Field, value: string, options?: RegexpOptions): this;
+  /**
+   * @deprecated Misspelled; use `regexp()`, which takes the same arguments.
+   */
+  rexgep(field: { field: Field; value: string } & RegexpOptions): this;
+  rexgep(
+    field: Field | ({ field: Field; value: string } & RegexpOptions),
+    value?: string,
+    options?: RegexpOptions,
+  ): this {
+    if (typeof field === 'string') {
+      return this.regexp(field, value as string, options);
+    }
+    return this.regexp(field);
+  }
+
+  /**
+   * Push a `wildcard` or `regexp` clause with `case_insensitive` (default
+   * true) and the pattern options that are set.
+   */
+  private _pushPattern(
+    method: 'wildcard' | 'containsExact' | 'regexp',
+    name: string,
+    value: string,
+    options: Partial<RegexpOptions>,
+  ) {
+    const { caseSensitive, ...rest } = options;
+    const clause = {
+      value,
+      case_insensitive: caseInsensitive(method, caseSensitive, false),
+      ...pickDefined(rest, ['boost', 'rewrite']),
+    };
+    if (method === 'regexp') {
+      const extra = pickDefined(rest, ['flags', 'max_determinized_states']);
+      this._must.push({ regexp: { [name]: { ...clause, ...extra } } });
+      return;
+    }
+    this._must.push({ wildcard: { [name]: clause } });
   }
 
   /**
@@ -1232,64 +1494,154 @@ export default class QueryBuilder<Field extends string = string> {
   }
 
   /**
-   * Add a Lucene expression condition
+   * Add a Lucene query syntax condition (`query_string` query) on one field.
+   * Invalid syntax makes the search fail with a 400 error, so for text typed
+   * by end users prefer `simpleQueryString()` (or pass `lenient: true`,
+   * which only covers type mismatches, not syntax).
    * @see https://www.elastic.co/docs/reference/query-languages/query-dsl/query-dsl-query-string-query
    *
-   * @param field  The name of the field to search OR an object with {field:name,queryString:value}
-   * @param queryString  A string containing special operators such as AND, NOT, OR, ~, *
+   * @param field  The name of the field to search, or an object
+   *   `{ field, queryString, ...options }`
+   * @param queryString  A query using operators such as AND, OR, NOT, ~, *
+   * @param options  Any other query_string option: `default_operator`,
+   *   `analyze_wildcard`, `lenient`, `fuzziness`, `analyzer`, `boost`,
+   *   `minimum_should_match`, `phrase_slop`, ...
    * @return {QueryBuilder}
+   * @throws TypeError when the query is not a string
    * @chainable
    * @example
-   *   qb.queryString({ field: 'title', queryString: 'quick AND fox' });
    *   qb.queryString('introduction', 'quick AND fox');
+   *   qb.queryString('title', 'quick fox', { default_operator: 'and' });
+   *   qb.queryString({ field: 'title', queryString: 'qick~', fuzziness: 1 });
    */
   queryString(
-    field:
-      | Field
-      | {
-          field: Field;
-          queryString: string;
-        },
+    field: Field,
+    queryString: string,
+    options?: QueryStringOptions,
+  ): this;
+  /**
+   * Add a Lucene query syntax condition; see the positional form.
+   * @example
+   *   qb.queryString({ field: 'title', queryString: 'quick AND fox' });
+   */
+  queryString(
+    field: { field: Field; queryString: string } & QueryStringOptions,
+  ): this;
+  queryString(
+    field: Field | ({ field: Field; queryString: string } & QueryStringOptions),
     queryString?: string,
+    options?: QueryStringOptions,
   ): this {
-    const effectiveName = typeof field === 'string' ? field : field.field;
-    const effectiveValue =
-      typeof field === 'string' ? (queryString ?? '') : field.queryString;
+    let name: unknown = field;
+    let query: unknown = queryString;
+    let rest: object = options ?? {};
+    if (typeof field !== 'string') {
+      if (field === null || typeof field !== 'object') {
+        throw new TypeError(
+          'queryString() expects a field name or an object with a field',
+        );
+      }
+      ({ field: name, queryString: query, ...rest } = field);
+    }
+    assertString('queryString', 'field', name);
+    assertString('queryString', 'the query', query);
     this._must.push({
-      query_string: {
-        fields: [effectiveName],
-        query: effectiveValue,
-      },
+      query_string: { ...rest, fields: [name], query },
     });
     return this;
   }
 
   /**
+   * Add a `simple_query_string` condition: a forgiving query syntax for
+   * search boxes (`+` and, `|` or, `-` not, `"phrase"`, `prefix*`, `~N`) that
+   * never fails on invalid syntax. A blank query (empty, whitespace only,
+   * `null` or `undefined`) adds nothing.
+   * @see https://www.elastic.co/docs/reference/query-languages/query-dsl/query-dsl-simple-query-string-query
    *
+   * @param fields  The fields to search; names may carry a boost
+   *   (`'title^2'`) or a wildcard. Default: the index's
+   *   `index.query.default_field` setting
+   * @param query  The user's query text
+   * @param options  Any other simple_query_string option:
+   *   `default_operator`, `flags`, `analyze_wildcard`, `lenient`,
+   *   `minimum_should_match`, `boost`, ...
+   * @return {QueryBuilder}
+   * @throws TypeError when the query is set but not a string
+   * @chainable
+   * @example
+   *   qb.simpleQueryString({
+   *     fields: ['title^2', 'body'],
+   *     query: '"fried eggs" +(eggplant | potato) -frittata',
+   *     default_operator: 'and',
+   *   });
+   */
+  simpleQueryString({
+    fields,
+    query,
+    ...options
+  }: SimpleQueryStringOptions & { fields?: string[]; query: string }): this {
+    if (isBlankPhrase(query)) {
+      return this;
+    }
+    assertString('simpleQueryString', 'the query', query);
+    const clause: estypes.QueryDslSimpleQueryStringQuery = {
+      ...options,
+      query,
+    };
+    if (fields !== undefined) {
+      clause.fields = copyFieldList('simpleQueryString', fields);
+    }
+    this._must.push({ simple_query_string: clause });
+    return this;
+  }
+
+  /**
+   * Find documents similar to the given text or documents
+   * (`more_like_this` query).
    * @see https://www.elastic.co/docs/reference/query-languages/query-dsl/query-dsl-mlt-query
    *
-   * @param field  The field name
-   * @param like  The like string or { _doc: '123' }
-   * @param options  Additional MorkLikeThisOptions
+   * @param field  The field or fields to compare
+   * @param like  Text, a document reference such as
+   *   `{ _index: 'books', _id: '123' }`, or an array of these
+   * @param options  Any other more_like_this option, passed at the top
+   *   level: `min_term_freq`, `min_doc_freq`, `max_query_terms`,
+   *   `minimum_should_match`, `unlike`, `boost`, ...
+   * @return {QueryBuilder}
+   * @throws TypeError when no field is given or `like` is missing
+   * @chainable
    * @example
-   *   qb.moreLikeThis({ field: 'description', like: 'wireless headphones', options: { min_term_freq: 1, max_query_terms: 12 } });
+   *   qb.moreLikeThis({
+   *     field: ['title', 'description'],
+   *     like: 'wireless headphones',
+   *     min_term_freq: 1,
+   *     max_query_terms: 12,
+   *   });
    */
   moreLikeThis({
     field,
     like,
     ...options
   }: MoreLikeThisOptions & {
-    field: Field;
+    field: Field | Field[];
     like: MoreLikeThisLikeParams;
   }): this {
+    const fields = copyFieldList(
+      'moreLikeThis',
+      Array.isArray(field) ? field : [field],
+    );
+    if (fields.length === 0) {
+      throw new TypeError('moreLikeThis() expects at least one field');
+    }
+    if (like === undefined || like === null) {
+      throw new TypeError('moreLikeThis() expects a like value');
+    }
     this._must.push({
       more_like_this: {
-        fields: [field],
+        fields,
         like,
         ...options,
       },
     });
-
     return this;
   }
 
@@ -1305,35 +1657,70 @@ export default class QueryBuilder<Field extends string = string> {
   }
 
   /**
-   * Add a terms_set query to must filters
-   * @see https://www.elastic.co/guide/en/elasticsearch/reference/9.x/query-dsl-terms-set-query.html
+   * Require a minimum number of the given terms to match (`terms_set`
+   * query). Give at most one of `minimumShouldMatch`,
+   * `minimumShouldMatchField` and `script`; with none, one term must match
+   * (`minimum_should_match: 1`), since Elasticsearch rejects a `terms_set`
+   * without a minimum.
+   * @see https://www.elastic.co/docs/reference/query-languages/query-dsl/query-dsl-terms-set-query
+   *
+   * @param field  The field to search
+   * @param terms  The terms to look for
+   * @param minimumShouldMatch  How many terms must match: an integer or a
+   *   string such as `'75%'`
+   * @param minimumShouldMatchField  A numeric field holding, per document,
+   *   how many terms must match
+   * @param script  A script returning how many terms must match; it can
+   *   read `params.num_terms`. A string is used as the script source
+   * @param boost  Relevance boost of this clause
+   * @return {QueryBuilder}
+   * @throws TypeError when `terms` is not an array, or more than one
+   *   minimum is given
+   * @throws RangeError when `minimumShouldMatch` is a non-integer number
+   * @chainable
    * @example
-   *   qb.termsSet({ field: 'tags', terms: ['red','blue'], script: "Math.min(params.num_terms, 2)" });
+   *   qb.termsSet({ field: 'tags', terms: ['red', 'blue'] });
+   *   qb.termsSet({ field: 'tags', terms: ['a', 'b', 'c'], minimumShouldMatch: 2 });
+   *   qb.termsSet({ field: 'tags', terms: ['a', 'b'], minimumShouldMatchField: 'required' });
+   *   qb.termsSet({ field: 'tags', terms: ['a', 'b'], script: 'Math.min(params.num_terms, 2)' });
    */
   termsSet({
     field,
     terms,
+    minimumShouldMatch,
+    minimumShouldMatchField,
     script,
-  }: {
-    field: Field;
-    terms: Array<string | number>;
-    script?: string;
-  }): this {
-    const clause: QueryDslQueryContainer = {
-      terms_set: {
-        [field]: {
-          terms,
-          ...(script
-            ? {
-                minimum_should_match_script: {
-                  source: script,
-                },
-              }
-            : {}),
-        },
-      },
-    };
-    this._must.push(clause);
+    boost,
+  }: TermsSetOptions<Field>): this {
+    if (!Array.isArray(terms)) {
+      throw new TypeError(
+        `termsSet() expects terms to be an array, got ${describeType(terms)}`,
+      );
+    }
+    const minimums = [minimumShouldMatch, minimumShouldMatchField, script];
+    if (minimums.filter((m) => m !== undefined).length > 1) {
+      throw new TypeError(
+        'termsSet() accepts only one of minimumShouldMatch, ' +
+          'minimumShouldMatchField and script',
+      );
+    }
+    if (typeof minimumShouldMatch === 'number') {
+      assertNumber('termsSet', minimumShouldMatch, { integer: true });
+    }
+    const clause: estypes.QueryDslTermsSetQuery = { terms: [...terms] };
+    if (minimumShouldMatchField !== undefined) {
+      clause.minimum_should_match_field = minimumShouldMatchField;
+    } else if (typeof script === 'string') {
+      clause.minimum_should_match_script = { source: script };
+    } else if (script !== undefined) {
+      clause.minimum_should_match_script = script;
+    } else {
+      clause.minimum_should_match = minimumShouldMatch ?? 1;
+    }
+    if (boost !== undefined) {
+      clause.boost = boost;
+    }
+    this._must.push({ terms_set: { [field]: clause } });
     return this;
   }
 
