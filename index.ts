@@ -42,6 +42,10 @@ export {
 export {
   default as SchemaRegistry,
   type SchemaDropResultShape,
+  type SchemaMigrationDetails,
+  type SchemaMigrationOutcome,
+  type SchemaMigrationParams,
+  type SchemaMigrationReport,
   type SchemaMigrationResultShape,
   type SchemaStatusResultShape,
 } from './src/SchemaRegistry/SchemaRegistry';

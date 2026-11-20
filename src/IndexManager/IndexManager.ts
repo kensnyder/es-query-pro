@@ -1066,7 +1066,7 @@ export default class IndexManager<
             success: false,
             ...meta,
             took: Date.now() - start,
-            ...this._formatError(createResult),
+            ...this._formatError(createResult.error),
           };
         }
 

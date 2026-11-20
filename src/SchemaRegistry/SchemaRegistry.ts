@@ -20,6 +20,47 @@ export type SchemaDropResultShape = Awaited<
   ReturnType<SchemaRegistry['dropAll']>
 >;
 
+export type SchemaMigrationOutcome =
+  | 'created'
+  | 'migrated'
+  | 'unchanged'
+  | 'failed';
+export type SchemaMigrationReport = {
+  fullName: string;
+  aliasName: string;
+  /** What happened to this index */
+  outcome: SchemaMigrationOutcome;
+  /** Status before migrating; null if it could not be read */
+  before: StatusReport | null;
+  /** Status after migrating; null if it could not be read */
+  after: StatusReport | null;
+  /** The first error hit for this index, if any */
+  error: Error | null;
+  took: number;
+};
+export type SchemaMigrationDetails = {
+  /** True when no index failed */
+  success: boolean;
+  took: number;
+  /** One entry per registered index, in registration order */
+  report: SchemaMigrationReport[];
+  /** Outcome keyed by full index name */
+  summary: Record<string, SchemaMigrationOutcome>;
+};
+export type SchemaMigrationParams = Merge<
+  MigrationParams,
+  { onAllComplete?: (details: SchemaMigrationDetails) => void }
+>;
+
+const OUTCOME_BY_PRIOR_STATUS: Record<
+  StatusReport['summary'],
+  SchemaMigrationOutcome
+> = {
+  needsCreation: 'created',
+  needsMigration: 'migrated',
+  current: 'unchanged',
+};
+
 export default class SchemaRegistry {
   // Yes, I know the proper term is "indices"
   public indexes: IndexManager[];
@@ -46,6 +87,13 @@ export default class SchemaRegistry {
     return chunks;
   }
 
+  /**
+   * Create or migrate every registered index, one at a time.
+   * Resolves as soon as the work is kicked off; await `completion` (or pass
+   * `onAllComplete`) to get the per-index before/after report.
+   * `onError` is called once per distinct error; failed indexes are also
+   * listed in the report with `outcome: 'failed'`.
+   */
   async migrateIfNeeded({
     onProgress,
     onComplete,
@@ -53,56 +101,157 @@ export default class SchemaRegistry {
     onError,
     slices = 1,
     pollInterval = 1000,
-  }: Merge<
-    MigrationParams,
-    {
-      onAllComplete?: (details: {
-        took: number;
-        report: StatusReport[];
-        summary: Record<string, StatusReport['summary']>;
-      }) => void;
-    }
-  > = {}) {
+  }: SchemaMigrationParams = {}) {
     const start = Date.now();
     if (this.indexes.length === 0) {
+      const details: SchemaMigrationDetails = {
+        success: false,
+        took: 0,
+        report: [],
+        summary: {},
+      };
       return {
-        acknowledge: false,
+        acknowledged: false,
         error: new Error(
           'No indexes registered in SchemaRegistry; cannot migrateIfNeeded',
         ),
+        completion: Promise.resolve(details),
       };
     }
-    const report: StatusReport[] = [];
-    const summary: Record<string, StatusReport['summary']> = {};
-    (async () => {
-      for (const index of this.indexes) {
-        const status = await index.getStatus();
-        await new Promise(async (resolve, reject) => {
-          const migration = await index.migrateIfNeeded({
-            slices,
-            pollInterval,
-            onComplete,
-            onError,
-            onProgress: (progress) => {
-              if (progress.percent === 100) {
-                report.push(status);
-                summary[index.getFullName()] = status.summary;
-                resolve('done');
-              }
-              onProgress?.(progress);
-            },
-          });
-          if (migration.error) {
-            reject(migration.error);
-          }
+    const indexes = [...this.indexes];
+    const completion = (async () => {
+      const report: SchemaMigrationReport[] = [];
+      const summary: Record<string, SchemaMigrationOutcome> = {};
+      for (const index of indexes) {
+        const entry = await this._migrateOne(index, {
+          onProgress,
+          onComplete,
+          onError,
+          slices,
+          pollInterval,
         });
+        report.push(entry);
+        summary[entry.fullName] = entry.outcome;
       }
-      onAllComplete?.({ report, summary, took: Date.now() - start });
+      const details: SchemaMigrationDetails = {
+        success: report.every((entry) => entry.error === null),
+        took: Date.now() - start,
+        report,
+        summary,
+      };
+      try {
+        onAllComplete?.(details);
+      } catch (e) {
+        console.error(e);
+      }
+      return details;
     })();
     return {
       acknowledged: true,
       error: null,
+      completion,
     };
+  }
+
+  /**
+   * Migrate a single index and wait for any background reindexing to finish.
+   * Never rejects: failures are captured on the returned report entry.
+   */
+  async _migrateOne(
+    index: IndexManager,
+    { onProgress, onComplete, onError, slices, pollInterval }: MigrationParams,
+  ): Promise<SchemaMigrationReport> {
+    const start = Date.now();
+    const entry: SchemaMigrationReport = {
+      fullName: index.getFullName(),
+      aliasName: index.getAliasName(),
+      outcome: 'failed',
+      before: null,
+      after: null,
+      error: null,
+      took: 0,
+    };
+    // IndexManager reports some failures through onError, some through the
+    // result envelope, and some through both; notify once per error
+    const notified = new Set<Error>();
+    const fail = (thrown: unknown) => {
+      const error =
+        thrown instanceof Error ? thrown : new Error(String(thrown));
+      if (entry.error === null) {
+        entry.error = error;
+      }
+      if (notified.has(error)) {
+        return;
+      }
+      notified.add(error);
+      try {
+        onError?.(error);
+      } catch (e) {
+        console.error(e);
+      }
+    };
+    try {
+      entry.before = await index.getStatus();
+      // number of reindex tasks we are waiting on; unknown until
+      // index.migrateIfNeeded() returns
+      let expected = Number.POSITIVE_INFINITY;
+      let finished = 0;
+      let settle = () => {};
+      const settled = new Promise<void>((resolve) => {
+        settle = resolve;
+      });
+      const settleIfDone = () => {
+        if (entry.error !== null || finished >= expected) {
+          settle();
+        }
+      };
+      const migration = await index.migrateIfNeeded({
+        slices,
+        pollInterval,
+        onComplete,
+        onError: (error) => {
+          fail(error);
+          settleIfDone();
+        },
+        onProgress: (progress) => {
+          onProgress?.(progress);
+          if (progress.percent === 100) {
+            finished++;
+            settleIfDone();
+          }
+        },
+      });
+      if (migration.error) {
+        fail(migration.error);
+      } else {
+        // Reindexing continues in the background only when there were
+        // records to copy (one task per old index); every other path is
+        // already done
+        if (migration.recordsToMigrate > 0) {
+          expected = migration.oldNames.length;
+        } else {
+          expected = 0;
+        }
+        settleIfDone();
+        await settled;
+      }
+    } catch (e) {
+      fail(e);
+    }
+    if (entry.before !== null) {
+      try {
+        entry.after = await index.getStatus();
+      } catch (e) {
+        if (entry.error === null) {
+          fail(e);
+        }
+      }
+    }
+    if (entry.error === null && entry.before !== null) {
+      entry.outcome = OUTCOME_BY_PRIOR_STATUS[entry.before.summary];
+    }
+    entry.took = Date.now() - start;
+    return entry;
   }
 
   async recreateAll(concurrency = 2) {
