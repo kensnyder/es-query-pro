@@ -892,10 +892,10 @@ describe('QueryBuilder.knn() with similarity and filter', () => {
       vector: [1, 0, 0],
       k: 5,
       weight: 1,
-      similarity: 'cosine',
+      similarity: 0.8,
     });
     const body: any = qb.getBody();
-    expect(body.retriever.knn.similarity).toBe('cosine');
+    expect(body.retriever.knn.similarity).toBe(0.8);
   });
 
   it('should wrap multiple filters under bool.filter', () => {

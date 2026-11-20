@@ -6,7 +6,6 @@ import type {
   AggregationsCompositeAggregationSource,
   BoostOperator,
   FieldType,
-  InferenceCohereSimilarityType,
   InnerRetriever,
   KnnRetriever,
   MoreLikeThisLikeParams,
@@ -1000,6 +999,192 @@ const RESETTABLE_FIELDS: ResetName[] = [
   'limit',
 ];
 
+/** Options of `QueryBuilder.knn()` */
+export type KnnOptions<Field extends string = string> = {
+  /** The `dense_vector` field */
+  field: Field;
+  /** The query vector (same dimensions as the field) */
+  vector: readonly number[];
+  /** Number of nearest neighbors to return (an integer >= 1) */
+  k: number;
+  /** Candidates per shard (an integer >= k) */
+  numCandidates?: number;
+  /** Weight in a `linear` combination (>= 0, default 1) */
+  weight?: number;
+  /** Restricts the documents that can match; an empty array is omitted */
+  filter?: QueryDslQueryContainer | QueryDslQueryContainer[];
+  /** Minimum vector similarity (in the field's similarity metric) */
+  similarity?: number;
+};
+
+/** Options of `QueryBuilder.semantic()` */
+export type SemanticOptions<Field extends string = string> = {
+  /** The `semantic_text` field */
+  field: Field;
+  /** The text to search for; blank adds nothing */
+  phrase: string;
+  /** Weight in a `linear` combination (>= 0, default 1) */
+  weight?: number;
+};
+
+/** Options of `QueryBuilder.rrf()` */
+export type RrfOptions<Field extends string = string> = {
+  /** The `semantic_text` field */
+  semanticField: Field;
+  /** A text field with the same content */
+  standardField: Field;
+  /** The text to search for; blank adds nothing */
+  phrase: string;
+  /** Weight in a `linear` combination (>= 0, default 1) */
+  weight?: number;
+};
+
+/** Options of `QueryBuilder.weightedSemantic()` */
+export type WeightedSemanticOptions<Field extends string = string> =
+  RrfOptions<Field> & {
+    /**
+     * A `keyword` (or `wildcard`) field holding the whole standard text, for
+     * the "contains" clause; default `${standardField}.raw`. `false` drops
+     * the clause (it is a leading-wildcard query).
+     */
+    exactField?: Field | false;
+    /** Boosts of the contains, phrase and match clauses (default 6, 4, 1) */
+    boosts?: [number, number, number];
+  };
+
+/** A retriever as stored by a retriever method; built by `getBody()` */
+type RetrieverIntent =
+  | { type: 'knn'; weight: number; knn: KnnRetriever }
+  | { type: 'semantic'; weight: number; field: string; phrase: string }
+  | {
+      type: 'rrf';
+      weight: number;
+      semanticField: string;
+      standardField: string;
+      phrase: string;
+    }
+  | {
+      type: 'weightedSemantic';
+      weight: number;
+      semanticField: string;
+      standardField: string;
+      exactField: string | false;
+      phrase: string;
+      boosts: [number, number, number];
+    };
+
+const SCORE_NORMALIZERS = new Set<unknown>(['none', 'minmax', 'l2_norm']);
+
+const WEIGHTED_SEMANTIC_BOOSTS: [number, number, number] = [6, 4, 1];
+
+/** @throws TypeError unless `value` is a non-empty string */
+function assertFieldName(method: string, name: string, value: unknown) {
+  assertString(method, name, value);
+  if (value === '') {
+    throw new TypeError(`${method}() expects ${name} to be a non-empty string`);
+  }
+}
+
+/**
+ * Validate a retriever `weight` (Elasticsearch requires >= 0).
+ * @throws TypeError/RangeError unless it is a finite number >= 0
+ */
+function assertWeight(method: string, weight: unknown) {
+  assertNumber(method, weight, { min: 0 });
+}
+
+/**
+ * The phrase of a retriever method, or null when it is blank (the method
+ * then adds nothing).
+ * @throws TypeError for a value that is not a string, null or undefined
+ */
+function retrieverPhrase(method: string, phrase: unknown): string | null {
+  if (isBlankPhrase(phrase)) {
+    return null;
+  }
+  assertString(method, 'phrase', phrase);
+  return phrase;
+}
+
+/**
+ * Copy a query or list of queries.
+ * @throws TypeError when a query is not an object
+ */
+function copyQueries(
+  method: string,
+  name: string,
+  value: QueryDslQueryContainer | QueryDslQueryContainer[],
+) {
+  const list = Array.isArray(value) ? value : [value];
+  for (const query of list) {
+    if (query === null || typeof query !== 'object' || Array.isArray(query)) {
+      throw new TypeError(
+        `${method}() expects ${name} to be a query object or an array of ` +
+          `them, got ${describeType(query)}`,
+      );
+    }
+  }
+  return structuredClone(value);
+}
+
+/**
+ * Validate `weightedSemantic()` boosts and return a copy.
+ * @throws TypeError unless it is an array of three numbers
+ * @throws RangeError for a non-finite or negative boost
+ */
+function weightedSemanticBoosts(boosts: unknown): [number, number, number] {
+  if (!Array.isArray(boosts)) {
+    throw new TypeError(
+      `weightedSemantic() expects boosts to be an array, got ${describeType(boosts)}`,
+    );
+  }
+  if (boosts.length === 4) {
+    throw new TypeError(
+      'weightedSemantic() takes three boosts [contains, phrase, match]; the ' +
+        'fourth (semantic boost) was removed because RRF uses only rank order',
+    );
+  }
+  if (boosts.length !== 3) {
+    throw new TypeError(
+      'weightedSemantic() expects three boosts [contains, phrase, match], ' +
+        `got ${boosts.length}`,
+    );
+  }
+  for (const boost of boosts) {
+    assertNumber('weightedSemantic', boost, { min: 0 });
+  }
+  return [boosts[0], boosts[1], boosts[2]];
+}
+
+/** A `standard` retriever with a `semantic` query */
+function semanticRetriever(field: string, phrase: string): RetrieverContainer {
+  return { standard: { query: { semantic: { field, query: phrase } } } };
+}
+
+/** The lexical `standard` retriever of `weightedSemantic()` */
+function weightedLexicalRetriever(
+  intent: Extract<RetrieverIntent, { type: 'weightedSemantic' }>,
+): RetrieverContainer {
+  const { standardField, exactField, phrase, boosts } = intent;
+  const should: QueryDslQueryContainer[] = [];
+  if (exactField !== false) {
+    should.push({
+      wildcard: {
+        [exactField]: {
+          value: `*${QueryBuilder.escapeWildcards(phrase)}*`,
+          case_insensitive: true,
+          boost: boosts[0],
+        },
+      },
+    });
+  }
+  should.push(
+    { match_phrase: { [standardField]: { query: phrase, boost: boosts[1] } } },
+    { match: { [standardField]: { query: phrase, boost: boosts[2] } } },
+  );
+  return { standard: { query: { bool: { should } } } };
+}
+
 /** The size Elasticsearch uses when a search sends none */
 const DEFAULT_PAGE_SIZE = 10;
 
@@ -1243,10 +1428,10 @@ export default class QueryBuilder<Field extends string = string> {
   /** Fields to sort by */
   public _sorts: SortCombinations[] = [];
 
-  /** Retrievers to use */
-  public _retrievers: InnerRetriever[] = [];
+  /** Retrievers to use, as stored intents; `getBody()` builds their DSL */
+  private _retrievers: RetrieverIntent[] = [];
 
-  /** type of normalizer for retrievers */
+  /** Score normalizer of the retrievers combined in a `linear` retriever */
   public _normalizer: ScoreNormalizer = 'minmax';
 
   /** The number of results to find before ranking */
@@ -1866,100 +2051,80 @@ export default class QueryBuilder<Field extends string = string> {
   }
 
   /**
-   * Search with Reciprocal rank fusion especially for semantic_text fields
+   * Hybrid search on one text: reciprocal rank fusion (`rrf`) of a lexical
+   * retriever on `standardField` and a `semantic` query on `semanticField`.
+   * The lexical retriever ranks by three `should` clauses:
+   * - "contains": a case-insensitive `wildcard` `*phrase*` on `exactField`,
+   *   which must be a `keyword` (or `wildcard`) field holding the whole text.
+   *   It defaults to `${standardField}.raw`; the mapping must declare that
+   *   sub-field (e.g. `fields: { raw: { type: 'keyword' } }`), since a
+   *   wildcard on an unmapped field silently matches nothing. It is a
+   *   leading-wildcard query (slow on large fields, and rejected when
+   *   `search.allow_expensive_queries` is false); `exactField: false`
+   *   drops it.
+   * - "phrase": `match_phrase` on `standardField` (analyzed, stemmed).
+   * - "match": `match` on `standardField` (any of the words).
+   *
+   * `boosts` are `[contains, phrase, match]` (default `[6, 4, 1]`) and only
+   * order the lexical results: RRF uses each retriever's rank, not its
+   * score, so the semantic query takes no boost. `rank_window_size`,
+   * `rank_constant` and the normalizer come from the builder
+   * (`rankWindowSize()`, `rankConstant()`, `normalizer()`) when `getBody()`
+   * runs. `weight` only applies when the retriever is combined in a
+   * `linear` retriever (several retrievers, or any conditions).
+   * A blank phrase adds nothing.
    * @see https://www.elastic.co/docs/reference/elasticsearch/rest-apis/reciprocal-rank-fusion
    *
-   * @param semanticField  The name of the semantic_text field
-   * @param standardField  The name of the text field containing equivalent content
-   * @param phrase  The phrase to search
-   * @param boosts  An array of four integers representing boost of exact match, phrase match, match, semantic match
-   * @param weight  The weight of this retriever block
+   * @param options.semanticField  The `semantic_text` field
+   * @param options.standardField  A text field with the same content
+   * @param options.exactField  Keyword field for "contains", or `false`
+   * @param options.phrase  The phrase to search
+   * @param options.boosts  `[contains, phrase, match]` boosts
+   * @param options.weight  The weight of this retriever (>= 0, default 1)
+   * @throws TypeError/RangeError for invalid options (nothing is added)
+   * @chainable
    * @example
    *   qb.weightedSemantic({
    *     semanticField: 'content_semantic',
    *     standardField: 'content',
    *     phrase: 'neural network',
-   *     boosts: [5, 3, 1, 4],
-   *     weight: 2
+   *     boosts: [5, 3, 1],
    *   });
    */
   weightedSemantic({
     semanticField,
     standardField,
-    boosts = [6, 4, 1, 2],
+    exactField,
+    boosts = WEIGHTED_SEMANTIC_BOOSTS,
     phrase,
     weight = 1,
-  }: {
-    semanticField: Field;
-    standardField: Field;
-    boosts?: [number, number, number, number];
-    phrase: string;
-    weight?: number;
-  }): this {
+  }: WeightedSemanticOptions<Field>): this {
+    const method = 'weightedSemantic';
+    assertFieldName(method, 'semanticField', semanticField);
+    assertFieldName(method, 'standardField', standardField);
+    let exact: string | false = `${standardField}.raw`;
+    if (exactField === false) {
+      exact = false;
+    } else if (exactField !== undefined) {
+      assertFieldName(method, 'exactField', exactField);
+      exact = exactField;
+    }
+    const boostList = weightedSemanticBoosts(boosts);
+    assertWeight(method, weight);
+    const text = retrieverPhrase(method, phrase);
+    if (text === null) {
+      return this;
+    }
     this._retrievers.push({
-      retriever: {
-        rrf: {
-          retrievers: [
-            {
-              standard: {
-                query: {
-                  bool: {
-                    should: [
-                      {
-                        wildcard: {
-                          // exact text contained in standard field
-                          [`${standardField}.raw`]: {
-                            value: `*${this.escapeWildcards(phrase)}*`,
-                            case_insensitive: true,
-                            boost: boosts[0],
-                          },
-                        },
-                      },
-                      {
-                        match_phrase: {
-                          // unpunctuated, stemmed text contained in standard field
-                          [standardField]: {
-                            query: phrase,
-                            boost: boosts[1],
-                          },
-                        },
-                      },
-                      {
-                        match: {
-                          // flexible word matching on text contained in standard field
-                          [standardField]: {
-                            query: phrase,
-                            boost: boosts[2],
-                          },
-                        },
-                      },
-                    ],
-                  },
-                },
-              },
-            },
-            {
-              standard: {
-                query: {
-                  semantic: {
-                    // semantic meaning on semantic field
-                    field: semanticField,
-                    query: phrase,
-                    boost: boosts[3],
-                  },
-                },
-              },
-            },
-          ],
-          rank_window_size: 100,
-          rank_constant: 10,
-        },
-      },
+      type: 'weightedSemantic',
       weight,
-      normalizer: 'minmax',
+      semanticField,
+      standardField,
+      exactField: exact,
+      phrase: text,
+      boosts: boostList,
     });
-
-    return this; // Enable chaining
+    return this;
   }
 
   /**
@@ -1993,105 +2158,95 @@ export default class QueryBuilder<Field extends string = string> {
   }
 
   /**
-   * Search with Reciprocal rank fusion
+   * Hybrid search: reciprocal rank fusion (`rrf`) of a `match` query on
+   * `standardField` and a `semantic` query on `semanticField`.
+   * `rank_window_size`, `rank_constant` and the normalizer come from the
+   * builder when `getBody()` runs, so call order does not matter. `weight`
+   * only applies inside a `linear` retriever (several retrievers, or any
+   * conditions). A blank phrase adds nothing.
    * @see https://www.elastic.co/docs/reference/elasticsearch/rest-apis/reciprocal-rank-fusion
    *
-   * @param semanticField  The name of the semantic_text field
-   * @param standardField  The name of the text field containing equivalent content
-   * @param phrase  The phrase to search
-   * @param weight  The weight of this retriever block
+   * @param options.semanticField  The `semantic_text` field
+   * @param options.standardField  A text field with the same content
+   * @param options.phrase  The phrase to search
+   * @param options.weight  The weight of this retriever (>= 0, default 1)
+   * @throws TypeError/RangeError for invalid options (nothing is added)
+   * @chainable
    * @example
-   *   qb.rrf({ semanticField: 'content_semantic', standardField: 'content', phrase: 'neural search', weight: 2 });
+   *   qb.rrf({ semanticField: 'content_semantic', standardField: 'content', phrase: 'neural search' });
    */
   rrf({
     semanticField,
     standardField,
     phrase,
-    weight,
-  }: {
-    semanticField: Field;
-    standardField: Field;
-    phrase: string;
-    weight: number;
-  }): this {
+    weight = 1,
+  }: RrfOptions<Field>): this {
+    assertFieldName('rrf', 'semanticField', semanticField);
+    assertFieldName('rrf', 'standardField', standardField);
+    assertWeight('rrf', weight);
+    const text = retrieverPhrase('rrf', phrase);
+    if (text === null) {
+      return this;
+    }
     this._retrievers.push({
-      retriever: {
-        rrf: {
-          retrievers: [
-            // Lexical (standard) retriever on the standardField
-            {
-              standard: {
-                query: {
-                  match: {
-                    [standardField]: phrase,
-                  },
-                },
-              },
-            },
-            // Semantic retriever on the semanticField
-            {
-              standard: {
-                query: {
-                  semantic: {
-                    field: semanticField,
-                    query: phrase,
-                  },
-                },
-              },
-            },
-          ],
-          rank_window_size: this._rankWindowSize,
-          rank_constant: this._rankConstant,
-        },
-      },
+      type: 'rrf',
       weight,
-      normalizer: this._normalizer,
+      semanticField,
+      standardField,
+      phrase: text,
     });
-
-    return this; // Enable chaining
+    return this;
   }
 
   /**
-   * Search on a semantic_text field
+   * Search a `semantic_text` field (a `standard` retriever with a
+   * `semantic` query). `weight` only applies inside a `linear` retriever
+   * (several retrievers, or any conditions). A blank phrase adds nothing.
    * @see https://www.elastic.co/docs/solutions/search/semantic-search/semantic-search-semantic-text
    *
-   * @param field  The field to search on
-   * @param phrase  The phrase to search on
-   * @param weight  The weight of this retriever block
+   * @param options.field  The `semantic_text` field
+   * @param options.phrase  The phrase to search
+   * @param options.weight  The weight of this retriever (>= 0, default 1)
+   * @throws TypeError/RangeError for invalid options (nothing is added)
+   * @chainable
    * @example
-   *   qb.semantic({ field: 'content_semantic', phrase: 'vector search', weight: 1 });
+   *   qb.semantic({ field: 'content_semantic', phrase: 'vector search' });
    */
-  semantic({
-    field,
-    phrase,
-    weight = 1,
-  }: {
-    field: Field;
-    phrase: string;
-    weight: number;
-  }): this {
-    this._retrievers.push({
-      retriever: {
-        standard: {
-          query: {
-            semantic: {
-              field,
-              query: phrase,
-            },
-          },
-        },
-      },
-      weight,
-      normalizer: this._normalizer,
-    });
+  semantic({ field, phrase, weight = 1 }: SemanticOptions<Field>): this {
+    assertFieldName('semantic', 'field', field);
+    assertWeight('semantic', weight);
+    const text = retrieverPhrase('semantic', phrase);
+    if (text === null) {
+      return this;
+    }
+    this._retrievers.push({ type: 'semantic', weight, field, phrase: text });
+    return this;
+  }
 
+  /**
+   * Set the score normalizer of each retriever combined in a `linear`
+   * retriever: `minmax` (default), `l2_norm` or `none`. Applied when
+   * `getBody()` runs, so call order does not matter.
+   * @param normalizer  The normalizer
+   * @throws TypeError for an unknown normalizer
+   * @chainable
+   * @example
+   *   qb.knn({ field: 'embedding', vector, k: 10 }).semantic({ field: 'body_semantic', phrase }).normalizer('l2_norm');
+   */
+  normalizer(normalizer: ScoreNormalizer): this {
+    if (!SCORE_NORMALIZERS.has(normalizer)) {
+      throw new TypeError(
+        `normalizer() expects one of none, minmax, l2_norm, got ${JSON.stringify(normalizer)}`,
+      );
+    }
+    this._normalizer = normalizer;
     return this;
   }
 
   /**
    * Get the current normalizer setting
    */
-  getNormalizer() {
+  getNormalizer(): ScoreNormalizer {
     return this._normalizer;
   }
 
@@ -2571,10 +2726,26 @@ export default class QueryBuilder<Field extends string = string> {
   }
 
   /**
-   * Add a KNN retriever (Approximate Nearest Neighbor search)
-   * @see https://www.elastic.co/guide/en/elasticsearch/reference/9.x/knn-search.html
+   * Add a kNN retriever (approximate nearest neighbor search on a
+   * `dense_vector` field). `weight` only applies inside a `linear` retriever
+   * (several retrievers, or any conditions). The vector and filter are
+   * copied.
+   * @see https://www.elastic.co/docs/solutions/search/vector/knn
+   *
+   * @param options.field  The `dense_vector` field
+   * @param options.vector  The query vector (non-empty, finite numbers)
+   * @param options.k  Number of neighbors to return (an integer >= 1)
+   * @param options.numCandidates  Candidates per shard (an integer >= k;
+   *   default `min(ceil(1.5 * k), 10000)`, always sent since 9.1 requires it)
+   * @param options.weight  The weight of this retriever (>= 0, default 1)
+   * @param options.filter  Query or queries that matching documents must
+   *   also match (several are combined in `bool.filter`; `[]` is omitted)
+   * @param options.similarity  Minimum similarity for a match, in the
+   *   field's metric (e.g. cosine similarity, not `_score`)
+   * @throws TypeError/RangeError for invalid options (nothing is added)
+   * @chainable
    * @example
-   *   qb.knn({ field: 'embedding', vector: [0.1, 0.2, 0.3], k: 10, numCandidates: 100, weight: 2 });
+   *   qb.knn({ field: 'embedding', vector: [0.1, 0.2, 0.3], k: 10, numCandidates: 100, similarity: 0.8 });
    */
   knn({
     field,
@@ -2584,55 +2755,108 @@ export default class QueryBuilder<Field extends string = string> {
     weight = 1,
     filter,
     similarity,
-  }: {
-    field: Field;
-    vector: number[];
-    k: number;
-    numCandidates?: number;
-    weight: number;
-    filter?: QueryDslQueryContainer | QueryDslQueryContainer[];
-    similarity?: number | InferenceCohereSimilarityType;
-  }): this {
-    const knnDef: Partial<
-      Omit<KnnRetriever, 'similarity'> & {
-        similarity?: number | InferenceCohereSimilarityType;
-      }
-    > = {
+  }: KnnOptions<Field>): this {
+    assertFieldName('knn', 'field', field);
+    if (!Array.isArray(vector)) {
+      throw new TypeError(
+        `knn() expects vector to be an array of numbers, got ${describeType(vector)}`,
+      );
+    }
+    if (vector.length === 0) {
+      throw new RangeError('knn() expects a non-empty vector');
+    }
+    for (const value of vector) {
+      assertNumber('knn', value);
+    }
+    assertNumber('knn', k, { integer: true, min: 1 });
+    // Elasticsearch 9.1 requires num_candidates on the knn retriever; the
+    // default matches the server's own: 1.5 * k, at most 10000 (and >= k)
+    let candidates = Math.max(k, Math.min(Math.ceil(1.5 * k), 10_000));
+    if (numCandidates !== undefined) {
+      assertNumber('knn', numCandidates, { integer: true, min: k });
+      candidates = numCandidates;
+    }
+    const knn: KnnRetriever = {
       field,
-      query_vector: vector,
+      query_vector: [...vector],
       k,
+      num_candidates: candidates,
     };
-
-    if (typeof numCandidates === 'number') {
-      knnDef.num_candidates = numCandidates;
+    if (filter !== undefined) {
+      const copy = copyQueries('knn', 'filter', filter);
+      if (!Array.isArray(copy)) {
+        knn.filter = copy;
+      } else if (copy.length > 0) {
+        knn.filter = { bool: { filter: copy } };
+      }
     }
-
-    if (Array.isArray(filter) && filter.length > 0) {
-      knnDef.filter = { bool: { filter } };
-    } else if (filter) {
-      knnDef.filter = filter;
+    if (similarity !== undefined) {
+      assertNumber('knn', similarity);
+      knn.similarity = similarity;
     }
-
-    if (typeof similarity === 'number' || typeof similarity === 'string') {
-      knnDef.similarity = similarity;
-    }
-
-    this._retrievers.push({
-      retriever: {
-        knn: knnDef,
-      } as RetrieverContainer,
-      weight,
-      normalizer: this._normalizer,
-    });
+    assertWeight('knn', weight);
+    this._retrievers.push({ type: 'knn', weight, knn });
     return this;
   }
 
   /**
-   * Get all configured retrievers (e.g., KNN) to be applied during retrieval.
-   * @returns An array of retriever containers with weights and normalizer.
+   * Get the retrievers added by `knn()`, `semantic()`, `rrf()` and
+   * `weightedSemantic()`, built with the current rank settings and
+   * normalizer. Returns new objects on every call.
+   * @returns The inner retrievers with their weight and normalizer
    */
-  getRetrievers() {
-    return this._retrievers;
+  getRetrievers(): InnerRetriever[] {
+    return this._retrievers.map((intent) => ({
+      retriever: this._buildRetriever(intent),
+      weight: intent.weight,
+      normalizer: this._normalizer,
+    }));
+  }
+
+  /**
+   * Build the body's `retriever` from the stored retrievers: a lone
+   * retriever as is, otherwise (several retrievers, or any conditions) a
+   * `linear` retriever whose `filter` holds the conditions.
+   */
+  private _getRetrieverBody(hasConditions: boolean): RetrieverContainer {
+    const retrievers = this.getRetrievers();
+    if (retrievers.length === 1 && !hasConditions) {
+      return retrievers[0].retriever;
+    }
+    // The normalizer goes on each inner retriever only: Elasticsearch 9.1
+    // rejects a top-level linear normalizer together with retrievers.
+    const linear: estypes.LinearRetriever = {
+      retrievers,
+      rank_window_size: this._rankWindowSize,
+    };
+    if (hasConditions) {
+      linear.filter = [this._buildBoolQuery()];
+    }
+    return { linear };
+  }
+
+  /** Build one stored retriever's DSL with the current rank settings */
+  private _buildRetriever(intent: RetrieverIntent): RetrieverContainer {
+    if (intent.type === 'knn') {
+      return { knn: structuredClone(intent.knn) };
+    }
+    if (intent.type === 'semantic') {
+      return semanticRetriever(intent.field, intent.phrase);
+    }
+    const { semanticField, standardField, phrase } = intent;
+    let lexical: RetrieverContainer = {
+      standard: { query: { match: { [standardField]: phrase } } },
+    };
+    if (intent.type === 'weightedSemantic') {
+      lexical = weightedLexicalRetriever(intent);
+    }
+    return {
+      rrf: {
+        retrievers: [lexical, semanticRetriever(semanticField, phrase)],
+        rank_window_size: this._rankWindowSize,
+        rank_constant: this._rankConstant,
+      },
+    };
   }
 
   /**
@@ -3409,7 +3633,7 @@ export default class QueryBuilder<Field extends string = string> {
       } else if (field === 'shouldSortByRandom') {
         this.sortByRandom(false);
       } else if (field === 'retrievers') {
-        this._retrievers = empty.getRetrievers();
+        this._retrievers = [];
       } else if (field === 'normalizer') {
         this._normalizer = empty.getNormalizer();
       } else if (field === 'rankWindowSize') {
@@ -3931,23 +4155,8 @@ export default class QueryBuilder<Field extends string = string> {
 
     // Build the retriever
     if (hasLinearRetrievers) {
-      // LINEAR RETRIEVER PATH
-      const retrievers = [...this._retrievers];
-
-      // Only use linear if we have multiple retrievers
-      if (retrievers.length > 1 || hasFilters) {
-        const linear: NonNullable<RetrieverContainer['linear']> = {
-          retrievers,
-          normalizer: this._normalizer,
-          rank_window_size: this._rankWindowSize,
-        };
-        if (hasFilters) {
-          linear.filter = [this._buildBoolQuery()];
-        }
-        body.retriever = { linear };
-      } else {
-        body.retriever = retrievers[0].retriever;
-      }
+      // RETRIEVER PATH: a lone retriever, or linear with conditions
+      body.retriever = this._getRetrieverBody(hasFilters);
     } else if (hasFilters) {
       // STANDARD RETRIEVER PATH (with query)
       body.query = this._applyScoreFunctions(this._buildBoolQuery());
