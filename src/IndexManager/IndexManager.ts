@@ -1539,6 +1539,7 @@ export default class IndexManager<
     withQueryBuilder?: QueryBuilderProvider<MappingFieldPath<Create>>,
     more?: Omit<estypes.SearchRequest, 'index' | 'query'>,
   ) {
+    const start = Date.now();
     try {
       const runner = await this._getRunner(withQueryBuilder);
       return await runner.findMany(more);
@@ -1547,7 +1548,7 @@ export default class IndexManager<
         records: [] as QueryRecord<Create>[],
         total: null,
         request: null,
-        took: null,
+        took: Date.now() - start,
         aggregations: null,
         ...this._formatError(e),
       };
@@ -1560,22 +1561,23 @@ export default class IndexManager<
    * @param more Optional additional search request options (excluding `index` and `query`).
    * @returns The first matching record result from `QueryRunner.findFirst`.
    *   An error thrown by the callback or while building the request is
-   *   returned as the error envelope (`record: undefined`, `request: null`),
+   *   returned as the error envelope (`record: null`, `request: null`),
    *   never thrown.
    */
   async findFirst(
     withQueryBuilder?: QueryBuilderProvider<MappingFieldPath<Create>>,
     more?: Omit<estypes.SearchRequest, 'index' | 'query'>,
   ) {
+    const start = Date.now();
     try {
       const runner = await this._getRunner(withQueryBuilder);
       return await runner.findFirst(more);
     } catch (e) {
       return {
-        record: undefined as QueryRecord<Create> | undefined,
+        record: null as QueryRecord<Create> | null,
         total: null,
         request: null,
-        took: null,
+        took: Date.now() - start,
         aggregations: null,
         ...this._formatError(e),
       };

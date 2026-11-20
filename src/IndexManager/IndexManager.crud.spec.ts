@@ -572,7 +572,7 @@ describe('IndexManager query methods with a throwing callback (B-087)', () => {
       throw new Error('async');
     });
     expect(sent).toEqual([]);
-    expect(res.record).toBe(undefined);
+    expect(res.record).toBe(null);
     expect(res.error?.message).toBe('async');
   });
 

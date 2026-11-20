@@ -361,7 +361,7 @@ describe('IndexManager query methods - Integration', () => {
     expect(many.records).toEqual([]);
     const first = await notes.findFirst(thrower);
     expect(first.error).toBeInstanceOf(TypeError);
-    expect(first.record).toBe(undefined);
+    expect(first.record).toBe(null);
     const counted = await notes.count(thrower);
     expect(counted.error).toBeInstanceOf(TypeError);
     expect(counted.total).toBe(null);
