@@ -1,11 +1,11 @@
 # es-query-pro
 
-[![NPM Link](https://badgen.net/npm/v/es-query-pro?v=3.0.0-beta.2)](https://npmjs.com/package/es-query-pro)
-[![Language](https://badgen.net/static/language/TS?v=3.0.0-beta.2)](https://github.com/search?q=repo:kensnyder/es-query-pro++language:TypeScript&type=code)
-[![Code Coverage](https://codecov.io/gh/kensnyder/es-query-pro/branch/main/graph/badge.svg?v=3.0.0-beta.2)](https://codecov.io/gh/kensnyder/es-query-pro)
-![Minzipped Size](https://badgen.net/static/size/59kb?v=3.0.0-beta.2)
-![Tree Shakeable](https://badgen.net/static/tree%20shakeable/yes/green?v=3.0.0-beta.2)
-[![ISC License](https://badgen.net/static/license/ISC/green?v=3.0.0-beta.2)](https://opensource.org/licenses/ISC)
+[![NPM Link](https://badgen.net/npm/v/es-query-pro?v=v3.0.0-beta.4)](https://npmjs.com/package/es-query-pro)
+[![Language](https://badgen.net/static/language/TS?v=v3.0.0-beta.4)](https://github.com/search?q=repo:kensnyder/es-query-pro++language:TypeScript&type=code)
+[![Code Coverage](https://codecov.io/gh/kensnyder/es-query-pro/branch/main/graph/badge.svg?v=v3.0.0-beta.4)](https://codecov.io/gh/kensnyder/es-query-pro)
+![Minzipped Size](https://badgen.net/static/size/59kb?v=v3.0.0-beta.4)
+![Tree Shakeable](https://badgen.net/static/tree%20shakeable/yes/green?v=v3.0.0-beta.4)
+[![ISC License](https://badgen.net/static/license/ISC/green?v=v3.0.0-beta.4)](https://opensource.org/licenses/ISC)
 
 Elasticsearch query builder and index manager with consistent APIs
 

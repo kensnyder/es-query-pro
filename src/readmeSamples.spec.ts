@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import path from 'node:path';
-import ts from 'typescript-5';
+import { API } from 'typescript/unstable/async';
 
 /**
  * Type-check the README's code samples against the library source, the way a
@@ -42,71 +42,75 @@ function importsLibrary(code: string) {
   return /from\s+["']es-query-pro["']/.test(code);
 }
 
-function compileSamples(samples: Sample[], strict: boolean) {
-  const options: ts.CompilerOptions = {
-    strict,
-    noEmit: true,
-    skipLibCheck: true,
-    target: ts.ScriptTarget.ESNext,
-    module: ts.ModuleKind.ESNext,
-    moduleResolution: ts.ModuleResolutionKind.Bundler,
-    moduleDetection: ts.ModuleDetectionKind.Force,
-    lib: ['lib.esnext.d.ts', 'lib.dom.d.ts'],
-    types: ['bun-types'],
-    paths: { 'es-query-pro': [path.join(root, 'index.ts')] },
-  };
+/**
+ * Type-check the samples with the TypeScript 7 compiler API. The samples and
+ * their tsconfig exist only in memory; everything else is read from disk.
+ */
+async function compileSamples(samples: Sample[], strict: boolean) {
+  const configFile = path.join(root, 'tsconfig.readme-samples.json');
   const virtualFiles = new Map(
     samples.map((sample) => [sample.fileName, sample.code]),
   );
-  const host = ts.createCompilerHost(options);
-  const getSourceFile = host.getSourceFile.bind(host);
-  const fileExists = host.fileExists.bind(host);
-  const readFile = host.readFile.bind(host);
-  host.getCurrentDirectory = () => root;
-  host.fileExists = (fileName) => {
-    return virtualFiles.has(fileName) || fileExists(fileName);
-  };
-  host.readFile = (fileName) => {
-    return virtualFiles.get(fileName) ?? readFile(fileName);
-  };
-  host.getSourceFile = (fileName, languageVersion, ...rest) => {
-    const code = virtualFiles.get(fileName);
-    if (code !== undefined) {
-      return ts.createSourceFile(fileName, code, languageVersion, true);
-    }
-    return getSourceFile(fileName, languageVersion, ...rest);
-  };
-  const program = ts.createProgram([...virtualFiles.keys()], options, host);
-  const diagnostics: ts.Diagnostic[] = [
-    ...program.getOptionsDiagnostics(),
-    ...program.getGlobalDiagnostics(),
-  ];
-  for (const sample of samples) {
-    const sourceFile = program.getSourceFile(sample.fileName);
-    if (!sourceFile) {
-      throw new Error(`Sample at README line ${sample.line} was not loaded`);
-    }
-    diagnostics.push(
-      ...program.getSyntacticDiagnostics(sourceFile),
-      ...program.getSemanticDiagnostics(sourceFile),
-    );
-  }
-  return diagnostics.map((diagnostic) => {
-    const message = ts.flattenDiagnosticMessageText(
-      diagnostic.messageText,
-      '\n',
-    );
-    const sample = samples.find(
-      (s) => s.fileName === diagnostic.file?.fileName,
-    );
-    if (!sample || !diagnostic.file || diagnostic.start === undefined) {
-      return message;
-    }
-    const position = diagnostic.file.getLineAndCharacterOfPosition(
-      diagnostic.start,
-    );
-    return `README.md:${sample.line + position.line}: ${message}`;
+  virtualFiles.set(
+    configFile,
+    JSON.stringify({
+      compilerOptions: {
+        strict,
+        noEmit: true,
+        skipLibCheck: true,
+        target: 'esnext',
+        module: 'esnext',
+        moduleResolution: 'bundler',
+        moduleDetection: 'force',
+        lib: ['esnext', 'dom'],
+        types: ['bun-types'],
+        paths: { 'es-query-pro': ['./index.ts'] },
+      },
+      files: samples.map((sample) => sample.fileName),
+    }),
+  );
+  const api = new API({
+    cwd: root,
+    fs: {
+      fileExists: (fileName) => virtualFiles.has(fileName) || undefined,
+      readFile: (fileName) => virtualFiles.get(fileName),
+    },
   });
+  try {
+    const snapshot = await api.updateSnapshot({ openProjects: [configFile] });
+    const project = snapshot.getProject(configFile);
+    if (!project) {
+      throw new Error('The README samples project was not loaded');
+    }
+    const program = project.program;
+    const diagnostics = [
+      ...(await program.getConfigFileParsingDiagnostics()),
+      ...(await program.getProgramDiagnostics()),
+      ...(await program.getGlobalDiagnostics()),
+    ];
+    for (const sample of samples) {
+      const sourceFile = await program.getSourceFile(sample.fileName);
+      if (!sourceFile) {
+        throw new Error(`Sample at README line ${sample.line} was not loaded`);
+      }
+      diagnostics.push(
+        ...(await program.getSyntacticDiagnostics(sample.fileName)),
+        ...(await program.getSemanticDiagnostics(sample.fileName)),
+      );
+    }
+    return diagnostics.map((diagnostic) => {
+      const sample = samples.find((s) => s.fileName === diagnostic.fileName);
+      if (!sample) {
+        return diagnostic.text;
+      }
+      const linesBefore = sample.code
+        .slice(0, diagnostic.pos)
+        .split('\n').length;
+      return `README.md:${sample.line + linesBefore - 1}: ${diagnostic.text}`;
+    });
+  } finally {
+    await api.close();
+  }
 }
 
 /** Split a Markdown table row into cells, keeping escaped pipes (`\|`) */
@@ -220,12 +224,12 @@ describe('README samples', () => {
     expect(mentions).toEqual([]);
   });
 
-  it('type-checks every sample in strict mode', () => {
-    expect(compileSamples(samples, true)).toEqual([]);
+  it('type-checks every sample in strict mode', async () => {
+    expect(await compileSamples(samples, true)).toEqual([]);
   }, 60_000);
 
-  it('type-checks every sample in non-strict mode', () => {
-    expect(compileSamples(samples, false)).toEqual([]);
+  it('type-checks every sample in non-strict mode', async () => {
+    expect(await compileSamples(samples, false)).toEqual([]);
   }, 60_000);
 });
 
@@ -264,21 +268,20 @@ describe('README quick reference examples', () => {
     expect(missing).toEqual([]);
   });
 
-  it('type-checks every example in strict mode', () => {
-    expect(compileSamples(tableSamples, true)).toEqual([]);
+  it('type-checks every example in strict mode', async () => {
+    expect(await compileSamples(tableSamples, true)).toEqual([]);
   }, 60_000);
 
-  it('type-checks every example in non-strict mode', () => {
-    expect(compileSamples(tableSamples, false)).toEqual([]);
+  it('type-checks every example in non-strict mode', async () => {
+    expect(await compileSamples(tableSamples, false)).toEqual([]);
   }, 60_000);
 
   it('runs every example on a fresh builder without throwing', async () => {
     const { QueryBuilder } = await import('../index');
+    const transpiler = new Bun.Transpiler({ loader: 'ts' });
     const failures: string[] = [];
     for (const example of tableExamples) {
-      const js = ts.transpileModule(example.code, {
-        compilerOptions: { target: ts.ScriptTarget.ESNext },
-      }).outputText;
+      const js = transpiler.transformSync(example.code);
       const qb = new QueryBuilder();
       try {
         new Function('qb', 'QueryBuilder', js)(qb, QueryBuilder);

@@ -1,6 +1,6 @@
 ## Change Log
 
-### v3.0.0-beta.4 (unreleased)
+### v3.0.0-beta.4
 
 Implements the 2026-11-19 code review. Upgrade guide:
 [`docs/consumers/upgrading-to-beta-4.md`](./docs/consumers/upgrading-to-beta-4.md).
@@ -77,7 +77,7 @@ IndexManager
     `deleteById()` returns `result`.
 12. `deleteMany(callback?, more?)` passes `more` to `_delete_by_query` and
     returns `{ success, deleted, versionConflicts, failures, request, took,
-    error, errorKind, response }`; failures or a timeout set `success: false`.
+error, errorKind, response }`; failures or a timeout set `success: false`.
     Without a callback, or with one that adds no conditions, it still deletes
     every document (stated in the JSDoc and README). A builder with no
     `query` (retrievers only) returns an error envelope and sends nothing.
@@ -90,7 +90,7 @@ Migration (`IndexManager.migrateIfNeeded()`, now in
 
 14. New zero-downtime flow: the new index is created without the alias and
     filled with `_reindex` (`version_type: 'external'`, `conflicts:
-    'proceed'`), a catch-up pass runs, the alias moves in one atomic
+'proceed'`), a catch-up pass runs, the alias moves in one atomic
     `_aliases` update, a final catch-up pass runs, counts are verified, then
     the old index is deleted. Reads, `findById`, `put` and `patch` keep
     working against the old index during the copy (previously the alias
@@ -144,11 +144,11 @@ QueryBuilder
 24. Validation: setters throw on invalid input (`rankWindowSize`,
     `rankConstant`, `minScore`, `trackTotalHits` (`-1` rejected; use
     `false`), `fields`, `excludeFields`, `searchAfter`, `limit` (integer
-    >= 0), `page` (integer >= 1), `sort`, `sortByRandom`, `reset` (unknown
-    names), `term` (missing, `null`, array or object values), the pattern
-    methods, `range`, retriever methods, aggregation options). Getters return
-    copies, and `getBody()`/`getQuery()` output shares nothing with the
-    builder; `aggs()` copies its input.
+    > = 0), `page` (integer >= 1), `sort`, `sortByRandom`, `reset` (unknown
+    > names), `term` (missing, `null`, array or object values), the pattern
+    > methods, `range`, retriever methods, aggregation options). Getters return
+    > copies, and `getBody()`/`getQuery()` output shares nothing with the
+    > builder; `aggs()` copies its input.
 25. Match family: `matchBoostedPhrase()` default boosts are exact 5, and 3,
     or 1 (the exact phrase now ranks highest); a missing weight defaults by
     operator. A blank phrase (empty, whitespace, `null`, `undefined`) adds
@@ -244,12 +244,12 @@ QueryRunner
 SchemaRegistry
 
 38. Every operation resolves to `SchemaFleetResult`: `{ success, took,
-    report, summary, error, errorKind }`. An empty registry is
+report, summary, error, errorKind }`. An empty registry is
     `success: false` with `errorKind: 'configuration'` everywhere
     (`recreateAll()` used to throw). An invalid `concurrency` is a
     configuration error; fractions are rounded down.
 39. `migrateIfNeeded()` returns `{ acknowledged, error, errorKind,
-    completion }` and awaits each index's `completion` (it used to count
+completion }` and awaits each index's `completion` (it used to count
     `percent === 100` events). `SchemaMigrationReport` gains `code`,
     `migration` and `errorKind`; `before` is the migration's own status;
     `after` is read once the index's migration settled, and a failing `after`

@@ -1,5 +1,4 @@
-import type { Merge } from "type-fest";
-import type IndexManager from "../IndexManager/IndexManager";
+import type IndexManager from '../IndexManager/IndexManager';
 import type {
   IndexDropResult,
   IndexErrorKind,
@@ -11,7 +10,16 @@ import type {
   MigrationResult,
   StatusReport,
   StatusSummary,
-} from "../IndexManager/IndexManager";
+} from '../IndexManager/IndexManager';
+import type { Prettify } from '../types';
+
+/**
+ * Combine two object types; where both have a key, the one in `Source`
+ * replaces the one in `Destination` (unlike `&`, which intersects them).
+ */
+type Merge<Destination, Source> = Prettify<
+  Omit<Destination, keyof Source> & Source
+>;
 
 /**
  * Any `IndexManager`, whatever its creation request. `any` keeps each
@@ -49,10 +57,10 @@ export type SchemaFleetResult<Entry, Code extends string> = {
  *   (`NEWER_VERSION_PRESENT`, `INCOMPARABLE_VERSION`, `ALIAS_CONFLICT`)
  */
 export type SchemaMigrationOutcome =
-  | "created"
-  | "migrated"
-  | "unchanged"
-  | "failed";
+  | 'created'
+  | 'migrated'
+  | 'unchanged'
+  | 'failed';
 export type SchemaMigrationReport = {
   fullName: string;
   aliasName: string;
@@ -107,7 +115,7 @@ export type SchemaRecreateReport = {
   errorKind: IndexErrorKind | null;
   took: number;
 };
-export type SchemaRecreateCode = IndexLifecycleCode | "ERROR";
+export type SchemaRecreateCode = IndexLifecycleCode | 'ERROR';
 
 /**
  * One index's `drop()` in `dropAll()`:
@@ -115,7 +123,7 @@ export type SchemaRecreateCode = IndexLifecycleCode | "ERROR";
  * - `MISSING`: there was no such index (counts as success)
  * - `ERROR`: the delete failed
  */
-export type SchemaDropCode = "DROPPED" | "MISSING" | "ERROR";
+export type SchemaDropCode = 'DROPPED' | 'MISSING' | 'ERROR';
 export type SchemaDropReport = {
   fullName: string;
   aliasName: string;
@@ -129,16 +137,16 @@ export type SchemaDropReport = {
 };
 
 export type SchemaMigrationResultShape = Awaited<
-  ReturnType<SchemaRegistry["migrateIfNeeded"]>
+  ReturnType<SchemaRegistry['migrateIfNeeded']>
 >;
 export type SchemaStatusResultShape = Awaited<
-  ReturnType<SchemaRegistry["getStatus"]>
+  ReturnType<SchemaRegistry['getStatus']>
 >;
 export type SchemaRecreateResultShape = Awaited<
-  ReturnType<SchemaRegistry["recreateAll"]>
+  ReturnType<SchemaRegistry['recreateAll']>
 >;
 export type SchemaDropResultShape = Awaited<
-  ReturnType<SchemaRegistry["dropAll"]>
+  ReturnType<SchemaRegistry['dropAll']>
 >;
 
 type Failure = { error: Error; errorKind: IndexErrorKind };
@@ -146,10 +154,10 @@ type Failure = { error: Error; errorKind: IndexErrorKind };
 const OUTCOME_BY_CODE: Partial<
   Record<MigrationOutcomeCode, SchemaMigrationOutcome>
 > = {
-  CREATED: "created",
-  ALIAS_CREATED: "created",
-  MIGRATED: "migrated",
-  CURRENT: "unchanged",
+  CREATED: 'created',
+  ALIAS_CREATED: 'created',
+  MIGRATED: 'migrated',
+  CURRENT: 'unchanged',
 };
 
 const DEFAULT_CONCURRENCY = 2;
@@ -174,9 +182,9 @@ export async function runLimited<T, R>(
       next++;
       try {
         const value = await fn(items[i], i);
-        results[i] = { status: "fulfilled", value };
+        results[i] = { status: 'fulfilled', value };
       } catch (reason) {
-        results[i] = { status: "rejected", reason };
+        results[i] = { status: 'rejected', reason };
       }
     }
   };
@@ -191,11 +199,11 @@ export async function runLimited<T, R>(
 
 /** A configuration problem, reported in the envelope instead of thrown */
 function configFailure(error: Error): Failure {
-  return { error, errorKind: "configuration" };
+  return { error, errorKind: 'configuration' };
 }
 
 function checkConcurrency(concurrency: unknown): Failure | null {
-  if (typeof concurrency !== "number" || !(concurrency >= 1)) {
+  if (typeof concurrency !== 'number' || !(concurrency >= 1)) {
     return configFailure(
       new RangeError(
         `SchemaRegistry: concurrency must be a number of at least 1; got ${String(concurrency)}`,
@@ -218,7 +226,7 @@ function toFailure(index: AnyIndexManager, thrown: unknown): Failure {
     const formatted = index._formatError(thrown);
     return { error: formatted.error, errorKind: formatted.errorKind };
   } catch {
-    return { error: toError(thrown), errorKind: "javascript" };
+    return { error: toError(thrown), errorKind: 'javascript' };
   }
 }
 
@@ -234,13 +242,13 @@ function timeoutError(timeout: number) {
   const error = new Error(
     `SchemaRegistry: timeout of ${timeout}ms ran out before this index started`,
   );
-  error.name = "MigrationTimeoutError";
+  error.name = 'MigrationTimeoutError';
   return error;
 }
 
 /** Whether a failed drop means the index was not there */
 function isMissingIndex(result: IndexDropResult) {
-  if (result.errorKind !== "response") {
+  if (result.errorKind !== 'response') {
     return false;
   }
   const meta = result.response as {
@@ -249,7 +257,7 @@ function isMissingIndex(result: IndexDropResult) {
   } | null;
   return (
     meta?.statusCode === 404 &&
-    meta.body?.error?.type === "index_not_found_exception"
+    meta.body?.error?.type === 'index_not_found_exception'
   );
 }
 
@@ -400,7 +408,7 @@ export default class SchemaRegistry<
     const start = Date.now();
     const { onAllComplete, timeout, ...indexParams } = params;
     const failure =
-      this._checkRunnable("migrateIfNeeded") ?? checkTimeout(timeout);
+      this._checkRunnable('migrateIfNeeded') ?? checkTimeout(timeout);
     if (failure) {
       return {
         acknowledged: false,
@@ -441,7 +449,7 @@ export default class SchemaRegistry<
         report.push(entry);
       }
       const details = fleetResult(start, report, (entry) => ({
-        ok: entry.outcome !== "failed",
+        ok: entry.outcome !== 'failed',
         code: entry.outcome,
       }));
       safeCall(onAllComplete, details);
@@ -471,7 +479,7 @@ export default class SchemaRegistry<
     const entry: SchemaMigrationReport = {
       fullName: index.getFullName(),
       aliasName: index.getAliasName(),
-      outcome: "failed",
+      outcome: 'failed',
       code: null,
       before: null,
       after: null,
@@ -490,10 +498,10 @@ export default class SchemaRegistry<
     };
     const left = deadline - Date.now();
     if (left <= 0) {
-      entry.code = "TIMEOUT";
+      entry.code = 'TIMEOUT';
       return finish({
         error: timeoutError(timeout ?? 0),
-        errorKind: "timeout",
+        errorKind: 'timeout',
       });
     }
     let result: MigrationResult;
@@ -510,12 +518,12 @@ export default class SchemaRegistry<
     }
     entry.migration = outcome;
     entry.code = outcome.code;
-    entry.outcome = OUTCOME_BY_CODE[outcome.code] ?? "failed";
+    entry.outcome = OUTCOME_BY_CODE[outcome.code] ?? 'failed';
     entry.after = await this._readStatus(index);
     if (outcome.error) {
       return finish({
         error: outcome.error,
-        errorKind: outcome.errorKind ?? "javascript",
+        errorKind: outcome.errorKind ?? 'javascript',
       });
     }
     return finish();
@@ -543,7 +551,7 @@ export default class SchemaRegistry<
    */
   async recreateAll(concurrency = DEFAULT_CONCURRENCY) {
     return this._runAll<SchemaRecreateReport, SchemaRecreateCode>(
-      "recreateAll",
+      'recreateAll',
       concurrency,
       async (index, base) => {
         const result = await index.recreate();
@@ -559,7 +567,7 @@ export default class SchemaRegistry<
       (base, failure) => ({
         ...base,
         success: false,
-        code: "ERROR",
+        code: 'ERROR',
         result: null,
         ...failure,
       }),
@@ -577,7 +585,7 @@ export default class SchemaRegistry<
    */
   async getStatus(concurrency = DEFAULT_CONCURRENCY) {
     return this._runAll<StatusReport, StatusSummary>(
-      "getStatus",
+      'getStatus',
       concurrency,
       (index) => index.getStatus(),
       (base, failure) => unknownStatus(base, failure),
@@ -600,7 +608,7 @@ export default class SchemaRegistry<
    */
   async dropAll(concurrency = DEFAULT_CONCURRENCY) {
     return this._runAll<SchemaDropReport, SchemaDropCode>(
-      "dropAll",
+      'dropAll',
       concurrency,
       async (index, base) => {
         const result = await index.drop();
@@ -608,7 +616,7 @@ export default class SchemaRegistry<
           return {
             ...base(),
             success: true,
-            code: "DROPPED",
+            code: 'DROPPED',
             result,
             error: null,
             errorKind: null,
@@ -618,7 +626,7 @@ export default class SchemaRegistry<
           return {
             ...base(),
             success: true,
-            code: "MISSING",
+            code: 'MISSING',
             result,
             error: null,
             errorKind: null,
@@ -627,7 +635,7 @@ export default class SchemaRegistry<
         return {
           ...base(),
           success: false,
-          code: "ERROR",
+          code: 'ERROR',
           result,
           error: result.error,
           errorKind: result.errorKind,
@@ -636,7 +644,7 @@ export default class SchemaRegistry<
       (base, failure) => ({
         ...base,
         success: false,
-        code: "ERROR",
+        code: 'ERROR',
         result: null,
         ...failure,
       }),
@@ -697,13 +705,13 @@ export default class SchemaRegistry<
       },
     );
     const report = results.map((settled, i) => {
-      if (settled.status === "fulfilled") {
+      if (settled.status === 'fulfilled') {
         return settled.value;
       }
       // not reachable: onThrow only builds an object
       return onThrow(
         { ...names[i], took: 0 },
-        { error: toError(settled.reason), errorKind: "javascript" },
+        { error: toError(settled.reason), errorKind: 'javascript' },
       );
     });
     return fleetResult(start, report, read);
@@ -716,7 +724,7 @@ function checkTimeout(timeout: unknown): Failure | null {
   if (timeout === undefined) {
     return null;
   }
-  if (typeof timeout !== "number" || !(timeout > 0)) {
+  if (typeof timeout !== 'number' || !(timeout > 0)) {
     return configFailure(
       new RangeError(
         `SchemaRegistry: timeout must be a positive number of milliseconds; got ${String(timeout)}`,
@@ -777,7 +785,7 @@ function unknownStatus(
     siblings: emptySiblings(),
     needsMigration: false,
     needsCreation: false,
-    summary: "unknown",
+    summary: 'unknown',
     error: failure.error,
     errorKind: failure.errorKind,
   };

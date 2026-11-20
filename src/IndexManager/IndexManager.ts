@@ -1,15 +1,15 @@
-import type { Client, estypes } from "@elastic/elasticsearch";
-import IndexNameManager from "../IndexNameManager/IndexNameManager";
+import type { Client, estypes } from '@elastic/elasticsearch';
+import IndexNameManager from '../IndexNameManager/IndexNameManager';
 import {
   getAllFields,
   getFulltextFields,
-} from "../mappingFields/mappingFields";
+} from '../mappingFields/mappingFields';
 import type {
   MappingFieldPath,
   MappingRecord,
-} from "../mappingFields/mappingTypes";
-import QueryBuilder from "../QueryBuilder/QueryBuilder";
-import QueryRunner, { type QueryRecord } from "../QueryRunner/QueryRunner";
+} from '../mappingFields/mappingTypes';
+import QueryBuilder from '../QueryBuilder/QueryBuilder';
+import QueryRunner, { type QueryRecord } from '../QueryRunner/QueryRunner';
 import type {
   AliasCreateParams,
   AliasDeleteParams,
@@ -21,12 +21,12 @@ import type {
   IndexCreateParams,
   IndexExistParams,
   IndexMetadataParams,
-} from "../types";
+} from '../types';
 import {
   type MigrationParams,
   type MigrationResult,
   migrateIndex,
-} from "./migrate";
+} from './migrate';
 
 /**
  * The error half of every result envelope: what `_formatError()` returns and
@@ -39,44 +39,44 @@ export type IndexErrorShape = {
   /** The response metadata (`statusCode`, `body`, ...) of a `ResponseError` */
   response: ErrorMeta | null;
 };
-export type IndexExistsShape = Awaited<ReturnType<IndexManager["exists"]>>;
-export type AliasExistsShape = Awaited<ReturnType<IndexManager["aliasExists"]>>;
+export type IndexExistsShape = Awaited<ReturnType<IndexManager['exists']>>;
+export type AliasExistsShape = Awaited<ReturnType<IndexManager['aliasExists']>>;
 export type IndexMetadataShape = Awaited<
-  ReturnType<IndexManager["getIndexMetadata"]>
+  ReturnType<IndexManager['getIndexMetadata']>
 >;
 export type AliasMetadataShape = Awaited<
-  ReturnType<IndexManager["getAliasMetadata"]>
+  ReturnType<IndexManager['getAliasMetadata']>
 >;
-export type IndexFlushResult = Awaited<ReturnType<IndexManager["flush"]>>;
-export type IndexCreateResult = Awaited<ReturnType<IndexManager["create"]>>;
-export type IndexDropResult = Awaited<ReturnType<IndexManager["drop"]>>;
+export type IndexFlushResult = Awaited<ReturnType<IndexManager['flush']>>;
+export type IndexCreateResult = Awaited<ReturnType<IndexManager['create']>>;
+export type IndexDropResult = Awaited<ReturnType<IndexManager['drop']>>;
 export type IndexCreateAliasResult = Awaited<
-  ReturnType<IndexManager["createAlias"]>
+  ReturnType<IndexManager['createAlias']>
 >;
 export type IndexDropAliasResult = Awaited<
-  ReturnType<IndexManager["dropAlias"]>
+  ReturnType<IndexManager['dropAlias']>
 >;
 export type IndexCreateIfNeededResult = Awaited<
-  ReturnType<IndexManager["createIfNeeded"]>
+  ReturnType<IndexManager['createIfNeeded']>
 >;
 export type IndexCreateAliasIfNeededResult = Awaited<
-  ReturnType<IndexManager["createAliasIfNeeded"]>
+  ReturnType<IndexManager['createAliasIfNeeded']>
 >;
-export type IndexPutResult = Awaited<ReturnType<IndexManager["put"]>>;
-export type IndexPutBulkResult = Awaited<ReturnType<IndexManager["putBulk"]>>;
-export type IndexPatchResult = Awaited<ReturnType<IndexManager["patch"]>>;
-export type IndexDeleteResult = Awaited<ReturnType<IndexManager["deleteById"]>>;
-export type IndexStatusReport = Awaited<ReturnType<IndexManager["getStatus"]>>;
+export type IndexPutResult = Awaited<ReturnType<IndexManager['put']>>;
+export type IndexPutBulkResult = Awaited<ReturnType<IndexManager['putBulk']>>;
+export type IndexPatchResult = Awaited<ReturnType<IndexManager['patch']>>;
+export type IndexDeleteResult = Awaited<ReturnType<IndexManager['deleteById']>>;
+export type IndexStatusReport = Awaited<ReturnType<IndexManager['getStatus']>>;
 export type IndexSiblingIndexesResult = Awaited<
-  ReturnType<IndexManager["getSiblingIndexes"]>
+  ReturnType<IndexManager['getSiblingIndexes']>
 >;
-export type IndexRecreateResult = Awaited<ReturnType<IndexManager["recreate"]>>;
+export type IndexRecreateResult = Awaited<ReturnType<IndexManager['recreate']>>;
 export type IndexCreateOnlyResult = Awaited<
-  ReturnType<IndexManager["createOnly"]>
+  ReturnType<IndexManager['createOnly']>
 >;
 /** The create-index request descriptor `getCreateRequest()` returns */
 export type IndexCreateRequestShape = ReturnType<
-  IndexManager["getCreateRequest"]
+  IndexManager['getCreateRequest']
 >;
 /**
  * What `create()`, `createIfNeeded()`, `recreate()` and
@@ -95,17 +95,17 @@ export type IndexCreateRequestShape = ReturnType<
  *   `FLUSH_ERROR`: that request failed (see `error` and `errorKind`)
  */
 export type IndexLifecycleCode =
-  | "CREATED"
-  | "ALREADY_EXISTS"
-  | "ALIAS_CREATED"
-  | "NEEDS_MIGRATION"
-  | "NEWER_VERSION_PRESENT"
-  | "ALIAS_CONFLICT"
-  | "EXISTS_CHECK_ERROR"
-  | "CREATE_ERROR"
-  | "ALIAS_ERROR"
-  | "DROP_ERROR"
-  | "FLUSH_ERROR";
+  | 'CREATED'
+  | 'ALREADY_EXISTS'
+  | 'ALIAS_CREATED'
+  | 'NEEDS_MIGRATION'
+  | 'NEWER_VERSION_PRESENT'
+  | 'ALIAS_CONFLICT'
+  | 'EXISTS_CHECK_ERROR'
+  | 'CREATE_ERROR'
+  | 'ALIAS_ERROR'
+  | 'DROP_ERROR'
+  | 'FLUSH_ERROR';
 /**
  * A record id. Numbers are sent as strings; `0` is a valid id.
  */
@@ -113,12 +113,12 @@ export type IndexRecordId = string | number;
 /** Request params for `put()` (`refresh`, `if_seq_no`, `op_type`, ...) */
 export type IndexPutParams = Omit<
   estypes.IndexRequest,
-  "index" | "id" | "document"
+  'index' | 'id' | 'document'
 >;
 /** Request params sent with every `putBulk()` request (`refresh`, ...) */
 export type IndexPutBulkParams = Omit<
   estypes.BulkRequest,
-  "index" | "operations"
+  'index' | 'operations'
 >;
 /** How `putBulk()` splits its records into requests */
 export type IndexPutBulkOptions = {
@@ -144,22 +144,22 @@ export type IndexPutBulkReportRow = {
 /** Request params for `patch()` (`refresh`, `doc_as_upsert`, ...) */
 export type IndexPatchParams = Omit<
   estypes.UpdateRequest,
-  "index" | "id" | "doc"
+  'index' | 'id' | 'doc'
 >;
 /** Request params for `findById()` (`_source_includes`, `realtime`, ...) */
-export type IndexFindByIdParams = Omit<estypes.GetRequest, "index" | "id">;
+export type IndexFindByIdParams = Omit<estypes.GetRequest, 'index' | 'id'>;
 /** Request params for `deleteById()` (`refresh`, `if_seq_no`, ...) */
-export type IndexDeleteByIdParams = Omit<estypes.DeleteRequest, "index" | "id">;
+export type IndexDeleteByIdParams = Omit<estypes.DeleteRequest, 'index' | 'id'>;
 /** Request params for `deleteMany()` (`conflicts`, `refresh`, ...) */
 export type IndexDeleteManyParams = Omit<
   estypes.DeleteByQueryRequest,
-  "index" | "query"
+  'index' | 'query'
 >;
 /** Request params for `count()` (`min_score`, `terminate_after`, ...) */
-export type IndexCountParams = Omit<estypes.CountRequest, "index" | "query">;
-export type IndexFindByIdResult = Awaited<ReturnType<IndexManager["findById"]>>;
+export type IndexCountParams = Omit<estypes.CountRequest, 'index' | 'query'>;
+export type IndexFindByIdResult = Awaited<ReturnType<IndexManager['findById']>>;
 export type IndexDeleteManyResult = Awaited<
-  ReturnType<IndexManager["deleteMany"]>
+  ReturnType<IndexManager['deleteMany']>
 >;
 /** The creation request type an `IndexManager` was constructed with */
 export type IndexInferCreate<T> = T extends IndexManager<infer C> ? C : never;
@@ -182,7 +182,7 @@ export type {
   MigrationProgressDetails,
   MigrationRequest,
   MigrationResult,
-} from "./migrate";
+} from './migrate';
 /** What `migrateIfNeeded()` resolves to (same as `MigrationResult`) */
 export type IndexMigrateResult = MigrationResult;
 /**
@@ -220,13 +220,13 @@ export type SiblingIndexes = {
  * - `current`: the alias points at this index only
  */
 export type StatusSummary =
-  | "unknown"
-  | "newerVersionPresent"
-  | "needsMigration"
-  | "aliasConflict"
-  | "needsCreation"
-  | "needsAlias"
-  | "current";
+  | 'unknown'
+  | 'newerVersionPresent'
+  | 'needsMigration'
+  | 'aliasConflict'
+  | 'needsCreation'
+  | 'needsAlias'
+  | 'current';
 export type StatusReport = {
   took: number;
   fullName: string;
@@ -296,15 +296,15 @@ export type ManageOptions = {
  * - `javascript`: anything else, e.g. a bug or a thrown non-client error
  */
 export type IndexErrorKind =
-  | "response"
-  | "connection"
-  | "timeout"
-  | "disconnected"
-  | "aborted"
-  | "serialization"
-  | "product"
-  | "configuration"
-  | "javascript";
+  | 'response'
+  | 'connection'
+  | 'timeout'
+  | 'disconnected'
+  | 'aborted'
+  | 'serialization'
+  | 'product'
+  | 'configuration'
+  | 'javascript';
 
 /**
  * The parts of a client `ResponseError` this class reads. Errors are
@@ -388,21 +388,21 @@ export default class IndexManager<
    *   `create.aliases` contains this manager's own alias name
    */
   constructor(options: ManageOptions, create: Create) {
-    if (!options || typeof options !== "object") {
+    if (!options || typeof options !== 'object') {
       throw new TypeError(
-        "IndexManager: the first argument (options) is required and must " +
+        'IndexManager: the first argument (options) is required and must ' +
           'be an object with a "client"',
       );
     }
     if (!options.client) {
       throw new TypeError(
-        "IndexManager: options.client is required; pass an " +
-          "Elasticsearch Client instance",
+        'IndexManager: options.client is required; pass an ' +
+          'Elasticsearch Client instance',
       );
     }
-    if (!create || typeof create !== "object") {
+    if (!create || typeof create !== 'object') {
       throw new TypeError(
-        "IndexManager: the second argument (create) is required and must " +
+        'IndexManager: the second argument (create) is required and must ' +
           'be an index creation request with an "index" name',
       );
     }
@@ -420,7 +420,7 @@ export default class IndexManager<
     if (create.aliases && Object.hasOwn(create.aliases, aliasName)) {
       throw new Error(
         `IndexManager: create.aliases must not contain "${aliasName}"; ` +
-          "IndexManager creates and moves that alias itself",
+          'IndexManager creates and moves that alias itself',
       );
     }
     this.fulltextFields = getFulltextFields(create);
@@ -443,7 +443,7 @@ export default class IndexManager<
       error: toError(e),
       errorKind,
       // only Elasticsearch response errors carry response metadata
-      response: errorKind === "response" ? getErrorMeta(e) : null,
+      response: errorKind === 'response' ? getErrorMeta(e) : null,
     };
   }
 
@@ -474,7 +474,7 @@ export default class IndexManager<
       ...(more || {}),
     };
     const request = {
-      method: "HEAD",
+      method: 'HEAD',
       endpoint: `/${toPathPart(body.index)}`,
       body,
     };
@@ -522,7 +522,7 @@ export default class IndexManager<
       ...(more || {}),
     };
     const request = {
-      method: "HEAD",
+      method: 'HEAD',
       endpoint: getAliasEndpoint(body),
       body,
     };
@@ -563,7 +563,7 @@ export default class IndexManager<
       ...(more || {}),
     };
     const request = {
-      method: "GET",
+      method: 'GET',
       endpoint: `/${toPathPart(body.index)}`,
       body,
     };
@@ -600,13 +600,13 @@ export default class IndexManager<
       ...(more || {}),
     };
     const request = {
-      method: "GET",
+      method: 'GET',
       endpoint: getAliasEndpoint(body),
       body,
     };
     try {
       const response = await this.client.indices.getAlias(request.body);
-      if (typeof response !== "object") {
+      if (typeof response !== 'object') {
         throw new Error(
           `Unexpected indices.getAlias() response: ${JSON.stringify(response, null, 2)}`,
         );
@@ -677,7 +677,7 @@ export default class IndexManager<
       ...(more || {}),
     };
     const request = {
-      method: "POST",
+      method: 'POST',
       endpoint: `/${toPathPart(body.index)}/_flush`,
       body,
     };
@@ -735,7 +735,7 @@ export default class IndexManager<
       ...(more || {}),
     };
     return {
-      method: "PUT",
+      method: 'PUT',
       endpoint: `/${body.index}`,
       body,
     };
@@ -785,7 +785,7 @@ export default class IndexManager<
     const alias = await this._getAliasState();
     if (alias.failure) {
       return this._createResult(start, request, {
-        code: "EXISTS_CHECK_ERROR",
+        code: 'EXISTS_CHECK_ERROR',
         failure: alias.failure,
       });
     }
@@ -793,13 +793,13 @@ export default class IndexManager<
     const createFailure = getFailure(indexResponse);
     if (createFailure) {
       return this._createResult(start, request, {
-        code: "CREATE_ERROR",
+        code: 'CREATE_ERROR',
         failure: createFailure,
         aliasIndexes: alias.indexes,
         indexResponse,
       });
     }
-    return this._attachAlias(start, request, alias, indexResponse, "CREATED");
+    return this._attachAlias(start, request, alias, indexResponse, 'CREATED');
   }
 
   /**
@@ -814,7 +814,7 @@ export default class IndexManager<
       ...(more || {}),
     };
     const request = {
-      method: "DELETE",
+      method: 'DELETE',
       endpoint: `/${toPathPart(body.index)}`,
       body,
     };
@@ -866,7 +866,7 @@ export default class IndexManager<
     if (existsFailure) {
       return finish(
         this._createResult(start, request, {
-          code: "EXISTS_CHECK_ERROR",
+          code: 'EXISTS_CHECK_ERROR',
           failure: existsFailure,
         }),
       );
@@ -877,7 +877,7 @@ export default class IndexManager<
       if (dropFailure) {
         return finish(
           this._createResult(start, request, {
-            code: "DROP_ERROR",
+            code: 'DROP_ERROR',
             failure: dropFailure,
           }),
         );
@@ -891,7 +891,7 @@ export default class IndexManager<
     const flushFailure = getFailure(flushResponse);
     if (flushFailure) {
       return finish(
-        { ...created, success: false, code: "FLUSH_ERROR", ...flushFailure },
+        { ...created, success: false, code: 'FLUSH_ERROR', ...flushFailure },
         flushResponse,
       );
     }
@@ -935,7 +935,7 @@ export default class IndexManager<
       ...(more || {}),
     };
     const request = {
-      method: "DELETE",
+      method: 'DELETE',
       endpoint: getAliasEndpoint(body),
       body,
     };
@@ -977,7 +977,7 @@ export default class IndexManager<
     const alias = await this._getAliasState();
     if (alias.failure) {
       return this._createResult(start, request, {
-        code: "EXISTS_CHECK_ERROR",
+        code: 'EXISTS_CHECK_ERROR',
         failure: alias.failure,
       });
     }
@@ -989,7 +989,7 @@ export default class IndexManager<
     }
     if (alias.attached) {
       return this._createResult(start, request, {
-        code: "ALREADY_EXISTS",
+        code: 'ALREADY_EXISTS',
         aliasIndexes: alias.indexes,
       });
     }
@@ -999,13 +999,13 @@ export default class IndexManager<
     const createFailure = getFailure(indexResponse);
     if (createFailure && !isAlreadyExists(createFailure)) {
       return this._createResult(start, request, {
-        code: "CREATE_ERROR",
+        code: 'CREATE_ERROR',
         failure: createFailure,
         aliasIndexes: alias.indexes,
         indexResponse,
       });
     }
-    const code = createFailure ? "ALIAS_CREATED" : "CREATED";
+    const code = createFailure ? 'ALIAS_CREATED' : 'CREATED';
     return this._attachAlias(start, request, alias, indexResponse, code);
   }
 
@@ -1036,20 +1036,20 @@ export default class IndexManager<
     });
     const alias = await this._getAliasState();
     if (alias.failure) {
-      return finish("EXISTS_CHECK_ERROR", [], alias.failure);
+      return finish('EXISTS_CHECK_ERROR', [], alias.failure);
     }
     if (alias.conflict) {
       return finish(alias.conflict, alias.indexes);
     }
     if (alias.attached) {
-      return finish("ALREADY_EXISTS", alias.indexes);
+      return finish('ALREADY_EXISTS', alias.indexes);
     }
     const aliasResponse = await this.createAlias();
     const failure = getFailure(aliasResponse);
     if (failure) {
-      return finish("ALIAS_ERROR", alias.indexes, failure, aliasResponse);
+      return finish('ALIAS_ERROR', alias.indexes, failure, aliasResponse);
     }
-    return finish("CREATED", alias.indexes, null, aliasResponse);
+    return finish('CREATED', alias.indexes, null, aliasResponse);
   }
 
   /**
@@ -1062,7 +1062,7 @@ export default class IndexManager<
       ...(more || {}),
     };
     return {
-      method: "PUT",
+      method: 'PUT',
       endpoint: getAliasEndpoint(body),
       body,
     };
@@ -1095,7 +1095,7 @@ export default class IndexManager<
     request: IndexCreateRequestShape,
     alias: AliasState,
     indexResponse: IndexCreateOnlyResult,
-    code: "CREATED" | "ALIAS_CREATED",
+    code: 'CREATED' | 'ALIAS_CREATED',
   ) {
     if (alias.conflict) {
       return this._createResult(start, request, {
@@ -1107,7 +1107,7 @@ export default class IndexManager<
     const aliasResponse = await this.createAlias();
     const failure = getFailure(aliasResponse);
     return this._createResult(start, request, {
-      code: failure ? "ALIAS_ERROR" : code,
+      code: failure ? 'ALIAS_ERROR' : code,
       failure,
       aliasIndexes: alias.indexes,
       indexResponse,
@@ -1154,7 +1154,7 @@ export default class IndexManager<
     const start = Date.now();
     const index = this.getAliasName();
     const request = {
-      method: "PUT",
+      method: 'PUT',
       endpoint: `/${index}/_doc/${id}`,
       body: {
         ...more,
@@ -1218,7 +1218,7 @@ export default class IndexManager<
       operations.push({ index: { _index: index, _id: ids[i] } }, record);
     });
     const request = {
-      method: "POST",
+      method: 'POST',
       endpoint: `/${index}/_bulk`,
       body: { ...more, index, operations },
     };
@@ -1276,7 +1276,7 @@ export default class IndexManager<
       return {
         ...result(),
         error: toAggregateError(errors, message),
-        errorKind: "response" as const,
+        errorKind: 'response' as const,
         response: { statusCode: 200, body: response } as ErrorMeta,
       };
     }
@@ -1307,7 +1307,7 @@ export default class IndexManager<
     const optimistic =
       more?.if_seq_no !== undefined || more?.if_primary_term !== undefined;
     const request = {
-      method: "POST",
+      method: 'POST',
       endpoint: `/${index}/_update/${id}`,
       body: {
         ...(optimistic ? {} : { retry_on_conflict: PATCH_RETRY_ON_CONFLICT }),
@@ -1376,8 +1376,8 @@ export default class IndexManager<
       aliasIndexes,
       aliasAttached,
       siblings: alias.siblings,
-      needsMigration: summary === "needsMigration",
-      needsCreation: summary === "needsCreation",
+      needsMigration: summary === 'needsMigration',
+      needsCreation: summary === 'needsCreation',
       summary,
       error: failure?.error ?? null,
       errorKind: failure?.errorKind ?? null,
@@ -1482,7 +1482,7 @@ export default class IndexManager<
     const start = Date.now();
     const index = this.getAliasName();
     const request = {
-      method: "GET",
+      method: 'GET',
       endpoint: `/${index}/_doc/${id}`,
       body: { ...more, index, id: String(id) },
     };
@@ -1537,7 +1537,7 @@ export default class IndexManager<
    */
   async findMany(
     withQueryBuilder?: QueryBuilderProvider<MappingFieldPath<Create>>,
-    more?: Omit<estypes.SearchRequest, "index" | "query">,
+    more?: Omit<estypes.SearchRequest, 'index' | 'query'>,
   ) {
     const start = Date.now();
     try {
@@ -1566,7 +1566,7 @@ export default class IndexManager<
    */
   async findFirst(
     withQueryBuilder?: QueryBuilderProvider<MappingFieldPath<Create>>,
-    more?: Omit<estypes.SearchRequest, "index" | "query">,
+    more?: Omit<estypes.SearchRequest, 'index' | 'query'>,
   ) {
     const start = Date.now();
     try {
@@ -1637,7 +1637,7 @@ export default class IndexManager<
     const start = Date.now();
     const index = this.getAliasName();
     const request = {
-      method: "DELETE",
+      method: 'DELETE',
       endpoint: `/${index}/_doc/${id}`,
       body: { ...more, index, id: String(id) },
     };
@@ -1691,7 +1691,7 @@ export default class IndexManager<
     const start = Date.now();
     const index = this.getAliasName();
     const request = {
-      method: "POST",
+      method: 'POST',
       endpoint: `/${index}/_delete_by_query`,
       body: {
         ...more,
@@ -1719,8 +1719,8 @@ export default class IndexManager<
     if (!request.body.query) {
       const error = new Error(
         'deleteMany: the builder produced no "query" (retrievers such as ' +
-          "knn() or semantic() cannot select documents to delete); " +
-          "nothing was deleted",
+          'knn() or semantic() cannot select documents to delete); ' +
+          'nothing was deleted',
       );
       return { ...result(null), ...this._formatError(error) };
     }
@@ -1736,7 +1736,7 @@ export default class IndexManager<
         ...result(response),
         failures: response.failures ?? [],
         error,
-        errorKind: "response" as const,
+        errorKind: 'response' as const,
         response: { statusCode: 200, body: response } as ErrorMeta,
       };
     }
@@ -1844,7 +1844,7 @@ function applyBulkItem(
  * `type: reason` of an Elasticsearch error cause
  */
 function describeCause(cause: ErrorCause) {
-  return `${cause.type}: ${cause.reason ?? ""}`;
+  return `${cause.type}: ${cause.reason ?? ''}`;
 }
 
 /**
@@ -1867,10 +1867,10 @@ function getDocumentNotFound<T>(e: unknown): estypes.GetResponse<T> | null {
     return null;
   }
   const body = getErrorMeta(e)?.body;
-  if (typeof body !== "object" || body === null) {
+  if (typeof body !== 'object' || body === null) {
     return null;
   }
-  if (!("found" in body) || body.found !== false) {
+  if (!('found' in body) || body.found !== false) {
     return null;
   }
   return body as estypes.GetResponse<T>;
@@ -1891,8 +1891,8 @@ function getDeleteByQueryError(response: estypes.DeleteByQueryResponse) {
   }
   if (response.timed_out) {
     return new Error(
-      "deleteMany: the request timed out; some matching documents may " +
-        "not have been deleted",
+      'deleteMany: the request timed out; some matching documents may ' +
+        'not have been deleted',
     );
   }
   return null;
@@ -1908,8 +1908,8 @@ const serverlessClients = new WeakSet<Client>();
  * Whether the `ES_SERVERLESS` env var marks the cluster as serverless.
  */
 function isServerlessEnv() {
-  const value = (process.env.ES_SERVERLESS || "").trim().toLowerCase();
-  return value === "true" || value === "1";
+  const value = (process.env.ES_SERVERLESS || '').trim().toLowerCase();
+  return value === 'true' || value === '1';
 }
 
 /**
@@ -1918,26 +1918,26 @@ function isServerlessEnv() {
  * responds 410 with `api_not_available_exception`).
  */
 function isApiNotAvailable(e: unknown) {
-  if (getErrorName(e) !== "ResponseError") {
+  if (getErrorName(e) !== 'ResponseError') {
     return false;
   }
   const body = getErrorMeta(e)?.body as
     | { error?: { type?: string } }
     | null
     | undefined;
-  return body?.error?.type === "api_not_available_exception";
+  return body?.error?.type === 'api_not_available_exception';
 }
 
 /**
  * The `name` of a thrown value, or '' when it has none
  */
 function getErrorName(e: unknown) {
-  if (typeof e === "object" && e !== null && "name" in e) {
-    if (typeof e.name === "string") {
+  if (typeof e === 'object' && e !== null && 'name' in e) {
+    if (typeof e.name === 'string') {
       return e.name;
     }
   }
-  return "";
+  return '';
 }
 
 /**
@@ -1948,25 +1948,25 @@ function getErrorName(e: unknown) {
  */
 function getErrorKind(e: unknown): IndexErrorKind {
   switch (getErrorName(e)) {
-    case "ResponseError":
-      return "response";
-    case "ConnectionError":
-      return "connection";
-    case "TimeoutError":
-      return "timeout";
-    case "NoLivingConnectionsError":
-      return "disconnected";
-    case "RequestAbortedError":
-      return "aborted";
-    case "SerializationError":
-    case "DeserializationError":
-      return "serialization";
-    case "ProductNotSupportedError":
-      return "product";
-    case "ConfigurationError":
-      return "configuration";
+    case 'ResponseError':
+      return 'response';
+    case 'ConnectionError':
+      return 'connection';
+    case 'TimeoutError':
+      return 'timeout';
+    case 'NoLivingConnectionsError':
+      return 'disconnected';
+    case 'RequestAbortedError':
+      return 'aborted';
+    case 'SerializationError':
+    case 'DeserializationError':
+      return 'serialization';
+    case 'ProductNotSupportedError':
+      return 'product';
+    case 'ConfigurationError':
+      return 'configuration';
     default:
-      return "javascript";
+      return 'javascript';
   }
 }
 
@@ -1975,9 +1975,9 @@ function getErrorKind(e: unknown): IndexErrorKind {
  * null when the thrown value has none
  */
 function getErrorMeta(e: unknown): ErrorMeta | null {
-  if (typeof e === "object" && e !== null && "meta" in e) {
+  if (typeof e === 'object' && e !== null && 'meta' in e) {
     const meta = e.meta;
-    if (typeof meta === "object" && meta !== null) {
+    if (typeof meta === 'object' && meta !== null) {
       return meta as ErrorMeta;
     }
   }
@@ -1993,7 +1993,7 @@ function toError(e: unknown): Error {
     return e;
   }
   let message = String(e);
-  if (typeof e === "object" && e !== null && "message" in e) {
+  if (typeof e === 'object' && e !== null && 'message' in e) {
     message = String(e.message);
   }
   const error = new Error(message, { cause: e });
@@ -2008,7 +2008,7 @@ function toError(e: unknown): Error {
  * Whether the thrown value is a `ResponseError` with the given status code
  */
 function isResponseStatus(e: unknown, statusCode: number) {
-  if (getErrorName(e) !== "ResponseError") {
+  if (getErrorName(e) !== 'ResponseError') {
     return false;
   }
   return getErrorMeta(e)?.statusCode === statusCode;
@@ -2026,15 +2026,15 @@ function getMissingAliasEntries(e: unknown) {
     return null;
   }
   const body = getErrorMeta(e)?.body;
-  if (typeof body !== "object" || body === null) {
+  if (typeof body !== 'object' || body === null) {
     return null;
   }
-  if (!("error" in body) || typeof body.error !== "string") {
+  if (!('error' in body) || typeof body.error !== 'string') {
     return null;
   }
   const found: estypes.IndicesGetAliasResponse = {};
   for (const [key, value] of Object.entries(body)) {
-    if (key !== "error" && key !== "status") {
+    if (key !== 'error' && key !== 'status') {
       found[key] = value as estypes.IndicesGetAliasIndexAliases;
     }
   }
@@ -2046,9 +2046,9 @@ function getMissingAliasEntries(e: unknown) {
  */
 function toPathPart(names: string | string[] | undefined) {
   if (Array.isArray(names)) {
-    return names.join(",");
+    return names.join(',');
   }
-  return names ?? "";
+  return names ?? '';
 }
 
 /**
@@ -2077,12 +2077,12 @@ function getFailure(step: {
   if (!step.error) {
     return null;
   }
-  const errorKind = step.errorKind ?? "javascript";
+  const errorKind = step.errorKind ?? 'javascript';
   return {
     error: step.error,
     errorKind,
     response:
-      errorKind === "response" ? ((step.response ?? null) as ErrorMeta) : null,
+      errorKind === 'response' ? ((step.response ?? null) as ErrorMeta) : null,
   };
 }
 
@@ -2094,7 +2094,7 @@ function isAlreadyExists(failure: StepFailure) {
     | { error?: { type?: string } }
     | null
     | undefined;
-  return body?.error?.type === "resource_already_exists_exception";
+  return body?.error?.type === 'resource_already_exists_exception';
 }
 
 /**
@@ -2102,7 +2102,7 @@ function isAlreadyExists(failure: StepFailure) {
  */
 function isSuccessCode(code: IndexLifecycleCode) {
   return (
-    code === "CREATED" || code === "ALREADY_EXISTS" || code === "ALIAS_CREATED"
+    code === 'CREATED' || code === 'ALREADY_EXISTS' || code === 'ALIAS_CREATED'
   );
 }
 
@@ -2121,12 +2121,12 @@ function getAliasConflict(
   }
   const siblings = classifySiblings(index, others);
   if (siblings.newer.length > 0) {
-    return "NEWER_VERSION_PRESENT";
+    return 'NEWER_VERSION_PRESENT';
   }
   if (siblings.unrelated.length > 0) {
-    return "ALIAS_CONFLICT";
+    return 'ALIAS_CONFLICT';
   }
-  return "NEEDS_MIGRATION";
+  return 'NEEDS_MIGRATION';
 }
 
 /**
@@ -2147,11 +2147,11 @@ function classifySiblings(
   for (const name of others) {
     const parsed = IndexNameManager.tryParseByName(name, index.separator);
     const relation = parsed ? IndexNameManager.compare(index, parsed) : null;
-    if (parsed && relation === "older") {
+    if (parsed && relation === 'older') {
       older.push({ name, parsed });
-    } else if (parsed && relation === "newer") {
+    } else if (parsed && relation === 'newer') {
       newer.push({ name, parsed });
-    } else if (relation === "incomparable") {
+    } else if (relation === 'incomparable') {
       incomparable.push(name);
     } else {
       // 'same' cannot happen: that would be this index, excluded above
@@ -2175,10 +2175,10 @@ type ParsedSibling = { name: string; parsed: IndexNameManager };
  */
 function byVersion(a: ParsedSibling, b: ParsedSibling) {
   const relation = IndexNameManager.compare(a.parsed, b.parsed);
-  if (relation === "newer") {
+  if (relation === 'newer') {
     return -1;
   }
-  if (relation === "older") {
+  if (relation === 'older') {
     return 1;
   }
   return 0;
@@ -2205,24 +2205,24 @@ function getStatusSummary(state: {
   siblings: SiblingIndexes;
 }): StatusSummary {
   if (state.failed) {
-    return "unknown";
+    return 'unknown';
   }
   if (state.siblings.newer.length > 0) {
-    return "newerVersionPresent";
+    return 'newerVersionPresent';
   }
   if (isMigrationNeeded(state.siblings)) {
-    return "needsMigration";
+    return 'needsMigration';
   }
   if (state.siblings.unrelated.length > 0) {
-    return "aliasConflict";
+    return 'aliasConflict';
   }
   if (!state.indexExists) {
-    return "needsCreation";
+    return 'needsCreation';
   }
   if (!state.aliasAttached) {
-    return "needsAlias";
+    return 'needsAlias';
   }
-  return "current";
+  return 'current';
 }
 
 /*

@@ -1,7 +1,7 @@
 import { describe, expect, expectTypeOf, it } from 'bun:test';
 import path from 'node:path';
 import type { Client, estypes } from '@elastic/elasticsearch';
-import ts from 'typescript-5';
+import { API } from 'typescript/unstable/async';
 import type * as Api from '../index';
 import * as api from '../index';
 
@@ -28,26 +28,45 @@ const removedNames = [
  * Every name `index.ts` exports, values and types alike, as a TypeScript
  * consumer sees them
  */
-function getAllExportNames() {
-  const entry = path.resolve(import.meta.dir, '..', 'index.ts');
-  const program = ts.createProgram([entry], {
-    noEmit: true,
-    skipLibCheck: true,
-    target: ts.ScriptTarget.ESNext,
-    module: ts.ModuleKind.ESNext,
-    moduleResolution: ts.ModuleResolutionKind.Bundler,
-    types: [],
+async function getAllExportNames() {
+  const root = path.resolve(import.meta.dir, '..');
+  const entry = path.join(root, 'index.ts');
+  // the tsconfig exists only in memory
+  const configFile = path.join(root, 'tsconfig.public-exports.json');
+  const config = JSON.stringify({
+    compilerOptions: {
+      noEmit: true,
+      skipLibCheck: true,
+      target: 'esnext',
+      module: 'esnext',
+      moduleResolution: 'bundler',
+      types: [],
+    },
+    files: [entry],
   });
-  const checker = program.getTypeChecker();
-  const sourceFile = program.getSourceFile(entry);
-  const moduleSymbol = sourceFile && checker.getSymbolAtLocation(sourceFile);
-  if (!moduleSymbol) {
-    throw new Error('index.ts could not be loaded');
+  const api = new API({
+    cwd: root,
+    fs: {
+      fileExists: (fileName) => fileName === configFile || undefined,
+      readFile: (fileName) => {
+        return fileName === configFile ? config : undefined;
+      },
+    },
+  });
+  try {
+    const snapshot = await api.updateSnapshot({ openProjects: [configFile] });
+    const project = snapshot.getProject(configFile);
+    const sourceFile = await project?.program.getSourceFile(entry);
+    const moduleSymbol =
+      sourceFile && (await project?.checker.getSymbolAtLocation(sourceFile));
+    if (!project || !moduleSymbol) {
+      throw new Error('index.ts could not be loaded');
+    }
+    const symbols = await project.checker.getExportsOfModule(moduleSymbol);
+    return symbols.map((symbol) => symbol.name).sort();
+  } finally {
+    await api.close();
   }
-  return checker
-    .getExportsOfModule(moduleSymbol)
-    .map((symbol) => symbol.name)
-    .sort();
 }
 
 describe('public runtime exports', () => {
@@ -205,14 +224,15 @@ describe('public type exports', () => {
     >().toMatchTypeOf<string>();
   });
 
-  it('exports exactly these names (values and types)', () => {
-    const names = getAllExportNames();
+  it('exports exactly these names (values and types)', async () => {
+    const names = await getAllExportNames();
     expect(removedNames.filter((name) => names.includes(name))).toEqual([]);
     expect(names).toEqual([
       'AggregateDateHistogramOptions',
       'AggregateGeotileGridOptions',
       'AggregateHistogramOptions',
       'AggregateTermOptions',
+      'Aggregations',
       'AggregationsAggregateOrder',
       'AggregationsAggregationContainer',
       'AggregationsCompositeAggregationSource',
@@ -222,17 +242,22 @@ describe('public type exports', () => {
       'AliasExistsShape',
       'AliasMetadataParams',
       'AliasMetadataShape',
+      'AliasState',
       'AnyIndexManager',
       'BoostOperator',
+      'BulkOperation',
       'BulkRequestParams',
       'CompositeAggregationOptions',
       'CompositeDateHistogramSource',
       'CompositeGeotileGridSource',
       'CompositeHistogramSource',
+      'CreateOutcome',
       'DateHistogramInterval',
       'DateHistogramOptions',
       'DeleteRequestShape',
+      'EntryBase',
       'ErrorCause',
+      'ErrorMeta',
       'FieldType',
       'FieldTypeOrTypes',
       'FlushRequestParams',
@@ -295,6 +320,7 @@ describe('public type exports', () => {
       'MappingFulltextPath',
       'MappingRecord',
       'MigrationCode',
+      'MigrationOptions',
       'MigrationOutcome',
       'MigrationOutcomeCode',
       'MigrationParams',
@@ -307,6 +333,7 @@ describe('public type exports', () => {
       'MoreLikeThisLikeParams',
       'MoreLikeThisOptions',
       'NestedOptions',
+      'PassResult',
       'PatchRequestParams',
       'Prettify',
       'PutRequestParams',
@@ -361,6 +388,7 @@ describe('public type exports', () => {
       'SearchInnerHits',
       'SearchRequest',
       'SearchRescore',
+      'SearchResponse',
       'SemanticOptions',
       'ShouldOptions',
       'SiblingIndexes',
@@ -372,6 +400,8 @@ describe('public type exports', () => {
       'SortResults',
       'StatusReport',
       'StatusSummary',
+      'StepFailure',
+      'TaskStats',
       'TermOptions',
       'TermValue',
       'TermsOrderBy',

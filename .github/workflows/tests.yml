@@ -9,7 +9,7 @@ jobs:
       matrix:
         # See docs/rules/update-elasticsearch-test-matrix.md for how these
         # versions are chosen and how to refresh them.
-        es-version: ['9.0.8', '9.4.9', '9.5.6']
+        es-version: ["9.0.8", "9.4.9", "9.5.6"]
 
     services:
       elasticsearch:
@@ -30,10 +30,10 @@ jobs:
 
     steps:
       - name: ➡️ Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: 🧅 Set up Bun
-        uses: oven-sh/setup-bun@v1
+        uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
 
