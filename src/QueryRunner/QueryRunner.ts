@@ -1,31 +1,31 @@
-import type { estypes } from '@elastic/elasticsearch';
-import type IndexManager from '../IndexManager/IndexManager';
-import type { IndexErrorShape } from '../IndexManager/IndexManager';
-import { getAllFields } from '../mappingFields/mappingFields';
+import type { estypes } from "@elastic/elasticsearch";
+import type IndexManager from "../IndexManager/IndexManager";
+import type { IndexErrorShape } from "../IndexManager/IndexManager";
+import { getAllFields } from "../mappingFields/mappingFields";
 import type {
   MappingFieldPath,
   MappingRecord,
-} from '../mappingFields/mappingTypes';
-import QueryBuilder from '../QueryBuilder/QueryBuilder';
+} from "../mappingFields/mappingTypes";
+import QueryBuilder from "../QueryBuilder/QueryBuilder";
 
 export type QueryFindManyResult<T extends QueryRunner<any>> = Awaited<
-  ReturnType<T['findMany']>
+  ReturnType<T["findMany"]>
 >;
 export type QueryFindFirstResult<T extends QueryRunner<any>> = Awaited<
-  ReturnType<T['findFirst']>
+  ReturnType<T["findFirst"]>
 >;
 export type QueryCountResult<T extends QueryRunner<any>> = Awaited<
-  ReturnType<T['count']>
+  ReturnType<T["count"]>
 >;
 export type QueryUpdateManyResult<T extends QueryRunner<any>> = Awaited<
-  ReturnType<T['updateMany']>
+  ReturnType<T["updateMany"]>
 >;
 
 /** Search params for `findMany()`/`findFirst()` besides the builder's */
-export type QueryFindParams = Omit<estypes.SearchRequest, 'index' | 'query'>;
+export type QueryFindParams = Omit<estypes.SearchRequest, "index" | "query">;
 
 /** `_count` params for `count()` besides the builder's query */
-export type QueryCountParams = Omit<estypes.CountRequest, 'index' | 'query'>;
+export type QueryCountParams = Omit<estypes.CountRequest, "index" | "query">;
 
 /**
  * `_update_by_query` params for `updateMany()`, e.g. `refresh`,
@@ -34,7 +34,7 @@ export type QueryCountParams = Omit<estypes.CountRequest, 'index' | 'query'>;
  */
 export type QueryUpdateManyParams = Omit<
   estypes.UpdateByQueryRequest,
-  'index' | 'query' | 'script'
+  "index" | "query" | "script"
 >;
 
 /** The values `updateMany()` sets, by dotted field path */
@@ -57,16 +57,18 @@ export type QueryRecord<Create> = MappingRecord<Create> & {
 
 /** The error `findFirstOrThrow()` throws when nothing matches */
 export type QueryNotFoundError = Error & {
-  name: 'NotFoundError';
+  name: "NotFoundError";
   status: 404;
   /** The (successful) `findFirst()` result, without `record` */
   result: Record<string, unknown>;
 };
 
 /** Search response hits typed with the index's records */
-type SearchResponse<Create> = estypes.SearchResponse<MappingRecord<Create>>;
+export type SearchResponse<Create> = estypes.SearchResponse<
+  MappingRecord<Create>
+>;
 
-type Aggregations = Record<string, estypes.AggregationsAggregate>;
+export type Aggregations = Record<string, estypes.AggregationsAggregate>;
 
 /**
  * The fixed `updateMany()` script. Each update is `{ path, value }`, with the
@@ -76,42 +78,42 @@ type Aggregations = Record<string, estypes.AggregationsAggregate>;
  * updated; any other value on the way fails the update.
  */
 export const UPDATE_MANY_SCRIPT = [
-  'void setIn(Map map, List path, int i, def value) {',
-  '  def key = path.get(i);',
-  '  if (i == path.size() - 1) {',
-  '    map.put(key, value);',
-  '    return;',
-  '  }',
-  '  def child = map.get(key);',
-  '  if (child == null) {',
-  '    child = new HashMap();',
-  '    map.put(key, child);',
-  '  }',
-  '  if (child instanceof Map) {',
-  '    setIn((Map) child, path, i + 1, value);',
-  '  } else if (child instanceof List) {',
-  '    for (def item : (List) child) {',
-  '      if (item instanceof Map) {',
-  '        setIn((Map) item, path, i + 1, value);',
-  '      }',
-  '    }',
-  '  } else {',
+  "void setIn(Map map, List path, int i, def value) {",
+  "  def key = path.get(i);",
+  "  if (i == path.size() - 1) {",
+  "    map.put(key, value);",
+  "    return;",
+  "  }",
+  "  def child = map.get(key);",
+  "  if (child == null) {",
+  "    child = new HashMap();",
+  "    map.put(key, child);",
+  "  }",
+  "  if (child instanceof Map) {",
+  "    setIn((Map) child, path, i + 1, value);",
+  "  } else if (child instanceof List) {",
+  "    for (def item : (List) child) {",
+  "      if (item instanceof Map) {",
+  "        setIn((Map) item, path, i + 1, value);",
+  "      }",
+  "    }",
+  "  } else {",
   "    throw new IllegalArgumentException('updateMany: cannot set ' + path +",
   "      ' because ' + key + ' is not an object');",
-  '  }',
-  '}',
-  'for (def update : params.updates) {',
-  '  setIn(ctx._source, update.path, 0, update.value);',
-  '}',
-].join('\n');
+  "  }",
+  "}",
+  "for (def update : params.updates) {",
+  "  setIn(ctx._source, update.path, 0, update.value);",
+  "}",
+].join("\n");
 
 /** `dynamic` values that let Elasticsearch add fields on its own */
-const LOOSE_DYNAMIC = new Set<unknown>([true, 'true', 'runtime']);
+const LOOSE_DYNAMIC = new Set<unknown>([true, "true", "runtime"]);
 
 type PlainObject = Record<string, unknown>;
 
 function isPlainObject(value: unknown): value is PlainObject {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /**
@@ -135,18 +137,18 @@ function isDynamicPath(create: estypes.IndicesCreateRequest, path: string[]) {
         ? properties[segment]
         : undefined;
     if (!isPlainObject(child)) {
-      if (node.type === 'flattened') {
+      if (node.type === "flattened") {
         return true;
       }
       return isContainer && loose;
     }
-    if (Object.hasOwn(child, 'dynamic')) {
+    if (Object.hasOwn(child, "dynamic")) {
       loose = LOOSE_DYNAMIC.has(child.dynamic);
     }
     isContainer =
       isPlainObject(child.properties) ||
-      child.type === 'object' ||
-      child.type === 'nested';
+      child.type === "object" ||
+      child.type === "nested";
     node = child;
   }
   return true;
@@ -165,23 +167,23 @@ function isDynamicPath(create: estypes.IndicesCreateRequest, path: string[]) {
 function toUpdates(create: estypes.IndicesCreateRequest, values: unknown) {
   if (!isPlainObject(values)) {
     throw new TypeError(
-      'updateMany: newValues must be an object of field paths to values',
+      "updateMany: newValues must be an object of field paths to values",
     );
   }
   const entries = Object.entries(values).filter(([, v]) => v !== undefined);
   if (entries.length === 0) {
     throw new RangeError(
-      'updateMany: newValues must set at least one field; nothing was updated',
+      "updateMany: newValues must set at least one field; nothing was updated",
     );
   }
   const allowed = new Set(getAllFields(create, { containers: true }));
   const unknown: string[] = [];
   const updates = entries.map(([key, value]) => {
-    const path = key.split('.');
-    if (path.some((segment) => segment === '')) {
+    const path = key.split(".");
+    if (path.some((segment) => segment === "")) {
       throw new RangeError(
         `updateMany: ${JSON.stringify(key)} is not a field path ` +
-          '(empty segment); nothing was updated',
+          "(empty segment); nothing was updated",
       );
     }
     if (!allowed.has(key) && !isDynamicPath(create, path)) {
@@ -191,8 +193,8 @@ function toUpdates(create: estypes.IndicesCreateRequest, values: unknown) {
   });
   if (unknown.length > 0) {
     throw new RangeError(
-      `updateMany: unknown field(s) ${unknown.map((k) => JSON.stringify(k)).join(', ')}; ` +
-        'keys must be fields or objects of the mapping (sub-fields such as ' +
+      `updateMany: unknown field(s) ${unknown.map((k) => JSON.stringify(k)).join(", ")}; ` +
+        "keys must be fields or objects of the mapping (sub-fields such as " +
         '"title.raw" are not stored in _source); nothing was updated',
     );
   }
@@ -202,7 +204,7 @@ function toUpdates(create: estypes.IndicesCreateRequest, values: unknown) {
     if (parent !== undefined) {
       throw new RangeError(
         `updateMany: ${JSON.stringify(key)} is inside ${JSON.stringify(parent)}, ` +
-          'which is also set; set one or the other. Nothing was updated',
+          "which is also set; set one or the other. Nothing was updated",
       );
     }
   }
@@ -220,16 +222,16 @@ function getUpdateByQueryError(response: estypes.UpdateByQueryResponse) {
       failures.map((failure) => {
         const cause = failure.cause;
         return new Error(
-          `${failure.id ?? '?'}: ${cause?.type ?? 'error'}: ${cause?.reason ?? ''}`,
+          `${failure.id ?? "?"}: ${cause?.type ?? "error"}: ${cause?.reason ?? ""}`,
         );
       }),
       `updateMany: ${failures.length} document(s) failed; the update ` +
-        'stopped there, documents before them were updated',
+        "stopped there, documents before them were updated",
     );
   }
   if (response.timed_out) {
     return new Error(
-      'updateMany: the request timed out; some documents were updated',
+      "updateMany: the request timed out; some documents were updated",
     );
   }
   return null;
@@ -266,7 +268,7 @@ export default class QueryRunner<
   formatResponse(response: SearchResponse<Create>) {
     const hits = response?.hits?.hits;
     if (!Array.isArray(hits)) {
-      const error = new Error('response.hits.hits not found', {
+      const error = new Error("response.hits.hits not found", {
         cause: response,
       });
       return {
@@ -279,7 +281,7 @@ export default class QueryRunner<
     const total = response.hits.total;
     return {
       records: hits.map((hit) => this._toRecord(hit)),
-      total: typeof total === 'number' ? total : (total?.value ?? null),
+      total: typeof total === "number" ? total : (total?.value ?? null),
       aggregations: (response.aggregations ?? null) as Aggregations | null,
       ...this.index._formatNonError(response),
     };
@@ -289,7 +291,7 @@ export default class QueryRunner<
   private _toRecord(hit: estypes.SearchHit<MappingRecord<Create>>) {
     const record = {
       ...hit._source,
-      _id: hit._id ?? '',
+      _id: hit._id ?? "",
       _score: hit._score ?? null,
     } as QueryRecord<Create>;
     if (hit.highlight) {
@@ -349,26 +351,26 @@ export default class QueryRunner<
       if (!query) {
         throw new Error(
           'updateMany: the builder produced no "query" (retrievers such as ' +
-            'knn() or semantic() cannot select documents to update); ' +
-            'nothing was updated',
+            "knn() or semantic() cannot select documents to update); " +
+            "nothing was updated",
         );
       }
       const limit = this.builder.getLimit();
       if (limit === 0) {
         throw new RangeError(
-          'updateMany: limit is 0 (aggregate*() methods set it unless ' +
-            'limit() is called), which would update no documents; nothing ' +
-            'was updated',
+          "updateMany: limit is 0 (aggregate*() methods set it unless " +
+            "limit() is called), which would update no documents; nothing " +
+            "was updated",
         );
       }
       request = {
-        conflicts: 'proceed',
+        conflicts: "proceed",
         ...(limit === null ? {} : { max_docs: limit }),
         ...more,
         index: this._getIndex(),
         query,
         script: {
-          lang: 'painless',
+          lang: "painless",
           source: UPDATE_MANY_SCRIPT,
           params: { updates },
         },
@@ -383,7 +385,7 @@ export default class QueryRunner<
         ...result(response),
         failures: response.failures ?? [],
         error,
-        errorKind: 'response' as const,
+        errorKind: "response" as const,
         response: { statusCode: 200, body: response },
       };
     }
@@ -449,8 +451,8 @@ export default class QueryRunner<
     }
     const { record, ...rest } = result;
     if (record === null) {
-      const error = Object.assign(new Error('No record found'), {
-        name: 'NotFoundError' as const,
+      const error = Object.assign(new Error("No record found"), {
+        name: "NotFoundError" as const,
         status: 404 as const,
         result: rest,
       });
@@ -474,14 +476,14 @@ export default class QueryRunner<
     try {
       if (this.builder.getRetrievers().length > 0) {
         throw new Error(
-          'count() does not support retrievers (knn, semantic, rrf, ' +
-            'weightedSemantic): _count takes a query only; nothing was sent',
+          "count() does not support retrievers (knn, semantic, rrf, " +
+            "weightedSemantic): _count takes a query only; nothing was sent",
         );
       }
       const query = this.builder.getBody().query;
       const minScore = this.builder.getMinScore();
       request = {
-        ...(typeof minScore === 'number' ? { min_score: minScore } : {}),
+        ...(typeof minScore === "number" ? { min_score: minScore } : {}),
         ...more,
         index: this._getIndex(),
         query,

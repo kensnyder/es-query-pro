@@ -1,10 +1,10 @@
-import type { estypes } from '@elastic/elasticsearch';
+import type { estypes } from "@elastic/elasticsearch";
 import type {
   IndexErrorKind,
   IndexErrorShape,
   default as IndexManager,
   StatusReport,
-} from './IndexManager';
+} from "./IndexManager";
 
 /**
  * Where a migration is, in order. Progress events use `reindex`, `catchUp`,
@@ -22,17 +22,17 @@ import type {
  * - `done`: finished
  */
 export type MigrationPhase =
-  | 'start'
-  | 'reindex'
-  | 'catchUp'
-  | 'swap'
-  | 'finalCatchUp'
-  | 'verify'
-  | 'cleanup'
-  | 'done';
+  | "start"
+  | "reindex"
+  | "catchUp"
+  | "swap"
+  | "finalCatchUp"
+  | "verify"
+  | "cleanup"
+  | "done";
 
 /** The phases that run a reindex task */
-export type MigrationPassPhase = 'reindex' | 'catchUp' | 'finalCatchUp';
+export type MigrationPassPhase = "reindex" | "catchUp" | "finalCatchUp";
 
 export type MigrationParams = {
   /**
@@ -45,7 +45,7 @@ export type MigrationParams = {
   /** Called once with the error when the migration fails */
   onError?: (error: Error) => void;
   /** Reindex `slices`: a number or `'auto'` (default 1) */
-  slices?: number | 'auto';
+  slices?: number | "auto";
   /**
    * Longest wait between task status checks (default 1000, at least 10).
    * Each pass is checked first after 100 ms, then 200, 400, ... up to this.
@@ -136,19 +136,19 @@ export type MigrationPassReport = {
  * `ALIAS_ERROR`, `REINDEX_ERROR` (starting the first copy).
  */
 export type MigrationCode =
-  | 'CREATED'
-  | 'ALIAS_CREATED'
-  | 'CURRENT'
-  | 'MIGRATION_STARTED'
-  | 'MIGRATION_RESUMED'
-  | 'NEWER_VERSION_PRESENT'
-  | 'INCOMPARABLE_VERSION'
-  | 'ALIAS_CONFLICT'
-  | 'STATUS_ERROR'
-  | 'COUNT_ERROR'
-  | 'CREATE_ERROR'
-  | 'ALIAS_ERROR'
-  | 'REINDEX_ERROR';
+  | "CREATED"
+  | "ALIAS_CREATED"
+  | "CURRENT"
+  | "MIGRATION_STARTED"
+  | "MIGRATION_RESUMED"
+  | "NEWER_VERSION_PRESENT"
+  | "INCOMPARABLE_VERSION"
+  | "ALIAS_CONFLICT"
+  | "STATUS_ERROR"
+  | "COUNT_ERROR"
+  | "CREATE_ERROR"
+  | "ALIAS_ERROR"
+  | "REINDEX_ERROR";
 
 /**
  * How a migration ended (`completion`). When `migrateIfNeeded()` did not
@@ -169,13 +169,13 @@ export type MigrationCode =
  * (`swapped: true`) the old index is kept.
  */
 export type MigrationOutcomeCode =
-  | Exclude<MigrationCode, 'MIGRATION_STARTED' | 'MIGRATION_RESUMED'>
-  | 'MIGRATED'
-  | 'REINDEX_FAILED'
-  | 'POLL_ERROR'
-  | 'TIMEOUT'
-  | 'SWAP_ERROR'
-  | 'VERIFY_FAILED';
+  | Exclude<MigrationCode, "MIGRATION_STARTED" | "MIGRATION_RESUMED">
+  | "MIGRATED"
+  | "REINDEX_FAILED"
+  | "POLL_ERROR"
+  | "TIMEOUT"
+  | "SWAP_ERROR"
+  | "VERIFY_FAILED";
 
 /** What `completion` resolves to. It never rejects. */
 export type MigrationOutcome = {
@@ -254,19 +254,19 @@ export type MigrationResult = {
 /** The parts of `IndexManager` a migration uses */
 export type MigratingIndex = Pick<
   IndexManager,
-  | 'client'
-  | 'createSpec'
-  | 'getStatus'
-  | 'createOnly'
-  | 'createAlias'
-  | 'getAliasMetadata'
-  | 'getFullName'
-  | 'getAliasName'
-  | '_formatError'
+  | "client"
+  | "createSpec"
+  | "getStatus"
+  | "createOnly"
+  | "createAlias"
+  | "getAliasMetadata"
+  | "getFullName"
+  | "getAliasName"
+  | "_formatError"
 >;
 
 /** Key under the new index's mapping `_meta` that records the copy task */
-export const MIGRATION_META_KEY = 'es-query-pro-migration';
+export const MIGRATION_META_KEY = "es-query-pro-migration";
 
 const POLL_FLOOR_MS = 10;
 const DEFAULT_POLL_MS = 1000;
@@ -276,17 +276,17 @@ const DEFAULT_MAX_POLL_ERRORS = 5;
 
 type Failure = IndexErrorShape;
 
-type PassResult =
+export type PassResult =
   | { ok: true; report: MigrationPassReport }
   | {
       ok: false;
-      code: 'REINDEX_FAILED' | 'REINDEX_ERROR' | 'POLL_ERROR' | 'TIMEOUT';
+      code: "REINDEX_FAILED" | "REINDEX_ERROR" | "POLL_ERROR" | "TIMEOUT";
       failure: Failure;
       report: MigrationPassReport | null;
       cancelled: boolean;
     };
 
-type TaskStats = {
+export type TaskStats = {
   total: number;
   created: number;
   updated: number;
@@ -295,11 +295,11 @@ type TaskStats = {
   noops: number;
 };
 
-type Options = {
+export type MigrationOptions = {
   onProgress?: (details: MigrationProgressDetails) => void;
   onComplete?: (details: MigrationProgressDetails) => void;
   onError?: (error: Error) => void;
-  slices: number | 'auto';
+  slices: number | "auto";
   pollInterval: number;
   deadline: number;
   timeout: number | null;
@@ -336,7 +336,7 @@ export async function migrateIndex(
 
 class Migration {
   private readonly start = Date.now();
-  private readonly options: Options;
+  private readonly options: MigrationOptions;
   private readonly newIndex: string;
   private readonly alias: string;
   private status: StatusReport | null = null;
@@ -372,7 +372,7 @@ class Migration {
       return await this.decide();
     } catch (e) {
       // only reachable through a bug; still honor the never-throw contract
-      return this.immediate('STATUS_ERROR', this.manager._formatError(e));
+      return this.immediate("STATUS_ERROR", this.manager._formatError(e));
     }
   }
 
@@ -380,18 +380,18 @@ class Migration {
     const status = await this.manager.getStatus();
     this.status = status;
     if (status.error) {
-      return this.immediate('STATUS_ERROR', {
+      return this.immediate("STATUS_ERROR", {
         error: status.error,
-        errorKind: status.errorKind ?? 'javascript',
+        errorKind: status.errorKind ?? "javascript",
         response: null,
       });
     }
     const { siblings } = status;
     if (siblings.newer.length > 0) {
-      return this.immediate('NEWER_VERSION_PRESENT');
+      return this.immediate("NEWER_VERSION_PRESENT");
     }
     if (siblings.incomparable.length > 0) {
-      return this.immediate('INCOMPARABLE_VERSION');
+      return this.immediate("INCOMPARABLE_VERSION");
     }
     if (siblings.older.length > 0) {
       // indexes on the alias that are not versions of this one are ignored:
@@ -399,15 +399,15 @@ class Migration {
       return this.startMigration(siblings.older);
     }
     if (siblings.unrelated.length > 0) {
-      return this.immediate('ALIAS_CONFLICT');
+      return this.immediate("ALIAS_CONFLICT");
     }
     if (!status.indexExists) {
       return this.createFresh();
     }
     if (!status.aliasAttached) {
-      return this.attachAlias('ALIAS_CREATED');
+      return this.attachAlias("ALIAS_CREATED");
     }
-    return this.immediate('CURRENT');
+    return this.immediate("CURRENT");
   }
 
   /** Neither the index nor the alias exists */
@@ -415,22 +415,22 @@ class Migration {
     const created = await this.manager.createOnly();
     const failure = getFailure(created);
     if (failure && !isAlreadyExists(failure)) {
-      return this.immediate('CREATE_ERROR', failure, created.response);
+      return this.immediate("CREATE_ERROR", failure, created.response);
     }
     // another process may have created it first; adding the alias is
     // idempotent
     this.createdIndex = failure === null;
-    return this.attachAlias(failure ? 'ALIAS_CREATED' : 'CREATED');
+    return this.attachAlias(failure ? "ALIAS_CREATED" : "CREATED");
   }
 
-  private async attachAlias(code: 'CREATED' | 'ALIAS_CREATED') {
+  private async attachAlias(code: "CREATED" | "ALIAS_CREATED") {
     const added = await this.manager.createAlias();
     const failure = getFailure(added);
     if (failure) {
-      return this.immediate('ALIAS_ERROR', failure, added.response);
+      return this.immediate("ALIAS_ERROR", failure, added.response);
     }
     this.createdAlias = true;
-    const details = this.details('done', 100, emptyStats(), '');
+    const details = this.details("done", 100, emptyStats(), "");
     safeCall(this.options.onProgress, details);
     safeCall(this.options.onComplete, details);
     return this.immediate(code, null, added.response);
@@ -442,12 +442,12 @@ class Migration {
       const counted = await this.client.count({ index: older });
       this.recordsToMigrate = counted.count;
     } catch (e) {
-      return this.immediate('COUNT_ERROR', this.manager._formatError(e));
+      return this.immediate("COUNT_ERROR", this.manager._formatError(e));
     }
     const created = await this.manager.createOnly();
     const createFailure = getFailure(created);
     if (createFailure && !isAlreadyExists(createFailure)) {
-      return this.immediate('CREATE_ERROR', createFailure, created.response);
+      return this.immediate("CREATE_ERROR", createFailure, created.response);
     }
     this.createdIndex = createFailure === null;
     this.resumed = createFailure !== null;
@@ -457,9 +457,9 @@ class Migration {
     }
     let response: unknown = created.response;
     if (!this.taskId) {
-      const started = await this.startPass('reindex');
+      const started = await this.startPass("reindex");
       if (!started.ok) {
-        return this.immediate('REINDEX_ERROR', started.failure);
+        return this.immediate("REINDEX_ERROR", started.failure);
       }
       this.taskId = started.taskId;
       this.request = started.request;
@@ -469,39 +469,39 @@ class Migration {
     const taskId = this.taskId;
     const completion = this.complete(taskId).catch((e: unknown) =>
       // complete() handles its own errors; this guards against bugs
-      this.fail('REINDEX_FAILED', 'done', this.manager._formatError(e)),
+      this.fail("REINDEX_FAILED", "done", this.manager._formatError(e)),
     );
-    const code = this.resumed ? 'MIGRATION_RESUMED' : 'MIGRATION_STARTED';
+    const code = this.resumed ? "MIGRATION_RESUMED" : "MIGRATION_STARTED";
     return this.result(code, null, response, completion);
   }
 
   /** The background part: wait, catch up, swap, catch up, verify, clean */
   private async complete(firstTaskId: string): Promise<MigrationOutcome> {
-    const first = await this.waitForPass(firstTaskId, 'reindex');
+    const first = await this.waitForPass(firstTaskId, "reindex");
     if (!first.ok) {
-      return this.failPass(first, 'reindex');
+      return this.failPass(first, "reindex");
     }
-    const catchUp = await this.runPass('catchUp');
+    const catchUp = await this.runPass("catchUp");
     if (!catchUp.ok) {
-      return this.failPass(catchUp, 'catchUp');
+      return this.failPass(catchUp, "catchUp");
     }
     const swap = await this.swap();
     if (swap) {
-      return this.fail('SWAP_ERROR', 'swap', swap);
+      return this.fail("SWAP_ERROR", "swap", swap);
     }
-    const final = await this.runPass('finalCatchUp');
+    const final = await this.runPass("finalCatchUp");
     if (!final.ok) {
       if (await this.removedElsewhere()) {
         return this.succeed(first.report, [], []);
       }
-      return this.failPass(final, 'finalCatchUp');
+      return this.failPass(final, "finalCatchUp");
     }
     const counts = await this.verify(final.report);
-    if ('failure' in counts) {
+    if ("failure" in counts) {
       if (await this.removedElsewhere()) {
         return this.succeed(first.report, [], []);
       }
-      return this.fail('VERIFY_FAILED', 'verify', counts.failure, {
+      return this.fail("VERIFY_FAILED", "verify", counts.failure, {
         counts: counts.counts,
       });
     }
@@ -515,7 +515,7 @@ class Migration {
     if (!started.ok) {
       return {
         ok: false,
-        code: 'REINDEX_ERROR',
+        code: "REINDEX_ERROR",
         failure: started.failure,
         report: null,
         cancelled: false,
@@ -534,17 +534,17 @@ class Migration {
       // make copied documents searchable as soon as the pass ends
       refresh: true,
       // a skipped document (new index already newer) is not an error
-      conflicts: 'proceed',
+      conflicts: "proceed",
       slices: this.options.slices,
       source,
-      dest: { index: this.newIndex, version_type: 'external' },
+      dest: { index: this.newIndex, version_type: "external" },
     };
-    if (phase === 'reindex' && this.options.requestsPerSecond !== null) {
+    if (phase === "reindex" && this.options.requestsPerSecond !== null) {
       body.requests_per_second = this.options.requestsPerSecond;
     }
-    const request = { method: 'POST', endpoint: '/_reindex', body };
+    const request = { method: "POST", endpoint: "/_reindex", body };
     try {
-      if (phase === 'finalCatchUp') {
+      if (phase === "finalCatchUp") {
         // reindex reads through search, which sees only refreshed documents.
         // After the swap nothing writes to the old index, so refreshing it
         // once here lets this pass see every write. Earlier passes skip it
@@ -554,7 +554,7 @@ class Migration {
       const response = await this.client.reindex(body);
       if (response.task === undefined || response.task === null) {
         throw new Error(
-          `Reindexing ${this.oldIndexes.join(', ')} did not return a task id`,
+          `Reindexing ${this.oldIndexes.join(", ")} did not return a task id`,
         );
       }
       const taskId = String(response.task);
@@ -587,7 +587,7 @@ class Migration {
         if (errors >= this.options.maxPollErrors) {
           return {
             ok: false,
-            code: 'POLL_ERROR',
+            code: "POLL_ERROR",
             failure: withMessage(
               lastFailure,
               `Checking reindex task ${taskId} failed ${errors} times in a row`,
@@ -635,10 +635,10 @@ class Migration {
     }
     return {
       ok: false,
-      code: 'REINDEX_FAILED',
+      code: "REINDEX_FAILED",
       failure: {
         error: problem,
-        errorKind: 'response',
+        errorKind: "response",
         response: { statusCode: 200, body: task },
       },
       report,
@@ -647,7 +647,7 @@ class Migration {
   }
 
   private describe(phase: MigrationPassPhase) {
-    const from = this.oldIndexes.join(', ');
+    const from = this.oldIndexes.join(", ");
     return `Reindex (${phase}) from ${from} to ${this.newIndex}`;
   }
 
@@ -662,11 +662,11 @@ class Migration {
     const error = new Error(
       `Migration to ${this.newIndex} timed out after ${this.options.timeout}ms`,
     );
-    error.name = 'MigrationTimeoutError';
+    error.name = "MigrationTimeoutError";
     return {
       ok: false,
-      code: 'TIMEOUT',
-      failure: { error, errorKind: 'timeout', response: null },
+      code: "TIMEOUT",
+      failure: { error, errorKind: "timeout", response: null },
       report: null,
       cancelled: this.cancelled,
     };
@@ -780,11 +780,11 @@ class Migration {
     }
     const error = new Error(
       `The final copy read ${final.total} documents and accounted for ` +
-        `${accounted}, but ${this.oldIndexes.join(', ')} holds ${oldTotal}; ` +
-        'the old index was kept',
+        `${accounted}, but ${this.oldIndexes.join(", ")} holds ${oldTotal}; ` +
+        "the old index was kept",
     );
     return {
-      failure: { error, errorKind: 'javascript', response: null },
+      failure: { error, errorKind: "javascript", response: null },
       counts,
     };
   }
@@ -806,7 +806,7 @@ class Migration {
     for (const id of this.taskIds) {
       try {
         // the stored result of a `wait_for_completion: false` task
-        await this.client.delete({ index: '.tasks', id });
+        await this.client.delete({ index: ".tasks", id });
       } catch {
         // not allowed on serverless (403) and harmless to leave
       }
@@ -830,7 +830,7 @@ class Migration {
       const marker = meta?.[MIGRATION_META_KEY] as
         | { taskId?: unknown }
         | undefined;
-      if (marker && typeof marker.taskId === 'string') {
+      if (marker && typeof marker.taskId === "string") {
         const task = await this.client.tasks.get({ task_id: marker.taskId });
         // a cancelled task reports `completed: false` until it winds down
         if (!task.completed && !task.task?.cancelled) {
@@ -842,9 +842,9 @@ class Migration {
     }
     try {
       const list = await this.client.tasks.list({
-        actions: '*reindex',
+        actions: "*reindex",
         detailed: true,
-        group_by: 'none',
+        group_by: "none",
       });
       return findReindexInto(list, this.newIndex);
     } catch {
@@ -906,7 +906,7 @@ class Migration {
     percent: number,
     stats: TaskStats,
     taskId: string,
-    oldIndex = this.oldIndexes.join(','),
+    oldIndex = this.oldIndexes.join(","),
   ): MigrationProgressDetails {
     return {
       done: processed(stats),
@@ -925,19 +925,19 @@ class Migration {
     first: MigrationPassReport,
     removed: string[],
     cleanupErrors: Error[],
-    counts: MigrationOutcome['counts'] = null,
+    counts: MigrationOutcome["counts"] = null,
   ): MigrationOutcome {
     const stats = fromReport(first);
     for (const oldIndex of this.oldIndexes) {
-      const details = this.details('done', 100, stats, first.taskId, oldIndex);
+      const details = this.details("done", 100, stats, first.taskId, oldIndex);
       safeCall(this.options.onProgress, details);
     }
     safeCall(
       this.options.onComplete,
-      this.details('done', 100, stats, first.taskId),
+      this.details("done", 100, stats, first.taskId),
     );
     return {
-      ...this.outcomeBase('MIGRATED', 'done'),
+      ...this.outcomeBase("MIGRATED", "done"),
       removedIndexes: removed,
       counts,
       cleanupErrors,
@@ -946,7 +946,7 @@ class Migration {
 
   private failPass(pass: PassResult, phase: MigrationPassPhase) {
     if (pass.ok === true) {
-      throw new Error('failPass() needs a failed pass');
+      throw new Error("failPass() needs a failed pass");
     }
     return this.fail(pass.code, phase, pass.failure, {
       failures: pass.report?.failures ?? [],
@@ -974,7 +974,7 @@ class Migration {
     phase: MigrationPhase,
   ): MigrationOutcome {
     return {
-      success: code === 'MIGRATED',
+      success: code === "MIGRATED",
       code,
       phase,
       oldIndexes: [...this.oldIndexes],
@@ -996,7 +996,7 @@ class Migration {
 
   /** A result whose `completion` is already settled */
   private immediate(
-    code: Exclude<MigrationCode, 'MIGRATION_STARTED' | 'MIGRATION_RESUMED'>,
+    code: Exclude<MigrationCode, "MIGRATION_STARTED" | "MIGRATION_RESUMED">,
     failure: Failure | null = null,
     response: unknown = null,
   ): MigrationResult {
@@ -1005,7 +1005,7 @@ class Migration {
     }
     const success = isImmediateSuccess(code);
     const outcome: MigrationOutcome = {
-      ...this.outcomeBase(code, success ? 'done' : 'start'),
+      ...this.outcomeBase(code, success ? "done" : "start"),
       success,
       error: failure?.error ?? null,
       errorKind: failure?.errorKind ?? null,
@@ -1042,20 +1042,23 @@ class Migration {
   }
 }
 
-function normalizeParams(params: MigrationParams, start: number): Options {
+function normalizeParams(
+  params: MigrationParams,
+  start: number,
+): MigrationOptions {
   const timeout =
-    typeof params.timeout === 'number' && params.timeout > 0
+    typeof params.timeout === "number" && params.timeout > 0
       ? params.timeout
       : null;
   let requestsPerSecond: number | null = null;
   if (
-    typeof params.requestsPerSecond === 'number' &&
+    typeof params.requestsPerSecond === "number" &&
     params.requestsPerSecond > 0
   ) {
     requestsPerSecond = params.requestsPerSecond;
   }
   let batchSize: number | null = null;
-  if (typeof params.batchSize === 'number' && params.batchSize > 0) {
+  if (typeof params.batchSize === "number" && params.batchSize > 0) {
     batchSize = Math.floor(params.batchSize);
   }
   return {
@@ -1077,11 +1080,11 @@ function normalizeParams(params: MigrationParams, start: number): Options {
 
 function isImmediateSuccess(code: MigrationCode) {
   return (
-    code === 'CREATED' ||
-    code === 'ALIAS_CREATED' ||
-    code === 'CURRENT' ||
-    code === 'MIGRATION_STARTED' ||
-    code === 'MIGRATION_RESUMED'
+    code === "CREATED" ||
+    code === "ALIAS_CREATED" ||
+    code === "CURRENT" ||
+    code === "MIGRATION_STARTED" ||
+    code === "MIGRATION_RESUMED"
   );
 }
 
@@ -1148,13 +1151,13 @@ function processed(stats: TaskStats) {
 /** Read reindex counters from a task status or response (missing → 0) */
 function readStats(source: unknown): TaskStats {
   const stats = emptyStats();
-  if (typeof source !== 'object' || source === null) {
+  if (typeof source !== "object" || source === null) {
     return stats;
   }
   const record = source as Record<string, unknown>;
   for (const key of Object.keys(stats) as Array<keyof TaskStats>) {
     const value = record[key];
-    if (typeof value === 'number' && Number.isFinite(value)) {
+    if (typeof value === "number" && Number.isFinite(value)) {
       stats[key] = value;
     }
   }
@@ -1177,7 +1180,7 @@ function describeTaskProblem(
   const response = (task.response ?? {}) as Record<string, unknown>;
   if (failures.length > 0) {
     const causes = failures.map((failure) => {
-      const reason = failure.cause?.reason ?? failure.cause?.type ?? 'failed';
+      const reason = failure.cause?.reason ?? failure.cause?.type ?? "failed";
       return new Error(`[${failure.id}] ${reason}`, { cause: failure });
     });
     return new AggregateError(
@@ -1186,13 +1189,13 @@ function describeTaskProblem(
         causes
           .slice(0, 3)
           .map((cause) => cause.message)
-          .join('; '),
+          .join("; "),
     );
   }
   if (response.timed_out === true) {
     return new Error(`${what} timed out on the server`);
   }
-  if (typeof response.canceled === 'string') {
+  if (typeof response.canceled === "string") {
     return new Error(`${what} was cancelled: ${response.canceled}`);
   }
   return null;
@@ -1207,10 +1210,10 @@ function getFailure(step: {
   if (!step.error) {
     return null;
   }
-  const errorKind = step.errorKind ?? 'javascript';
-  let response: Failure['response'] = null;
-  if (errorKind === 'response') {
-    response = (step.response ?? null) as Failure['response'];
+  const errorKind = step.errorKind ?? "javascript";
+  let response: Failure["response"] = null;
+  if (errorKind === "response") {
+    response = (step.response ?? null) as Failure["response"];
   }
   return { error: step.error, errorKind, response };
 }
@@ -1224,18 +1227,18 @@ function getErrorType(failure: Failure) {
 }
 
 function isAlreadyExists(failure: Failure) {
-  return getErrorType(failure) === 'resource_already_exists_exception';
+  return getErrorType(failure) === "resource_already_exists_exception";
 }
 
 function isResponseStatus(e: unknown, statusCode: number) {
-  if (typeof e !== 'object' || e === null) {
+  if (typeof e !== "object" || e === null) {
     return false;
   }
   const { name, meta } = e as {
     name?: unknown;
     meta?: { statusCode?: unknown };
   };
-  return name === 'ResponseError' && meta?.statusCode === statusCode;
+  return name === "ResponseError" && meta?.statusCode === statusCode;
 }
 
 /** A copy of the failure with a clearer message; the original is the cause */

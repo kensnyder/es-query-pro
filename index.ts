@@ -1,8 +1,13 @@
-export { default as englishplus } from './src/analyzers/englishplus';
+export { default as englishplus } from "./src/analyzers/englishplus";
 export {
   default as IndexManager,
   type AliasExistsShape,
   type AliasMetadataShape,
+  type BulkOperation,
+  type ErrorMeta,
+  type StepFailure,
+  type CreateOutcome,
+  type AliasState,
   type IndexCountParams,
   type IndexCreateAliasIfNeededResult,
   type IndexCreateAliasResult,
@@ -56,23 +61,23 @@ export {
   type SiblingIndexes,
   type StatusReport,
   type StatusSummary,
-} from './src/IndexManager/IndexManager';
+} from "./src/IndexManager/IndexManager";
 export {
   default as IndexNameManager,
   type IndexName,
   type IndexNameAttributes,
   type IndexNameRelation,
-} from './src/IndexNameManager/IndexNameManager';
-export { default as isEmptyObject } from './src/isEmptyObject/isEmptyObject';
+} from "./src/IndexNameManager/IndexNameManager";
+export { default as isEmptyObject } from "./src/isEmptyObject/isEmptyObject";
 export {
   getAllFields,
   getFulltextFields,
-} from './src/mappingFields/mappingFields';
+} from "./src/mappingFields/mappingFields";
 export type {
   MappingFieldPath,
   MappingFulltextPath,
   MappingRecord,
-} from './src/mappingFields/mappingTypes';
+} from "./src/mappingFields/mappingTypes";
 export {
   default as QueryBuilder,
   type AggregateDateHistogramOptions,
@@ -106,9 +111,10 @@ export {
   type TermValue,
   type WeightedSemanticOptions,
   type WildcardOptions,
-} from './src/QueryBuilder/QueryBuilder';
+} from "./src/QueryBuilder/QueryBuilder";
 export {
   default as QueryRunner,
+  type Aggregations,
   type QueryCountParams,
   type QueryCountResult,
   type QueryFindFirstResult,
@@ -119,10 +125,12 @@ export {
   type QueryUpdateManyParams,
   type QueryUpdateManyResult,
   type QueryUpdateValues,
-} from './src/QueryRunner/QueryRunner';
+  type SearchResponse,
+} from "./src/QueryRunner/QueryRunner";
 export {
   default as SchemaRegistry,
   type AnyIndexManager,
+  type EntryBase,
   type SchemaDropCode,
   type SchemaDropReport,
   type SchemaDropResultShape,
@@ -137,5 +145,10 @@ export {
   type SchemaRecreateReport,
   type SchemaRecreateResultShape,
   type SchemaStatusResultShape,
-} from './src/SchemaRegistry/SchemaRegistry';
-export * from './src/types';
+} from "./src/SchemaRegistry/SchemaRegistry";
+export {
+  type MigrationOptions,
+  type TaskStats,
+  type PassResult,
+} from "./src/IndexManager/migrate";
+export * from "./src/types";
