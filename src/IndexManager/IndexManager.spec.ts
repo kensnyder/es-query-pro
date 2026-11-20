@@ -403,6 +403,8 @@ describe('IndexManager.patch()', () => {
         method: 'POST',
         path: '/test~english~books/_update/b1',
         body: { doc: { year: 1966 } },
+        // IM3 (S-014): patch() retries conflicting updates by default
+        querystring: 'retry_on_conflict=3',
       },
     ]);
   });

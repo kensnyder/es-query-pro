@@ -9,21 +9,18 @@ import type {
   MappingRecord,
 } from '../mappingFields/mappingTypes';
 import QueryBuilder from '../QueryBuilder/QueryBuilder';
-import QueryRunner from '../QueryRunner/QueryRunner';
+import QueryRunner, { type QueryRecord } from '../QueryRunner/QueryRunner';
 import type {
   AliasCreateParams,
   AliasDeleteParams,
   AliasExistParams,
   AliasMetadataParams,
-  BulkRequestParams,
   DeleteRequestShape,
   ErrorCause,
   FlushRequestParams,
-  GetRequestParams,
   IndexCreateParams,
   IndexExistParams,
   IndexMetadataParams,
-  PatchRequestParams,
 } from '../types';
 
 /**
@@ -101,6 +98,61 @@ export type IndexLifecycleCode =
   | 'ALIAS_ERROR'
   | 'DROP_ERROR'
   | 'FLUSH_ERROR';
+/**
+ * A record id. Numbers are sent as strings; `0` is a valid id.
+ */
+export type IndexRecordId = string | number;
+/** Request params for `put()` (`refresh`, `if_seq_no`, `op_type`, ...) */
+export type IndexPutParams = Omit<
+  estypes.IndexRequest,
+  'index' | 'id' | 'document'
+>;
+/** Request params sent with every `putBulk()` request (`refresh`, ...) */
+export type IndexPutBulkParams = Omit<
+  estypes.BulkRequest,
+  'index' | 'operations'
+>;
+/** How `putBulk()` splits its records into requests */
+export type IndexPutBulkOptions = {
+  /** Most records per request (default 1000) */
+  chunkSize?: number;
+  /**
+   * Most bytes of serialized records per request (default 5 MiB). A record
+   * larger than this is sent in a request of its own.
+   */
+  chunkBytes?: number;
+};
+/** One row of `putBulk()`'s `report`, in the order of the records given */
+export type IndexPutBulkReportRow = {
+  /** The id sent (generated when the record had no `id`) */
+  id: string;
+  /** The row's HTTP status; null when its request was not answered */
+  status: number | null;
+  /** `created`, `updated`, ...; null when the row failed or was not sent */
+  effect: estypes.Result | null;
+  version: number | null;
+  error: estypes.ErrorCause | null;
+};
+/** Request params for `patch()` (`refresh`, `doc_as_upsert`, ...) */
+export type IndexPatchParams = Omit<
+  estypes.UpdateRequest,
+  'index' | 'id' | 'doc'
+>;
+/** Request params for `findById()` (`_source_includes`, `realtime`, ...) */
+export type IndexFindByIdParams = Omit<estypes.GetRequest, 'index' | 'id'>;
+/** Request params for `deleteById()` (`refresh`, `if_seq_no`, ...) */
+export type IndexDeleteByIdParams = Omit<estypes.DeleteRequest, 'index' | 'id'>;
+/** Request params for `deleteMany()` (`conflicts`, `refresh`, ...) */
+export type IndexDeleteManyParams = Omit<
+  estypes.DeleteByQueryRequest,
+  'index' | 'query'
+>;
+/** Request params for `count()` (`min_score`, `terminate_after`, ...) */
+export type IndexCountParams = Omit<estypes.CountRequest, 'index' | 'query'>;
+export type IndexFindByIdResult = Awaited<ReturnType<IndexManager['findById']>>;
+export type IndexDeleteManyResult = Awaited<
+  ReturnType<IndexManager['deleteMany']>
+>;
 /** The creation request type an `IndexManager` was constructed with */
 export type IndexInferCreate<T> = T extends IndexManager<infer C> ? C : never;
 /** The document shape of an `IndexManager`'s mapping */
@@ -1026,17 +1078,28 @@ export default class IndexManager<
   }
 
   /**
-   * Save the given record and return its id (uses PUT)
+   * Save the given record under the given id, replacing any record with that
+   * id (uses PUT)
    * @param id  The record id
    * @param body  The record to save
+   * @param [more]  Request params such as `refresh`, `if_seq_no` with
+   *   `if_primary_term`, `op_type: 'create'` or `routing`
+   * @returns `result` (`created` or `updated`; null on failure) plus the
+   *   envelope
    */
-  async put(id: number | string, body: MappingRecord<Create>) {
+  async put(
+    id: IndexRecordId,
+    body: MappingRecord<Create>,
+    more?: IndexPutParams,
+  ) {
     const start = Date.now();
+    const index = this.getAliasName();
     const request = {
       method: 'PUT',
-      endpoint: `/${this.getAliasName()}/_doc/${id}`,
+      endpoint: `/${index}/_doc/${id}`,
       body: {
-        index: this.getAliasName(),
+        ...more,
+        index,
         id: String(id),
         // `document` is the client's name for the record. A key the client
         // does not know (such as `body`) may be sent as part of the record.
@@ -1062,95 +1125,145 @@ export default class IndexManager<
   }
 
   /**
-   * Save the given records
+   * Save the given records with `_bulk`, replacing records with the same ids.
+   *
+   * Each record's `id` is its document id (numbers become strings; `0` is
+   * kept). A record without an `id` (undefined or null) gets a random UUID,
+   * returned in `report`. An empty string is sent as is, and Elasticsearch
+   * rejects that row. An empty array sends nothing.
+   *
+   * Records are sent in chunks (see `options`), one request at a time. If a
+   * request fails, no further chunks are sent: rows that were not answered
+   * have `status: null`.
+   *
    * @param records  The records to save
-   * @param [more]  Additional body params
+   * @param [more]  Request params sent with every chunk (`refresh`, ...)
+   * @param [options]  `chunkSize` (records per request, default 1000) and
+   *   `chunkBytes` (serialized bytes per request, default 5 MiB)
+   * @returns `success`; `report` with one row per record, in order; `errors`,
+   *   the error of each rejected row; `response`, the chunks' responses merged
+   *   into one. When rows were rejected, `error` is an `AggregateError` of
+   *   them with `errorKind: 'response'` and `response` is
+   *   `{ statusCode: 200, body: <merged response> }`.
    */
   async putBulk(
     records: MappingRecord<Create>[],
-    more?: Partial<BulkRequestParams>,
+    more?: IndexPutBulkParams,
+    options?: IndexPutBulkOptions,
   ) {
     const start = Date.now();
     const index = this.getAliasName();
-    const bulkBody: any[] = [];
-    for (const record of records) {
-      const id = (record as { id?: unknown }).id;
-      const _id = id ? String(id) : crypto.randomUUID();
-      bulkBody.push({ index: { _index: index, _id } }, record);
-    }
+    const ids = records.map(getBulkId);
+    const operations: BulkOperation<Create>[] = [];
+    records.forEach((record, i) => {
+      operations.push({ index: { _index: index, _id: ids[i] } }, record);
+    });
     const request = {
-      method: 'PUT',
-      endpoint: `/_bulk`,
-      body: {
-        index,
-        operations: bulkBody,
-        ...(more || {}),
-      },
+      method: 'POST',
+      endpoint: `/${index}/_bulk`,
+      body: { ...more, index, operations },
     };
+    const report: IndexPutBulkReportRow[] = ids.map((id) => ({
+      id,
+      status: null,
+      effect: null,
+      version: null,
+      error: null,
+    }));
+    const errors: ErrorCause[] = [];
+    const response: estypes.BulkResponse = {
+      errors: false,
+      items: [],
+      took: 0,
+    };
+    const result = () => ({
+      success: false,
+      errors,
+      report,
+      request,
+      took: Date.now() - start,
+    });
+    let chunks: number[][];
     try {
-      const response = await this.client.bulk(request.body);
-      const errors: ErrorCause[] = [];
-      const report = response.items.map((item) => {
-        // only `index` operations are sent
-        const op = item.index;
-        if (op?.error) {
-          errors.push(op.error);
-        }
-        return {
-          status: op?.status,
-          error: op?.error,
-          effect: op?.result,
-          version: op?._version,
-        };
-      });
-      return {
-        success: errors.length === 0,
-        errors,
-        report,
-        request,
-        took: Date.now() - start,
-        ...more,
-      };
+      chunks = getBulkChunks(records, options);
     } catch (e) {
+      return { ...result(), ...this._formatError(e) };
+    }
+    for (const chunk of chunks) {
+      const chunkOps = chunk.flatMap((i) => [
+        operations[2 * i],
+        operations[2 * i + 1],
+      ]);
+      try {
+        const res = await this.client.bulk({
+          ...more,
+          index,
+          operations: chunkOps,
+        });
+        response.took += res.took;
+        response.errors ||= res.errors;
+        response.items.push(...res.items);
+        res.items.forEach((item, j) => {
+          applyBulkItem(report[chunk[j]], item, errors);
+        });
+      } catch (e) {
+        return { ...result(), ...this._formatError(e) };
+      }
+    }
+    if (errors.length > 0) {
+      const message =
+        `putBulk: ${errors.length} of ${records.length} records were ` +
+        `rejected; the first: ${describeCause(errors[0])}`;
       return {
-        success: false,
-        report: [],
-        errors: [],
-        request,
-        took: Date.now() - start,
-        ...this._formatError(e),
+        ...result(),
+        error: toAggregateError(errors, message),
+        errorKind: 'response' as const,
+        response: { statusCode: 200, body: response } as ErrorMeta,
       };
     }
+    return { ...result(), success: true, ...this._formatNonError(response) };
   }
 
   /**
-   * Merge the given fields into an existing record (uses POST _update)
+   * Merge the given fields into an existing record (uses POST _update).
+   * Conflicting concurrent updates are retried 3 times
+   * (`retry_on_conflict: 3`) unless `more` sets `retry_on_conflict` or
+   * `if_seq_no`/`if_primary_term` (Elasticsearch rejects retries combined
+   * with those).
    * @param id  The record id
    * @param body  The fields to change; other fields keep their values
-   * @param [more]  Additional body params
+   * @param [more]  Request params such as `refresh`, `doc_as_upsert`,
+   *   `upsert` or `detect_noop`
+   * @returns `success`; `result` as Elasticsearch reports it (`updated`,
+   *   `noop` when nothing changed, `created` by an upsert; null on failure)
+   *   plus the envelope
    */
   async patch(
-    id: string,
+    id: IndexRecordId,
     body: Partial<MappingRecord<Create>>,
-    more?: Partial<PatchRequestParams>,
+    more?: IndexPatchParams,
   ) {
     const start = Date.now();
+    const index = this.getAliasName();
+    const optimistic =
+      more?.if_seq_no !== undefined || more?.if_primary_term !== undefined;
     const request = {
       method: 'POST',
-      endpoint: `/${this.getAliasName()}/_update/${id}`,
+      endpoint: `/${index}/_update/${id}`,
       body: {
-        index: this.getAliasName(),
-        id,
+        ...(optimistic ? {} : { retry_on_conflict: PATCH_RETRY_ON_CONFLICT }),
+        ...more,
+        index,
+        id: String(id),
         // Elasticsearch merges the fields given under `doc` into the record
         doc: body,
-        ...(more || {}),
       },
     };
     try {
       const response = await this.client.update(request.body);
       return {
         success: true,
-        result: 'updated',
+        result: response.result,
         request,
         took: Date.now() - start,
         ...this._formatNonError(response),
@@ -1158,7 +1271,7 @@ export default class IndexManager<
     } catch (e) {
       return {
         success: false,
-        result: 'error',
+        result: null,
         request,
         took: Date.now() - start,
         ...this._formatError(e),
@@ -1456,32 +1569,46 @@ export default class IndexManager<
   /**
    * Find a single record by the given id
    * @param id  The record id
-   * @param [more]  Additional body params
+   * @param [more]  Request params such as `_source_includes` or `realtime`
+   * @returns `record` (null when not found), `found`, plus the envelope. A
+   *   missing record is not an error: `found: false`, `error: null` and
+   *   `response` is Elasticsearch's `{ _index, _id, found: false }`. A missing
+   *   index or alias is an error. On any error `found` is false.
    */
-  async findById(id: string, more?: Partial<GetRequestParams>) {
+  async findById(id: IndexRecordId, more?: IndexFindByIdParams) {
     const start = Date.now();
+    const index = this.getAliasName();
     const request = {
       method: 'GET',
-      endpoint: `/${this.getAliasName()}/_doc/${id}`,
-      body: {
-        index: this.getAliasName(),
-        id,
-        ...(more || {}),
-      },
+      endpoint: `/${index}/_doc/${id}`,
+      body: { ...more, index, id: String(id) },
     };
     try {
       const response = await this.client.get<MappingRecord<Create>>(
         request.body,
       );
-      const record = response._source ?? null;
       return {
-        record,
+        record: response._source ?? null,
+        found: response.found,
+        request,
         took: Date.now() - start,
         ...this._formatNonError(response),
       };
     } catch (e) {
+      const notFound = getDocumentNotFound(e);
+      if (notFound) {
+        return {
+          record: null,
+          found: false,
+          request,
+          took: Date.now() - start,
+          ...this._formatNonError(notFound),
+        };
+      }
       return {
         record: null,
+        found: false,
+        request,
         took: Date.now() - start,
         ...this._formatError(e),
       };
@@ -1501,18 +1628,27 @@ export default class IndexManager<
    * Find many records using a `QueryBuilder` callback.
    * @param withQueryBuilder Optional callback to configure the query.
    * @param more Optional additional search request options (excluding `index` and `query`).
-   * @returns A search result from `QueryRunner.findMany`.
+   * @returns A search result from `QueryRunner.findMany`. An error thrown by
+   *   the callback or while building the request is returned as the error
+   *   envelope (`request: null`), never thrown.
    */
-  findMany(
+  async findMany(
     withQueryBuilder?: QueryBuilderProvider<MappingFieldPath<Create>>,
     more?: Omit<estypes.SearchRequest, 'index' | 'query'>,
   ) {
-    return this.run(async (runner) => {
-      if (withQueryBuilder) {
-        await withQueryBuilder(runner.builder);
-      }
-      return runner.findMany(more);
-    });
+    try {
+      const runner = await this._getRunner(withQueryBuilder);
+      return await runner.findMany(more);
+    } catch (e) {
+      return {
+        records: [] as QueryRecord<Create>[],
+        total: null,
+        request: null,
+        took: null,
+        aggregations: null,
+        ...this._formatError(e),
+      };
+    }
   }
 
   /**
@@ -1520,55 +1656,91 @@ export default class IndexManager<
    * @param withQueryBuilder Optional callback to configure the query.
    * @param more Optional additional search request options (excluding `index` and `query`).
    * @returns The first matching record result from `QueryRunner.findFirst`.
+   *   An error thrown by the callback or while building the request is
+   *   returned as the error envelope (`record: undefined`, `request: null`),
+   *   never thrown.
    */
-  findFirst(
+  async findFirst(
     withQueryBuilder?: QueryBuilderProvider<MappingFieldPath<Create>>,
     more?: Omit<estypes.SearchRequest, 'index' | 'query'>,
   ) {
-    return this.run(async (runner) => {
-      if (withQueryBuilder) {
-        await withQueryBuilder(runner.builder);
-      }
-      return runner.findFirst(more);
-    });
+    try {
+      const runner = await this._getRunner(withQueryBuilder);
+      return await runner.findFirst(more);
+    } catch (e) {
+      return {
+        record: undefined as QueryRecord<Create> | undefined,
+        total: null,
+        request: null,
+        took: null,
+        aggregations: null,
+        ...this._formatError(e),
+      };
+    }
   }
 
   /**
    * Count documents matching the built query.
    * @param withQueryBuilder Optional callback to configure the query.
-   * @param more Optional additional search request options (excluding `index` and `query`).
-   * @returns The count result from `QueryRunner.count`.
+   * @param more Optional `_count` request params (excluding `index` and
+   *   `query`), e.g. `min_score` or `terminate_after`.
+   * @returns The count result from `QueryRunner.count`. An error thrown by
+   *   the callback or while building the request is returned as the error
+   *   envelope (`total: null`, `request: null`), never thrown.
    */
-  count(
+  async count(
     withQueryBuilder?: QueryBuilderProvider<MappingFieldPath<Create>>,
-    more?: Omit<estypes.SearchRequest, 'index' | 'query'>,
+    more?: IndexCountParams,
   ) {
-    return this.run(async (runner) => {
-      if (withQueryBuilder) {
-        await withQueryBuilder(runner.builder);
-      }
-      return runner.count(more);
-    });
+    const start = Date.now();
+    try {
+      const runner = await this._getRunner(withQueryBuilder);
+      return await runner.count(more);
+    } catch (e) {
+      return {
+        total: null,
+        took: Date.now() - start,
+        request: null,
+        ...this._formatError(e),
+      };
+    }
   }
 
   /**
-   * Remove record from database
-   * @param {String} id  The id of the record
+   * A `QueryRunner` whose builder the callback has configured
    */
-  async deleteById(id: string) {
+  private async _getRunner(
+    withQueryBuilder?: QueryBuilderProvider<MappingFieldPath<Create>>,
+  ) {
+    const runner = new QueryRunner(this);
+    if (withQueryBuilder) {
+      await withQueryBuilder(runner.builder);
+    }
+    return runner;
+  }
+
+  /**
+   * Remove a record by id
+   * @param id  The id of the record
+   * @param [more]  Request params such as `refresh` or `if_seq_no` with
+   *   `if_primary_term`
+   * @returns `success`, `result` (`deleted`; null on failure) plus the
+   *   envelope. A missing record is an error (404, `result: 'not_found'` in
+   *   `response.body`).
+   */
+  async deleteById(id: IndexRecordId, more?: IndexDeleteByIdParams) {
     const start = Date.now();
+    const index = this.getAliasName();
     const request = {
       method: 'DELETE',
-      endpoint: `/${this.getAliasName()}/_doc/${id}`,
-      body: {
-        index: this.getAliasName(),
-        id,
-      },
+      endpoint: `/${index}/_doc/${id}`,
+      body: { ...more, index, id: String(id) },
     };
     try {
       const response = await this.client.delete(request.body);
       return {
         success: true,
+        result: response.result,
         request,
         took: Date.now() - start,
         ...this._formatNonError(response),
@@ -1576,6 +1748,7 @@ export default class IndexManager<
     } catch (e) {
       return {
         success: false,
+        result: null,
         request,
         took: Date.now() - start,
         ...this._formatError(e),
@@ -1584,42 +1757,240 @@ export default class IndexManager<
   }
 
   /**
-   * Delete many documents that match a built query using `_delete_by_query`.
-   * Note: This is a potentially expensive operation; prefer targeted deletes when possible.
+   * Delete the documents that match a built query (`_delete_by_query`).
+   *
+   * There is no confirmation and no warning, as in Elasticsearch itself:
+   * **without a callback, or with a callback that adds no conditions, every
+   * document in the index is deleted** (`match_all`). A builder that
+   * produces no `query` (only retrievers such as `knn()` or `semantic()`)
+   * cannot select documents: nothing is sent and an error envelope is
+   * returned.
+   *
+   * Version conflicts abort the request (a 409 error) unless `more` sets
+   * `conflicts: 'proceed'`; then conflicting documents are skipped and
+   * counted in `versionConflicts`, and `success` stays true.
+   *
    * @param withQueryBuilder Optional callback to configure the query.
-   * @param more Optional additional search request options (excluding `index` and `query`).
-   * @returns A result with success flag, request info, timing, and client response/error.
+   * @param more `_delete_by_query` request params (excluding `index` and
+   *   `query`), e.g. `conflicts`, `refresh`, `max_docs` or `slices`.
+   * @returns `success` (false when the request failed, the response lists
+   *   `failures` or it timed out), `deleted`, `versionConflicts`, `failures`
+   *   (null when there is no response), plus the envelope. With failures or a
+   *   timeout, `error` is set, `errorKind` is `response` and `response` is
+   *   `{ statusCode: 200, body: <response> }`.
    */
   async deleteMany(
     withQueryBuilder?: QueryBuilderProvider<MappingFieldPath<Create>>,
-    more?: Omit<estypes.SearchRequest, 'index' | 'query'>,
+    more?: IndexDeleteManyParams,
   ) {
     const start = Date.now();
-    const builder = new QueryBuilder<MappingFieldPath<Create>>();
-    if (withQueryBuilder) {
-      await withQueryBuilder(builder);
-    }
+    const index = this.getAliasName();
     const request = {
-      index: this.getAliasName(),
-      query: builder.getBody().query,
+      method: 'POST',
+      endpoint: `/${index}/_delete_by_query`,
+      body: {
+        ...more,
+        index,
+        query: undefined as estypes.QueryDslQueryContainer | undefined,
+      },
     };
+    const result = (response: estypes.DeleteByQueryResponse | null) => ({
+      success: false,
+      deleted: response?.deleted ?? null,
+      versionConflicts: response?.version_conflicts ?? null,
+      failures: response?.failures ?? null,
+      request,
+      took: Date.now() - start,
+    });
     try {
-      const response = await this.client.deleteByQuery(request, more);
-      return {
-        success: true,
-        request,
-        took: Date.now() - start,
-        ...this._formatNonError(response),
-      };
+      const builder = new QueryBuilder<MappingFieldPath<Create>>();
+      if (withQueryBuilder) {
+        await withQueryBuilder(builder);
+      }
+      request.body.query = builder.getBody().query;
     } catch (e) {
+      return { ...result(null), ...this._formatError(e) };
+    }
+    if (!request.body.query) {
+      const error = new Error(
+        'deleteMany: the builder produced no "query" (retrievers such as ' +
+          'knn() or semantic() cannot select documents to delete); ' +
+          'nothing was deleted',
+      );
+      return { ...result(null), ...this._formatError(error) };
+    }
+    let response: estypes.DeleteByQueryResponse;
+    try {
+      response = await this.client.deleteByQuery(request.body);
+    } catch (e) {
+      return { ...result(null), ...this._formatError(e) };
+    }
+    const error = getDeleteByQueryError(response);
+    if (error) {
       return {
-        success: false,
-        request,
-        took: Date.now() - start,
-        ...this._formatError(e),
+        ...result(response),
+        failures: response.failures ?? [],
+        error,
+        errorKind: 'response' as const,
+        response: { statusCode: 200, body: response } as ErrorMeta,
       };
     }
+    return {
+      ...result(response),
+      success: true,
+      failures: response.failures ?? [],
+      ...this._formatNonError(response),
+    };
   }
+}
+
+/** `retry_on_conflict` that `patch()` sends unless told otherwise */
+const PATCH_RETRY_ON_CONFLICT = 3;
+
+/** Default most records per `putBulk()` request */
+const BULK_CHUNK_SIZE = 1000;
+
+/** Default most serialized record bytes per `putBulk()` request (5 MiB) */
+const BULK_CHUNK_BYTES = 5 * 1024 * 1024;
+
+/** One line of a `putBulk()` request: an action or a record */
+type BulkOperation<Create> =
+  | estypes.BulkOperationContainer
+  | MappingRecord<Create>;
+
+const utf8 = new TextEncoder();
+
+/**
+ * The `_id` for a bulk record: its `id` as a string, or a random UUID when
+ * it has none. `0` and `''` are kept (`''` is rejected by Elasticsearch).
+ */
+function getBulkId(record: unknown) {
+  const id = (record as { id?: unknown } | null)?.id;
+  if (id === undefined || id === null) {
+    return crypto.randomUUID();
+  }
+  return String(id);
+}
+
+/**
+ * The record indexes of each `putBulk()` request, split so that no request
+ * has more than `chunkSize` records or `chunkBytes` serialized bytes (a
+ * larger record goes alone)
+ * @throws {RangeError} When an option is not a positive number
+ */
+function getBulkChunks(records: unknown[], options?: IndexPutBulkOptions) {
+  const chunkSize = options?.chunkSize ?? BULK_CHUNK_SIZE;
+  const chunkBytes = options?.chunkBytes ?? BULK_CHUNK_BYTES;
+  if (!Number.isInteger(chunkSize) || chunkSize < 1) {
+    throw new RangeError(
+      `putBulk: chunkSize must be a positive integer, got ${chunkSize}`,
+    );
+  }
+  if (!(chunkBytes > 0)) {
+    throw new RangeError(
+      `putBulk: chunkBytes must be a positive number, got ${chunkBytes}`,
+    );
+  }
+  const chunks: number[][] = [];
+  let chunk: number[] = [];
+  let bytes = 0;
+  records.forEach((record, i) => {
+    const size = utf8.encode(JSON.stringify(record)).byteLength;
+    const full = chunk.length >= chunkSize || bytes + size > chunkBytes;
+    if (chunk.length > 0 && full) {
+      chunks.push(chunk);
+      chunk = [];
+      bytes = 0;
+    }
+    chunk.push(i);
+    bytes += size;
+  });
+  if (chunk.length > 0) {
+    chunks.push(chunk);
+  }
+  return chunks;
+}
+
+/**
+ * Copy a bulk response item into its report row, collecting its error
+ */
+function applyBulkItem(
+  row: IndexPutBulkReportRow,
+  item: Partial<Record<estypes.BulkOperationType, estypes.BulkResponseItem>>,
+  errors: ErrorCause[],
+) {
+  // only `index` actions are sent
+  const op = item.index ?? Object.values(item)[0];
+  if (!op) {
+    return;
+  }
+  row.status = op.status;
+  if (op.error) {
+    row.error = op.error;
+    errors.push(op.error);
+    return;
+  }
+  // the client types `result` as string; Elasticsearch sends a `Result`
+  row.effect = (op.result ?? null) as estypes.Result | null;
+  row.version = op._version ?? null;
+}
+
+/**
+ * `type: reason` of an Elasticsearch error cause
+ */
+function describeCause(cause: ErrorCause) {
+  return `${cause.type}: ${cause.reason ?? ''}`;
+}
+
+/**
+ * One error for the rejected rows of a request that itself succeeded
+ */
+function toAggregateError(causes: ErrorCause[], message: string) {
+  const errors = causes.map(
+    (cause) => new Error(describeCause(cause), { cause }),
+  );
+  return new AggregateError(errors, message);
+}
+
+/**
+ * The `{ _index, _id, found: false }` body of a `GET <index>/_doc/<id>` for
+ * a missing document, or null for any other error (including the 404 for a
+ * missing index, whose body has `error`)
+ */
+function getDocumentNotFound<T>(e: unknown): estypes.GetResponse<T> | null {
+  if (!isResponseStatus(e, 404)) {
+    return null;
+  }
+  const body = getErrorMeta(e)?.body;
+  if (typeof body !== 'object' || body === null) {
+    return null;
+  }
+  if (!('found' in body) || body.found !== false) {
+    return null;
+  }
+  return body as estypes.GetResponse<T>;
+}
+
+/**
+ * The error a successful `_delete_by_query` response describes: its
+ * `failures`, or a timeout. Null when there is none.
+ */
+function getDeleteByQueryError(response: estypes.DeleteByQueryResponse) {
+  const failures = response.failures ?? [];
+  if (failures.length > 0) {
+    const causes = failures.map((failure) => failure.cause);
+    const message =
+      `deleteMany: ${failures.length} documents could not be deleted; ` +
+      `the first: ${describeCause(causes[0])}`;
+    return toAggregateError(causes, message);
+  }
+  if (response.timed_out) {
+    return new Error(
+      'deleteMany: the request timed out; some matching documents may ' +
+        'not have been deleted',
+    );
+  }
+  return null;
 }
 
 /**
