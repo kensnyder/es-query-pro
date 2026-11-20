@@ -1,6 +1,31 @@
-import type { estypes } from '@elastic/elasticsearch';
+import type { Client, estypes } from '@elastic/elasticsearch';
 import { getTestClient } from './testClient';
 
+/** One document of the books fixture (`getBooksData()`). */
+export type BookRecord = {
+  id: string;
+  title: string;
+  premise: string;
+  country: string;
+  categories: { id: number; name: string }[];
+  publishing: {
+    author: string;
+    series: string;
+    organization: string;
+    year: number;
+    movieYear?: number;
+  };
+  heroes: string[];
+  price: number;
+  published_at: string;
+  /** Present on book 3 only and not in the mapping (dynamic); for `exists` */
+  extra?: string;
+};
+
+/**
+ * Mappings of the books fixture. `categories` and `publishing` are `nested`;
+ * `title.fvh` has term vectors; `price` is a `scaled_float` (cents).
+ */
 export function getBooksMappings(): estypes.MappingTypeMapping {
   return {
     properties: {
@@ -55,11 +80,16 @@ export function getBooksMappings(): estypes.MappingTypeMapping {
         },
       },
       heroes: { type: 'keyword' },
-      price: { type: 'integer' },
+      price: { type: 'scaled_float', scaling_factor: 100 },
       published_at: { type: 'date' },
     },
   };
 }
+
+/**
+ * Creation request for the books fixture. `index` is the logical name; pass
+ * it to `new IndexManager()` or `kit.makeIndex()`, which add the run prefix.
+ */
 export function getBooksCreateRequest(
   index: string,
 ): estypes.IndicesCreateRequest {
@@ -68,7 +98,9 @@ export function getBooksCreateRequest(
     mappings: getBooksMappings(),
   };
 }
-export function getBooksData(): any {
+
+/** The three books: ids '1' and '2' (UK, Harry Potter) and '3' (US, Skyward) */
+export function getBooksData(): BookRecord[] {
   return [
     {
       id: '1',
@@ -161,29 +193,25 @@ export function getBooksData(): any {
     },
   ];
 }
-export function createBooksIndex(index: string) {
-  const client = getTestClient();
-  return client.indices.create(getBooksCreateRequest(index));
-}
-export async function insertBooksData(index: string) {
-  const client = getTestClient();
-  const operations = [];
-
+/**
+ * Bulk-load `getBooksData()` into `index` (ids are the books' `id`) and
+ * refresh. Throws if any row fails. Most tests should prefer
+ * `kit.makeIndex(getBooksCreateRequest('books'), getBooksData())`.
+ */
+export async function insertBooksData(
+  index: string,
+  client: Client = getTestClient(),
+) {
+  const operations: object[] = [];
   for (const doc of getBooksData()) {
     operations.push({ index: { _index: index, _id: doc.id } });
     operations.push(doc);
   }
-
-  await client.bulk({
-    body: operations,
-    refresh: 'wait_for',
-  });
-}
-export async function deleteBooksIndex(index: string) {
-  const client = getTestClient();
-  try {
-    await client.indices.delete({ index });
-  } catch (_error) {
-    // Ignore if index doesn't exist
+  const res = await client.bulk({ operations, refresh: true });
+  if (res.errors) {
+    const reasons = res.items
+      .map((item) => Object.values(item)[0]?.error?.reason)
+      .filter(Boolean);
+    throw new Error(`insertBooksData failed: ${reasons.join('; ')}`);
   }
 }

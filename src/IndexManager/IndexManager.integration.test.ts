@@ -9,21 +9,28 @@ import {
 } from 'bun:test';
 import type { estypes } from '@elastic/elasticsearch';
 import { getBooksCreateRequest, getBooksData } from '../testFixtures/books';
-import { getTestClient } from '../testFixtures/testClient';
+import { createTestKit } from '../testFixtures/esTestKit';
 import IndexManager, { type MigrationProgressDetails } from './IndexManager';
 
 // remote clusters (e.g. Elastic Cloud) need more than bun's 5s default
 setDefaultTimeout(30_000);
 
-describe('QueryBuilder - Integration', () => {
+const kit = await createTestKit('indexmanager');
+
+// every index and alias below starts with kit.prefix
+afterAll(async () => {
+  await kit.cleanup();
+});
+
+describe('IndexManager - Integration', () => {
   const booksIndex = new IndexManager(
     {
-      client: getTestClient(),
+      client: kit.client,
       version: 1,
-      prefix: 'test',
+      prefix: kit.prefix,
       language: 'english',
     },
-    getBooksCreateRequest(`books_${Date.now()}`),
+    getBooksCreateRequest('books'),
   );
 
   beforeAll(async () => {
@@ -43,18 +50,6 @@ describe('QueryBuilder - Integration', () => {
     const flush = await booksIndex.flush();
     expect(flush.error).toBe(null);
     expect(flush.success).toBe(true);
-  });
-
-  afterAll(async () => {
-    const indexes = await booksIndex.client.cat.indices({
-      index: 'test~english~books_*',
-      format: 'json',
-    });
-    for (const { index } of indexes) {
-      if (index) {
-        await booksIndex.client.indices.delete({ index });
-      }
-    }
   });
 
   it('should work with no criteria', async () => {
@@ -171,9 +166,9 @@ describe('QueryBuilder - Integration', () => {
 });
 
 describe('IndexManager.create() - Integration', () => {
-  const create = getBooksCreateRequest(`books_spec_${Date.now()}`);
+  const create = getBooksCreateRequest('books_spec');
   const index = new IndexManager(
-    { client: getTestClient(), prefix: 'test' },
+    { client: kit.client, prefix: kit.prefix },
     {
       ...create,
       settings: {
@@ -200,10 +195,6 @@ describe('IndexManager.create() - Integration', () => {
       },
     },
   );
-
-  afterAll(async () => {
-    await index.drop();
-  });
 
   it('should send the settings and mappings of the specification', async () => {
     const created = await index.create();

@@ -1,0 +1,25 @@
+# Local stateful Elasticsearch for the integration tests, with a trial
+# license so license-gated features (rrf/linear retrievers) can be tested.
+#
+#   docker compose up -d --wait
+#   ES_ENDPOINT=http://localhost:9200 ES_API_KEY= ES_SERVERLESS=false \
+#     bun test .integration.test.ts
+#   docker compose down -v
+#
+# The empty ES_API_KEY and ES_SERVERLESS=false override a .env that points at
+# another cluster (Bun does not replace variables that are already set).
+services:
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:9.1.10
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      xpack.license.self_generated.type: trial
+      ES_JAVA_OPTS: -Xms1g -Xmx1g
+    ports:
+      - "9200:9200"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12

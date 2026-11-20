@@ -6,29 +6,25 @@ import {
   it,
   setDefaultTimeout,
 } from 'bun:test';
-import {
-  createBooksIndex,
-  deleteBooksIndex,
-  insertBooksData,
-} from '../testFixtures/books';
-import { getTestClient } from '../testFixtures/testClient';
+import { getBooksCreateRequest, getBooksData } from '../testFixtures/books';
+import { createTestKit } from '../testFixtures/esTestKit';
 import QueryBuilder from './QueryBuilder';
 
 // remote clusters (e.g. Elastic Cloud) need more than bun's 5s default
 setDefaultTimeout(30_000);
 
+const kit = await createTestKit('querybuilder');
+
 describe('QueryBuilder - Integration', () => {
-  const client = getTestClient();
-  const index = `test_query_builder_${Date.now()}`;
+  const client = kit.client;
+  let index = '';
 
   beforeAll(async () => {
-    await deleteBooksIndex(index);
-    await createBooksIndex(index);
-    await insertBooksData(index);
+    index = await kit.makeIndex(getBooksCreateRequest('books'), getBooksData());
   });
 
   afterAll(async () => {
-    await deleteBooksIndex(index);
+    await kit.cleanup();
   });
 
   it('should work with no criteria', async () => {
