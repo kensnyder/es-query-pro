@@ -1,6 +1,6 @@
 import type { estypes } from '@elastic/elasticsearch';
-import getEsClient from '../getEsClient/getEsClient';
 import type { SchemaShape } from '../types';
+import { getTestClient } from './testClient';
 
 export function getBooksMappings(): estypes.MappingTypeMapping {
   return {
@@ -61,6 +61,17 @@ export function getBooksMappings(): estypes.MappingTypeMapping {
     },
   };
 }
+export function getBooksCreateRequest(
+  index: string,
+): estypes.IndicesCreateRequest {
+  return {
+    index,
+    mappings: getBooksMappings(),
+  };
+}
+/**
+ * @deprecated Kept until IndexManager.integration.test.ts stops using it.
+ */
 export function getBooksSchema(): SchemaShape {
   return {
     id: 'integer',
@@ -177,14 +188,11 @@ export function getBooksData(): any {
   ];
 }
 export function createBooksIndex(index: string) {
-  const client = getEsClient();
-  return client.indices.create({
-    index,
-    mappings: getBooksMappings(),
-  });
+  const client = getTestClient();
+  return client.indices.create(getBooksCreateRequest(index));
 }
 export async function insertBooksData(index: string) {
-  const client = getEsClient();
+  const client = getTestClient();
   const operations = [];
 
   for (const doc of getBooksData()) {
@@ -198,7 +206,7 @@ export async function insertBooksData(index: string) {
   });
 }
 export async function deleteBooksIndex(index: string) {
-  const client = getEsClient();
+  const client = getTestClient();
   try {
     await client.indices.delete({ index });
   } catch (_error) {

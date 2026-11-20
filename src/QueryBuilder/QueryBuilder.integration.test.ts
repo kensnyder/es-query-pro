@@ -6,19 +6,19 @@ import {
   it,
   setDefaultTimeout,
 } from 'bun:test';
-import getEsClient from '../getEsClient/getEsClient';
 import {
   createBooksIndex,
   deleteBooksIndex,
   insertBooksData,
 } from '../testFixtures/books';
+import { getTestClient } from '../testFixtures/testClient';
 import QueryBuilder from './QueryBuilder';
 
 // remote clusters (e.g. Elastic Cloud) need more than bun's 5s default
 setDefaultTimeout(30_000);
 
 describe('QueryBuilder - Integration', () => {
-  const client = getEsClient();
+  const client = getTestClient();
   const index = `test_query_builder_${Date.now()}`;
 
   beforeAll(async () => {
