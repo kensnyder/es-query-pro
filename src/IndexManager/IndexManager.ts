@@ -62,6 +62,9 @@ export type IndexPutBulkResult = Awaited<ReturnType<IndexManager['putBulk']>>;
 export type IndexPatchResult = Awaited<ReturnType<IndexManager['patch']>>;
 export type IndexDeleteResult = Awaited<ReturnType<IndexManager['deleteById']>>;
 export type IndexStatusReport = Awaited<ReturnType<IndexManager['getStatus']>>;
+export type IndexSiblingIndexesResult = Awaited<
+  ReturnType<IndexManager['getSiblingIndexes']>
+>;
 export type IndexRecreateResult = Awaited<ReturnType<IndexManager['recreate']>>;
 export type IndexCreateOnlyResult = Awaited<
   ReturnType<IndexManager['createOnly']>
@@ -179,6 +182,48 @@ export type MigrationProgressDetails = {
   newIndex: string;
   alias: string;
 };
+/**
+ * The indexes an alias points at besides this one, by how each relates to
+ * this index (see `IndexNameManager.compare()`)
+ */
+export type SiblingIndexes = {
+  /** Every index on the alias except this one, in the server's order */
+  all: string[];
+  /** Lower versions of this index, oldest first */
+  older: string[];
+  /** Higher versions of this index, oldest first */
+  newer: string[];
+  /**
+   * Other versions of this index that cannot be ordered against this one
+   * (one of the two versions is not a plain integer, e.g. `v2024a`), by name
+   */
+  incomparable: string[];
+  /**
+   * Indexes that are not a version of this one (another prefix, language,
+   * name or separator, or a name IndexManager did not make), by name
+   */
+  unrelated: string[];
+};
+/**
+ * One word for `getStatus()`, from the first rule that applies:
+ * - `unknown`: a check failed; see `error`
+ * - `newerVersionPresent`: the alias points at a newer version
+ * - `needsMigration`: the alias points at an older (or `incomparable`)
+ *   version of this index
+ * - `aliasConflict`: the alias points at an index that is not a version of
+ *   this one
+ * - `needsCreation`: neither the index nor the alias exists
+ * - `needsAlias`: the index exists but the alias does not
+ * - `current`: the alias points at this index only
+ */
+export type StatusSummary =
+  | 'unknown'
+  | 'newerVersionPresent'
+  | 'needsMigration'
+  | 'aliasConflict'
+  | 'needsCreation'
+  | 'needsAlias'
+  | 'current';
 export type StatusReport = {
   took: number;
   fullName: string;
@@ -187,9 +232,20 @@ export type StatusReport = {
   indexExists: boolean | null;
   /** null when existence could not be determined */
   aliasExists: boolean | null;
+  /** Every index the alias points at (empty if missing or unknown) */
+  aliasIndexes: string[];
+  /** Whether the alias points at this index; null when unknown */
+  aliasAttached: boolean | null;
+  /** The other indexes on the alias, classified (empty lists if unknown) */
+  siblings: SiblingIndexes;
+  /** `summary === 'needsMigration'` */
   needsMigration: boolean;
+  /** `summary === 'needsCreation'` */
   needsCreation: boolean;
-  summary: 'needsCreation' | 'needsMigration' | 'current';
+  summary: StatusSummary;
+  /** The first failed check (index, then alias); null when both succeeded */
+  error: Error | null;
+  errorKind: IndexErrorKind | null;
 };
 /**
  * A callback that adds conditions to a `QueryBuilder`. `Field` is the union of
@@ -1280,56 +1336,99 @@ export default class IndexManager<
   }
 
   /**
-   * Retrieve a status snapshot for this index and alias.
-   * Includes names, existence flags, and whether creation or migration is needed.
-   * @returns An object containing timing, names, and status booleans.
+   * A snapshot of this index and its alias: whether each exists, where the
+   * alias points, how the other indexes on it relate to this one, and a
+   * one-word `summary` (see `StatusSummary`). Sends the index check and the
+   * alias lookup in parallel, and never rejects. If either check fails,
+   * `summary` is `unknown`, `needsCreation` and `needsMigration` are false,
+   * and `error`/`errorKind` describe the first failure.
    */
   async getStatus(): Promise<StatusReport> {
     const start = Date.now();
     const fullName = this.getFullName();
-    const aliasName = this.getAliasName();
-    const indexExists = await this.exists();
-    const aliasExists = await this.aliasExists();
-    const needsMigration = await this.needsMigration();
-    const needsCreation = !indexExists.exists && !needsMigration;
+    const [index, alias] = await Promise.all([
+      this.exists(),
+      this.getSiblingIndexes(),
+    ]);
+    const failure = getFailure(index) ?? getFailure(alias);
+    const aliasIndexes = alias.aliasIndexes;
+    let aliasExists: boolean | null = null;
+    let aliasAttached: boolean | null = null;
+    if (alias.success) {
+      aliasExists = aliasIndexes.length > 0;
+      aliasAttached = aliasIndexes.includes(fullName);
+    }
+    const summary = getStatusSummary({
+      failed: failure !== null,
+      indexExists: index.exists,
+      aliasAttached,
+      siblings: alias.siblings,
+    });
     return {
       took: Date.now() - start,
       fullName,
-      aliasName,
-      indexExists: indexExists.exists,
-      aliasExists: aliasExists.exists,
-      needsMigration,
-      needsCreation,
-      summary: getStatusSummary(needsCreation, needsMigration),
+      aliasName: this.getAliasName(),
+      indexExists: index.exists,
+      aliasExists,
+      aliasIndexes,
+      aliasAttached,
+      siblings: alias.siblings,
+      needsMigration: summary === 'needsMigration',
+      needsCreation: summary === 'needsCreation',
+      summary,
+      error: failure?.error ?? null,
+      errorKind: failure?.errorKind ?? null,
     };
   }
 
   /**
-   * Determine whether the index needs to be created.
-   * @returns True if the index does not exist yet; otherwise false.
+   * Whether `migrateIfNeeded()` would create this index from scratch:
+   * neither the index nor the alias exists (`getStatus().needsCreation`).
+   * @returns null when the checks failed; use `getStatus()` for the error
    */
-  async needsCreation() {
-    const indexExists = await this.exists();
-    return !indexExists;
+  async needsCreation(): Promise<boolean | null> {
+    const status = await this.getStatus();
+    if (status.error) {
+      return null;
+    }
+    return status.needsCreation;
   }
 
   /**
-   * Determine whether a migration is required based on sibling indexes.
-   * @returns True if there are sibling indexes under the alias that are not the current full name.
+   * Whether the alias points at an older (or `incomparable`) version of this
+   * index and at no newer one (`getStatus().needsMigration`). Only the alias
+   * is looked up.
+   * @returns null when the lookup failed; use `getSiblingIndexes()` for the
+   *   error
    */
-  async needsMigration() {
-    const siblings = await this.getSiblingIndexes();
-    return siblings.length > 0;
+  async needsMigration(): Promise<boolean | null> {
+    const { error, siblings } = await this.getSiblingIndexes();
+    if (error) {
+      return null;
+    }
+    return isMigrationNeeded(siblings);
   }
 
   /**
-   * List sibling index names currently attached to this alias, excluding this index.
-   * @returns An array of index names other than the current full name.
+   * The indexes the alias points at other than this one, classified as
+   * older or newer versions of this index, versions that cannot be ordered,
+   * and unrelated indexes (see `SiblingIndexes`). Names are parsed with this
+   * manager's separator.
+   * @returns `success`, `aliasIndexes` (every index on the alias, this one
+   *   included), `siblings`, plus `getAliasMetadata()`'s `request`, `took`
+   *   and envelope. A missing alias is not an error: everything is empty.
+   *   On error the lists are empty and `success` is false.
    */
   async getSiblingIndexes() {
-    const meta = await this.getAliasMetadata();
+    const { indexes, ...meta } = await this.getAliasMetadata();
+    const aliasIndexes: string[] = indexes;
     const fullName = this.getFullName();
-    return meta.indexes.filter((name) => name !== fullName);
+    const others = aliasIndexes.filter((name) => name !== fullName);
+    return {
+      ...meta,
+      aliasIndexes,
+      siblings: classifySiblings(this.index, others),
+    };
   }
 
   /**
@@ -2214,31 +2313,110 @@ function getAliasConflict(
   if (others.length === 0) {
     return null;
   }
-  let code: IndexLifecycleCode = 'NEEDS_MIGRATION';
-  for (const name of others) {
-    const other = IndexNameManager.tryParseByName(name, index.separator);
-    const relation = other ? IndexNameManager.compare(index, other) : null;
-    if (relation === 'newer') {
-      return 'NEWER_VERSION_PRESENT';
-    }
-    if (relation !== 'older' && relation !== 'incomparable') {
-      code = 'ALIAS_CONFLICT';
-    }
+  const siblings = classifySiblings(index, others);
+  if (siblings.newer.length > 0) {
+    return 'NEWER_VERSION_PRESENT';
   }
-  return code;
+  if (siblings.unrelated.length > 0) {
+    return 'ALIAS_CONFLICT';
+  }
+  return 'NEEDS_MIGRATION';
 }
 
 /**
- * The one-word status summary for `getStatus()`
+ * Sort sibling index names by how they relate to `index`. Versions are
+ * ordered with `IndexNameManager.compare()`, never guessed: a version that
+ * cannot be ordered goes in `incomparable`.
+ * @param index  This manager's name
+ * @param others  The other indexes on the alias (this index excluded)
  */
-function getStatusSummary(needsCreation: boolean, needsMigration: boolean) {
-  if (needsCreation) {
-    return 'needsCreation' as const;
+function classifySiblings(
+  index: IndexNameManager,
+  others: string[],
+): SiblingIndexes {
+  const older: ParsedSibling[] = [];
+  const newer: ParsedSibling[] = [];
+  const incomparable: string[] = [];
+  const unrelated: string[] = [];
+  for (const name of others) {
+    const parsed = IndexNameManager.tryParseByName(name, index.separator);
+    const relation = parsed ? IndexNameManager.compare(index, parsed) : null;
+    if (parsed && relation === 'older') {
+      older.push({ name, parsed });
+    } else if (parsed && relation === 'newer') {
+      newer.push({ name, parsed });
+    } else if (relation === 'incomparable') {
+      incomparable.push(name);
+    } else {
+      // 'same' cannot happen: that would be this index, excluded above
+      unrelated.push(name);
+    }
   }
-  if (needsMigration) {
-    return 'needsMigration' as const;
+  return {
+    all: [...others],
+    older: older.sort(byVersion).map((sibling) => sibling.name),
+    newer: newer.sort(byVersion).map((sibling) => sibling.name),
+    incomparable: incomparable.sort(),
+    unrelated: unrelated.sort(),
+  };
+}
+
+/** A sibling index name and its parsed parts */
+type ParsedSibling = { name: string; parsed: IndexNameManager };
+
+/**
+ * Sort comparator for versions of one index, oldest first
+ */
+function byVersion(a: ParsedSibling, b: ParsedSibling) {
+  const relation = IndexNameManager.compare(a.parsed, b.parsed);
+  if (relation === 'newer') {
+    return -1;
   }
-  return 'current' as const;
+  if (relation === 'older') {
+    return 1;
+  }
+  return 0;
+}
+
+/**
+ * Whether the alias holds an older (or `incomparable`) version of this
+ * index and no newer one
+ */
+function isMigrationNeeded(siblings: SiblingIndexes) {
+  if (siblings.newer.length > 0) {
+    return false;
+  }
+  return siblings.older.length > 0 || siblings.incomparable.length > 0;
+}
+
+/**
+ * The one-word status summary for `getStatus()` (see `StatusSummary`)
+ */
+function getStatusSummary(state: {
+  failed: boolean;
+  indexExists: boolean | null;
+  aliasAttached: boolean | null;
+  siblings: SiblingIndexes;
+}): StatusSummary {
+  if (state.failed) {
+    return 'unknown';
+  }
+  if (state.siblings.newer.length > 0) {
+    return 'newerVersionPresent';
+  }
+  if (isMigrationNeeded(state.siblings)) {
+    return 'needsMigration';
+  }
+  if (state.siblings.unrelated.length > 0) {
+    return 'aliasConflict';
+  }
+  if (!state.indexExists) {
+    return 'needsCreation';
+  }
+  if (!state.aliasAttached) {
+    return 'needsAlias';
+  }
+  return 'current';
 }
 
 /*
