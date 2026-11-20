@@ -3,7 +3,7 @@
 **Date:** 2026-11-20
 **Source:** [`docs/reports/2026-11-19-src-code-review.md`](../reports/2026-11-19-src-code-review.md) (108 bugs `B-001…B-108`, 63 suggestions `S-001…S-063`)
 **Executors:** one orchestrator session plus Opus subagents (`Agent` tool, `model: "opus"`), one subagent per task below.
-**Status:** not started. The decisions in section 2 were confirmed by the maintainer on 2026-11-20.
+**Status:** implemented on branch `mega-review-fixes` (2026-11-20). All 25 tasks are committed; the final gate passed on serverless and on stateful ES 9.1.10. Handoff notes are in `docs/plans/2026-11-20-handoff/`. The decisions in section 2 were confirmed by the maintainer on 2026-11-20.
 **Revised:** 2026-11-20, after [`2026-11-20-index-manager-create-request.md`](./2026-11-20-index-manager-create-request.md) was implemented (its decision D7). That work deleted `SchemaManager` and `getEsClient`, replaced the string schema with an `estypes.IndicesCreateRequest`, and fixed several findings along the way. Findings and task parts that no longer have code were removed from this plan; section 8.3 lists each one and why.
 
 Every remaining finding is assigned to exactly one owning task (a few are split across two tasks, each part named). Section 8 is the coverage matrix.
