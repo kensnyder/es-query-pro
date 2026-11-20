@@ -273,6 +273,148 @@ export type TermsSetOptions<Field extends string = string> = {
   boost?: number;
 };
 
+/** Options of `QueryBuilder.rescore()`; unset options use the ES defaults */
+export type RescoreOptions = {
+  /** How many top hits per shard to rescore, an integer >= 1 (ES default 10) */
+  windowSize?: number;
+  /** Weight of the original query's score (ES default 1) */
+  queryWeight?: number;
+  /** Weight of the rescore query's score (ES default 1) */
+  rescoreQueryWeight?: number;
+  /** How the two weighted scores combine (ES default `'total'`) */
+  scoreMode?: estypes.SearchScoreMode;
+};
+
+const RESCORE_SCORE_MODES = new Set<string>([
+  'avg',
+  'max',
+  'min',
+  'multiply',
+  'total',
+]);
+
+/**
+ * Throw unless a sort can go with `rescore`. Elasticsearch rejects every
+ * sort except a lone `_score` in descending order ("Cannot use [sort] option
+ * in conjunction with [rescore]"), including `_score` followed by a
+ * tie-breaker.
+ * @throws TypeError for any other sort
+ */
+function assertRescoreSort(sort: SortCombinations[]) {
+  if (sort.length === 1 && isScoreDescending(sort[0])) {
+    return;
+  }
+  throw new TypeError(
+    'rescore() cannot be combined with sort() unless the only sort is ' +
+      `_score descending; got ${JSON.stringify(sort)}. ` +
+      'Remove the sort or the rescore.',
+  );
+}
+
+/** True for `'_score'`, `{ _score: 'desc' }` and `{ _score: { order: 'desc' } }` */
+function isScoreDescending(sort: SortCombinations): boolean {
+  if (sort === '_score') {
+    return true;
+  }
+  if (sort === null || typeof sort !== 'object') {
+    return false;
+  }
+  const keys = Object.keys(sort);
+  if (keys.length !== 1 || keys[0] !== '_score') {
+    return false;
+  }
+  const value: unknown = (sort as Record<string, unknown>)._score;
+  if (typeof value === 'string') {
+    return value === 'desc';
+  }
+  if (value !== null && typeof value === 'object') {
+    const order = (value as { order?: unknown }).order;
+    return order === undefined || order === 'desc';
+  }
+  return false;
+}
+
+/** One `aggregateTerm()` ordering criterion */
+export type TermsOrderBy<Field extends string = string> = {
+  /**
+   * `'_count'` (bucket size), `'_key'` or the aggregated field itself (the
+   * bucket's term), or another field: buckets are then ordered by that
+   * field's smallest value (`asc`) or largest value (`desc`) in the bucket.
+   */
+  field: Field | '_count' | '_key';
+  order: SortOrder;
+};
+
+/** Arguments of `QueryBuilder.aggregateTerm()` */
+export type AggregateTermOptions<Field extends string = string> = {
+  /** The field to bucket by; the aggregation is named after it */
+  field: Field;
+  /** Maximum number of buckets, an integer >= 1 (default 25) */
+  limit?: number;
+  /** Add `doc_count_error_upper_bound` to each bucket (default false) */
+  showTermDocCountError?: boolean;
+  /** Ordering criteria, applied in turn (default `_count` descending) */
+  orderBy?: TermsOrderBy<Field>[];
+  /** Bucket documents that lack the field under this key */
+  missing?: TermValue;
+  /** Exact term values to leave out of the buckets */
+  exclude?: string[];
+};
+
+/** True for a string, a finite number or a boolean */
+function isTermValue(value: unknown): value is TermValue {
+  if (typeof value === 'number') {
+    return Number.isFinite(value);
+  }
+  return typeof value === 'string' || typeof value === 'boolean';
+}
+
+/**
+ * Build a `terms` aggregation's `order` and the metric sub-aggregations it
+ * needs. `_count`/`_key` are used as is and the aggregated field becomes
+ * `_key`; any other field is ordered through a `min` (`asc`) or `max`
+ * (`desc`) sub-agg named `__order_<i>`, because an order path cannot hold a
+ * dotted field name. One criterion gives an object, several an array (ES
+ * reads only the last key of a multi-key object).
+ * @throws TypeError when `orderBy` is empty or an `order` is not asc/desc
+ */
+function buildTermsOrder(field: string, orderBy: unknown) {
+  if (!Array.isArray(orderBy) || orderBy.length === 0) {
+    throw new TypeError(
+      'aggregateTerm() expects orderBy to be a non-empty array',
+    );
+  }
+  const order: Record<string, SortOrder>[] = [];
+  const aggs: Record<string, AggregationsAggregationContainer> = {};
+  orderBy.forEach((criterion: Partial<TermsOrderBy>, i) => {
+    const { field: by, order: direction } = criterion ?? {};
+    if (direction !== 'asc' && direction !== 'desc') {
+      throw new TypeError(
+        `aggregateTerm() expects orderBy[${i}].order to be "asc" or "desc"`,
+      );
+    }
+    if (typeof by !== 'string' || by === '') {
+      throw new TypeError(
+        `aggregateTerm() expects orderBy[${i}].field to be a field name`,
+      );
+    }
+    if (by === '_count' || by === '_key') {
+      order.push({ [by]: direction });
+    } else if (by === field) {
+      order.push({ _key: direction });
+    } else {
+      const name = `__order_${i}`;
+      const metric = direction === 'asc' ? 'min' : 'max';
+      aggs[name] = { [metric]: { field: by } };
+      order.push({ [name]: direction });
+    }
+  });
+  return {
+    order: order.length === 1 ? order[0] : order,
+    aggs: isEmptyObject(aggs) ? undefined : aggs,
+  };
+}
+
 /**
  * Split the two call forms of the term-level methods, `(field, value,
  * options?)` and `({ field, value, ...options })`, into their parts.
@@ -423,6 +565,12 @@ export default class QueryBuilder<Field extends string = string> {
 
   /** Optional rescore phase */
   public _rescore: SearchRescore[] | undefined = undefined;
+
+  /**
+   * True while `_limit` is the `0` that an `aggregate*` method set because
+   * no limit was set; `reset('aggs')` then clears it, `limit()` ends it.
+   */
+  private _limitFromAggregations = false;
 
   /** Optional minimum score */
   public _minScore: number | undefined = undefined;
@@ -1790,46 +1938,105 @@ export default class QueryBuilder<Field extends string = string> {
   }
 
   /**
-   * Add a rescore phase for the query. Multiple calls will append additional rescore entries.
-   * @see https://www.elastic.co/guide/en/elasticsearch/reference/9.x/filter-search-results.html#rescore
+   * Add a rescore phase: re-score the top `windowSize` hits of each shard
+   * with a second query built in the callback. Each call appends a phase;
+   * phases run in order.
+   *
+   * Only the callback builder's conditions and score functions
+   * (`decayFunctionScore`, `sortByRandom`) form the rescore query; its
+   * paging, sorting, fields, aggregations and highlighting are ignored.
+   * A callback that adds no condition adds no phase.
+   *
+   * Elasticsearch rejects rescore combined with any sort other than a lone
+   * `_score` descending, so `getBody()` throws for that combination.
+   * @see https://www.elastic.co/docs/reference/elasticsearch/rest-apis/filter-search-results#rescore
+   * @param withBuilder  Receives a fresh builder to add the rescore query to
+   * @param options  `windowSize` (integer >= 1, ES default 10),
+   *   `queryWeight` and `rescoreQueryWeight` (ES default 1 each) and
+   *   `scoreMode` (`'total'` by default, or `'multiply'`, `'avg'`, `'max'`,
+   *   `'min'`); unset options are left to Elasticsearch
+   * @throws TypeError when the callback adds a retriever (`knn`,
+   *   `semantic`, ...), which cannot be a rescore query, or an option has
+   *   the wrong type
+   * @throws RangeError when `windowSize` is not an integer >= 1 or a weight
+   *   is not finite
+   * @chainable
    * @example
+   *   qb.match({ field: 'title', phrase: 'harry potter' });
    *   qb.rescore(
-   *     (q) => { q.match({ field: 'title', phrase: 'elasticsearch' }); },
-   *     { windowSize: 50 }
+   *     (q) => q.matchPhrase({ field: 'title', phrase: 'harry potter' }),
+   *     { windowSize: 50, rescoreQueryWeight: 2 },
    *   );
    */
   rescore(
     withBuilder: (qb: QueryBuilder<Field>) => void,
-    {
-      windowSize,
-    }: {
-      windowSize: number;
-    },
+    options: RescoreOptions = {},
   ): this {
+    if (typeof withBuilder !== 'function') {
+      throw new TypeError('rescore() expects a callback function');
+    }
+    const entry = this._buildRescoreOptions(options);
     const qb = new QueryBuilder<Field>();
     withBuilder(qb);
-    const query = qb.getQuery();
-    if (!query.query) {
+    if (qb.getRetrievers().length > 0) {
+      throw new TypeError(
+        'rescore() supports query conditions only; knn, semantic and other ' +
+          'retrievers cannot be used as a rescore query',
+      );
+    }
+    const { query } = qb.getBody();
+    if (!query || 'match_all' in query) {
       return this;
     }
-    const entry: SearchRescore = {
-      window_size: windowSize,
-      query: {
-        // @ts-expect-error We already filtered out retriever queries
-        rescore_query: query,
-      },
-      length: 2,
+    const rescore: SearchRescore = {
+      ...entry,
+      query: { ...entry.query, rescore_query: query },
     };
-    this._rescore = [...(this._rescore ?? []), entry];
+    this._rescore = [...(this._rescore ?? []), rescore];
     return this;
   }
 
   /**
-   * Get the configured rescore phases for this query, if any.
-   * @returns A rescore definition or array of definitions, or undefined.
+   * Validate `rescore()` options and convert them to a rescore entry with
+   * an empty `query` (no `rescore_query` yet).
    */
-  getRescore() {
-    return this._rescore;
+  private _buildRescoreOptions(options: RescoreOptions) {
+    if (options === null || typeof options !== 'object') {
+      throw new TypeError('rescore() expects options to be an object');
+    }
+    const { windowSize, queryWeight, rescoreQueryWeight, scoreMode } = options;
+    const query: Omit<estypes.SearchRescoreQuery, 'rescore_query'> = {};
+    if (queryWeight !== undefined) {
+      assertNumber('rescore', queryWeight);
+      query.query_weight = queryWeight;
+    }
+    if (rescoreQueryWeight !== undefined) {
+      assertNumber('rescore', rescoreQueryWeight);
+      query.rescore_query_weight = rescoreQueryWeight;
+    }
+    if (scoreMode !== undefined) {
+      if (!RESCORE_SCORE_MODES.has(scoreMode)) {
+        const modes = [...RESCORE_SCORE_MODES].join(', ');
+        throw new TypeError(
+          `rescore() expects scoreMode to be one of ${modes}, got ${JSON.stringify(scoreMode)}`,
+        );
+      }
+      query.score_mode = scoreMode;
+    }
+    const entry: { window_size?: number; query: typeof query } = { query };
+    if (windowSize !== undefined) {
+      assertNumber('rescore', windowSize, { min: 1, integer: true });
+      entry.window_size = windowSize;
+    }
+    return entry;
+  }
+
+  /**
+   * Get a copy of the rescore phases added with `rescore()`.
+   * @returns The rescore entries in order, or `undefined` when there are none
+   */
+  getRescore(): SearchRescore[] | undefined {
+    return this._rescore ? structuredClone(this._rescore) : undefined;
   }
 
   //
@@ -1837,91 +2044,107 @@ export default class QueryBuilder<Field extends string = string> {
   //
 
   /**
-   * Return faceted data using ElasticSearch's "aggregation" feature against a keyword field
-   * @param field  The name of a field to aggregate into buckets (e.g. 'osisID.keyword')
-   * @param limit  The maximum number of buckets to return for the facet [default=25]
-   * @param showTermDocCountError  When true, Elasticsearch adds per-bucket accuracy metadata
-   *   (e.g., `doc_count_error_upper_bound`) to indicate the maximum error caused by
-   *   distributed counting across shards. Useful for diagnosing/monitoring count accuracy,
-   *   with a small overhead. [default=false]
-   * @param orderBy Array of ordering instructions. If the only item is `{ field: '_count' }`,
-   *   the aggregation uses a `terms` agg ordered by bucket frequency. Otherwise, a
-   *   `composite` agg is built with one `terms`-based source per entry, ordered by those keys.
-   * @property field  The field to order by (use '_count' to order by bucket count)
-   * @property order  Either 'asc' or 'desc'
-   * @param missing_bucket  If true, include a bucket for documents missing the value
-   * @param missing_order  'first' to put the missing bucket first, 'last' to put it last
-   * @param exclude An array of field names to exclude from facet results
-   * @return {QueryBuilder}
+   * Count documents per distinct value of a field (a `terms` aggregation,
+   * like SQL's `GROUP BY`). The aggregation is named after `field`; a
+   * second call for the same field replaces the first.
+   *
+   * Unless a limit was set with `limit()`, this also sets the limit to 0 so
+   * the search returns buckets but no hits; `reset('aggs')` undoes that.
+   * @see https://www.elastic.co/docs/reference/aggregations/search-aggregations-bucket-terms-aggregation
+   * @param options.field  The field to bucket by, usually a `keyword` field
+   * @param options.limit  Maximum number of buckets, an integer >= 1
+   *   [default=25]
+   * @param options.showTermDocCountError  Add `doc_count_error_upper_bound`
+   *   to each bucket: the most a bucket's count can be off because each
+   *   shard counts separately [default=false]
+   * @param options.orderBy  Ordering criteria, applied in turn (later ones
+   *   break ties) [default=`[{ field: '_count', order: 'desc' }]`]. Each
+   *   `field` is `'_count'` (bucket size), `'_key'` or the aggregated field
+   *   (the bucket's value), or another numeric or date field: buckets are
+   *   then ordered by that field's smallest value in the bucket (`asc`) or
+   *   largest (`desc`), computed by a `min`/`max` sub-aggregation named
+   *   `__order_<i>` (its value appears in each bucket).
+   * @param options.missing  Put documents that lack the field in a bucket
+   *   with this key
+   * @param options.exclude  Exact values to leave out of the buckets
+   * @throws TypeError when `orderBy` is empty, an `order` is not `'asc'` or
+   *   `'desc'`, `exclude` is not an array of strings, `missing` is not a
+   *   string, number or boolean, or the removed `missing_bucket` or
+   *   `missing_order` option is given (use `missing`)
+   * @throws RangeError when `limit` is not an integer >= 1
    * @chainable
    * @example
-   *   qb.aggregateTerm({ field: 'chapterNumber' });
+   *   qb.aggregateTerm({ field: 'author' });
    *   qb.aggregateTerm({
-   *     field: 'chapterNumber',
-   *     limit: 1000,
-   *     showTermDocCountError: true,
-   *     orderBy: [{ field: 'chapterNumber': order: 'asc' }],
+   *     field: 'author',
+   *     limit: 100,
+   *     missing: '(unknown)',
+   *     exclude: ['Anonymous'],
+   *     orderBy: [
+   *       { field: '_count', order: 'desc' },
+   *       { field: 'author', order: 'asc' },
+   *     ],
+   *   });
+   *   // buckets with the best-rated book first
+   *   qb.aggregateTerm({
+   *     field: 'author',
+   *     orderBy: [{ field: 'stats.rating', order: 'desc' }],
    *   });
    */
-  aggregateTerm({
-    field,
-    limit = 25,
-    showTermDocCountError = false,
-    orderBy = [{ field: '_count', order: 'desc' }],
-    exclude = [],
-    missing_bucket,
-    missing_order,
-  }: {
-    field: Field;
-    limit?: number;
-    showTermDocCountError?: boolean;
-    orderBy?: Array<{
-      field: Field | '_count';
-      order: SortOrder;
-    }>;
-    missing_bucket?: boolean;
-    missing_order?: estypes.AggregationsMissingOrder;
-    exclude?: string[];
-  }): this {
-    if (orderBy.length === 1 && orderBy[0].field === '_count') {
-      this._aggs[field] = {
-        terms: {
-          field,
-          size: limit,
-          show_term_doc_count_error: showTermDocCountError,
-          order: { _count: orderBy[0].order ?? 'desc' },
-          ...(missing_bucket === undefined ? {} : { missing_bucket }),
-          ...(missing_order === undefined ? {} : { missing_order }),
-          ...(exclude.length === 0 ? {} : { exclude }),
-        },
-      };
-    } else {
-      this._aggs[field] = {
-        terms: {
-          field,
-          size: limit,
-          show_term_doc_count_error: showTermDocCountError,
-          order: Object.fromEntries(
-            orderBy.map((o) => [
-              o.field === field ? '_key' : o.field, // Map field name to _key when it matches the aggregation field
-              o.order,
-            ]),
-          ),
-          ...(missing_bucket === undefined ? {} : { missing_bucket }),
-          ...(missing_order === undefined ? {} : { missing_order }),
-          ...(exclude.length === 0 ? {} : { exclude }),
-        },
-        aggs: Object.fromEntries(
-          orderBy.map((o) => {
-            const field = o.field;
-            const dir = o.order === 'desc' ? 'min' : 'max';
-            return [field, { [dir]: { field } }];
-          }),
-        ) as Record<string, AggregationsAggregationContainer>,
-      };
+  aggregateTerm(options: AggregateTermOptions<Field>): this {
+    const {
+      field,
+      limit = 25,
+      showTermDocCountError = false,
+      orderBy = [{ field: '_count', order: 'desc' }],
+      exclude = [],
+      missing,
+    } = options;
+    for (const removed of ['missing_bucket', 'missing_order']) {
+      if (removed in options) {
+        throw new TypeError(
+          `aggregateTerm() no longer accepts ${removed}, which only ` +
+            'composite aggregations support; use missing: <bucket key>',
+        );
+      }
     }
-    this.limit(0);
+    assertNumber('aggregateTerm', limit, { min: 1, integer: true });
+    if (!Array.isArray(exclude) || exclude.some((v) => typeof v !== 'string')) {
+      throw new TypeError('aggregateTerm() expects exclude to be string[]');
+    }
+    const excluded = [...exclude];
+    if (missing !== undefined && !isTermValue(missing)) {
+      throw new TypeError(
+        'aggregateTerm() expects missing to be a string, number or boolean',
+      );
+    }
+    const { order, aggs } = buildTermsOrder(field, orderBy);
+    const terms: estypes.AggregationsTermsAggregation = {
+      field,
+      size: limit,
+      show_term_doc_count_error: showTermDocCountError,
+      order,
+    };
+    if (missing !== undefined) {
+      terms.missing = missing;
+    }
+    if (excluded.length > 0) {
+      terms.exclude = excluded;
+    }
+    this._aggs[field] = aggs ? { terms, aggs } : { terms };
+    this._defaultToNoHits();
     return this;
+  }
+
+  /**
+   * Set the limit to 0 (aggregations only, no hits) unless a limit was set.
+   * Called by the `aggregate*` methods; `reset('aggs')` undoes it.
+   */
+  private _defaultToNoHits() {
+    if (this._limit === null) {
+      this._limit = 0;
+      this._limitFromAggregations = true;
+    }
   }
 
   /**
@@ -1972,7 +2195,7 @@ export default class QueryBuilder<Field extends string = string> {
         sources,
       },
     };
-    this.limit(0);
+    this._defaultToNoHits();
     return this;
   }
 
@@ -2061,7 +2284,7 @@ export default class QueryBuilder<Field extends string = string> {
         sources,
       },
     };
-    this.limit(0);
+    this._defaultToNoHits();
     return this;
   }
 
@@ -2129,28 +2352,68 @@ export default class QueryBuilder<Field extends string = string> {
         sources,
       },
     };
-    this.limit(0);
+    this._defaultToNoHits();
     return this;
   }
 
-  includeFacets() {}
+  /**
+   * Count documents per value of each field: one `aggregateTerm()` per
+   * field, each named after its field and ordered by count, descending.
+   * Like `aggregateTerm()`, sets the limit to 0 unless one was set.
+   * @param options.fields  The fields to facet on, usually `keyword` fields
+   * @param options.limit  Maximum number of buckets per field, an integer
+   *   >= 1 [default=25]
+   * @throws TypeError when `fields` is not an array of strings
+   * @throws RangeError when `limit` is not an integer >= 1
+   * @chainable
+   * @example
+   *   qb.includeFacets({ fields: ['author', 'country'], limit: 10 });
+   *   // response: aggregations.author.buckets, aggregations.country.buckets
+   */
+  includeFacets({
+    fields,
+    limit = 25,
+  }: {
+    fields: Field[];
+    limit?: number;
+  }): this {
+    const names = copyFieldList('includeFacets', fields) as Field[];
+    assertNumber('includeFacets', limit, { min: 1, integer: true });
+    for (const field of names) {
+      this.aggregateTerm({ field, limit });
+    }
+    return this;
+  }
 
   /**
-   * Manually set the aggs array
-   * @param aggs
+   * Replace all aggregations with raw Elasticsearch DSL, keyed by
+   * aggregation name. The object is copied, so later `aggregate*` calls do
+   * not change it. Unlike the `aggregate*` methods, this leaves the limit
+   * alone.
+   * @param aggs  Aggregation definitions by name [default=`{}`, none]
+   * @throws TypeError when `aggs` is not a plain object
+   * @chainable
+   * @example
+   *   qb.aggs({ avg_price: { avg: { field: 'price' } } });
    */
   aggs(aggs: Record<string, AggregationsAggregationContainer> = {}): this {
-    this._aggs = aggs;
+    if (aggs === null || typeof aggs !== 'object' || Array.isArray(aggs)) {
+      throw new TypeError(
+        'aggs() expects an object of aggregations keyed by name',
+      );
+    }
+    this._aggs = structuredClone(aggs);
     return this;
   }
 
   /**
-   * Get the current aggregation definitions to be included in the request.
-   * @returns A map of aggregation names to their definitions.
+   * Get a copy of the aggregations to send, keyed by name.
+   * @returns The aggregation definitions; `{}` when there are none
    */
-  getAggs() {
-    return this._aggs;
+  getAggs(): Record<string, AggregationsAggregationContainer> {
+    return structuredClone(this._aggs);
   }
+
   /**
    * Add a date histogram aggregation (COUNT(*) grouped by time buckets).
    * ES 9 requires using `calendar_interval` or `fixed_interval` (the old `interval` is removed).
@@ -2257,6 +2520,7 @@ export default class QueryBuilder<Field extends string = string> {
    */
   limit(limit: number): this {
     this._limit = limit;
+    this._limitFromAggregations = false;
     return this;
   }
 
@@ -2377,6 +2641,10 @@ export default class QueryBuilder<Field extends string = string> {
         this._must = empty.getMust();
       } else if (field === 'aggs') {
         this._aggs = empty.getAggs();
+        if (this._limitFromAggregations) {
+          this._limit = empty.getLimit();
+          this._limitFromAggregations = false;
+        }
       } else if (field === 'functionScores') {
         this._functionScores = empty.getFunctionScores();
       } else if (field === 'highlighter') {
@@ -2404,6 +2672,7 @@ export default class QueryBuilder<Field extends string = string> {
         this._page = empty.getPage();
       } else if (field === 'limit') {
         this._limit = empty.getLimit();
+        this._limitFromAggregations = false;
       }
     }
     return this;
@@ -2423,6 +2692,7 @@ export default class QueryBuilder<Field extends string = string> {
     copy._functionScores = structuredClone(this._functionScores);
     copy._highlighter = structuredClone(this._highlighter);
     copy._limit = this._limit;
+    copy._limitFromAggregations = this._limitFromAggregations;
     copy._page = this._page;
     copy._sorts = structuredClone(this._sorts);
     copy._retrievers = structuredClone(this._retrievers);
@@ -2700,7 +2970,7 @@ export default class QueryBuilder<Field extends string = string> {
 
     // Add aggregations if specified
     if (!isEmptyObject(this._aggs)) {
-      body.aggs = this._aggs;
+      body.aggs = this.getAggs();
     }
 
     // Add rescore if specified and supported (requires a standard query retriever)
@@ -2715,7 +2985,10 @@ export default class QueryBuilder<Field extends string = string> {
           Array.isArray(retrs) && retrs.some((r) => r?.retriever?.standard);
       }
       if (canRescore) {
-        body.rescore = this._rescore;
+        body.rescore = this.getRescore();
+        if (body.sort) {
+          assertRescoreSort([body.sort].flat());
+        }
       }
     }
 
