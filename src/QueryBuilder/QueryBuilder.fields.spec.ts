@@ -392,10 +392,7 @@ describe('QueryBuilder<Field> output', () => {
       {
         nested: {
           path: 'b.c',
-          query: { bool: { must: [{ exists: { field: 'b.c' } }] } },
-          score_mode: 'avg',
-          inner_hits: undefined,
-          ignore_unmapped: false,
+          query: { exists: { field: 'b.c' } },
         },
       },
     ]);

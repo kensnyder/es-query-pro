@@ -652,9 +652,7 @@ describe('QueryBuilder.nested()', () => {
     expect(qb.getMust()[0]).toEqual({
       nested: {
         path: 'authors',
-        query: {
-          bool: { must: [{ term: { 'authors.name': 'Toni Morrison' } }] },
-        },
+        query: { term: { 'authors.name': 'Toni Morrison' } },
         score_mode: 'avg',
         inner_hits: { name: 'top_authors' },
         ignore_unmapped: true,

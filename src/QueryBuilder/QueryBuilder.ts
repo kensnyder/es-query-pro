@@ -6,7 +6,6 @@ import type {
   AggregationsCompositeAggregationSource,
   BoostOperator,
   FieldType,
-  FieldTypeOrTypes,
   InferenceCohereSimilarityType,
   InnerRetriever,
   KnnRetriever,
@@ -886,11 +885,104 @@ export type FunctionScoreOptions = {
   minScore?: number;
 };
 
+/**
+ * A part of the builder `reset()` can clear: a `FieldType`, or `'filter'`
+ * for the clauses added with `filter()`.
+ */
+export type ResetName = FieldType | 'filter';
+
+/** Options for `should()` and `shouldNot()` */
+export type ShouldOptions = {
+  /**
+   * How many of the branches must match (default `1`): an integer, where a
+   * negative value means "all but that many", or a string such as `'75%'`.
+   * A number may not exceed the number of branches passed; when branches
+   * turn out empty, a positive number is lowered to the non-empty ones.
+   */
+  minimumShouldMatch?: number | string;
+};
+
+/** Options for `nested()` */
+export type NestedOptions<Field extends string = string> = {
+  /** The `nested` field to search; conditions inside use full paths */
+  path: Field;
+  /** Adds the conditions each nested object is matched against */
+  query: (qb: QueryBuilder<Field>) => unknown;
+  /** How matching nested objects' scores are combined (server default `avg`) */
+  scoreMode?: QueryDslChildScoreMode;
+  /** Return the matching nested objects; `true` for the default settings */
+  innerHits?: SearchInnerHits | boolean;
+  /** Match nothing instead of failing when `path` is not mapped */
+  ignoreUnmapped?: boolean;
+};
+
+const NESTED_SCORE_MODES = new Set<unknown>([
+  'avg',
+  'max',
+  'min',
+  'none',
+  'sum',
+]);
+
+/**
+ * Builder properties that hold conditions, so a sub-builder may set them.
+ * `_limitFromAggregations` only accompanies `_limit`, which is reported.
+ */
+const CONDITION_STATE = new Set(['_must', '_filter', '_limitFromAggregations']);
+
+/** @throws TypeError unless `value` is a function */
+function assertCallback(method: string, name: string, value: unknown) {
+  if (typeof value !== 'function') {
+    throw new TypeError(
+      `${method}() expects ${name} to be a function, got ${describeType(value)}`,
+    );
+  }
+}
+
+/**
+ * Validate `minimumShouldMatch` for `branchCount` branches.
+ * @throws TypeError when it is not a number or string
+ * @throws RangeError for an empty string, a non-integer, or a number whose
+ *   magnitude exceeds `branchCount` (when there is at least one branch)
+ */
+function assertMinimumShouldMatch(
+  method: string,
+  value: unknown,
+  branchCount: number,
+) {
+  if (typeof value === 'string') {
+    if (value.trim() === '') {
+      throw new RangeError(
+        `${method}() expects minimumShouldMatch to be a non-empty string`,
+      );
+    }
+    return;
+  }
+  if (typeof value !== 'number') {
+    throw new TypeError(
+      `${method}() expects minimumShouldMatch to be a number or string, ` +
+        `got ${describeType(value)}`,
+    );
+  }
+  if (!Number.isInteger(value)) {
+    throw new RangeError(
+      `${method}() expects minimumShouldMatch to be an integer, got ${value}`,
+    );
+  }
+  if (branchCount > 0 && Math.abs(value) > branchCount) {
+    throw new RangeError(
+      `${method}() got minimumShouldMatch ${value} for ${branchCount} ` +
+        'branch(es); no document could match',
+    );
+  }
+}
+
 /** Every name `reset()` accepts; `reset()` with no argument resets all */
-const RESETTABLE_FIELDS: FieldType[] = [
+const RESETTABLE_FIELDS: ResetName[] = [
   'fields',
   'excludeFields',
   'must',
+  'filter',
   'aggs',
   'functionScores',
   'highlighter',
@@ -1129,6 +1221,9 @@ export default class QueryBuilder<Field extends string = string> {
 
   /** The "must" filters */
   public _must: QueryDslQueryContainer[] = [];
+
+  /** Clauses run in filter context (`bool.filter`), added with `filter()` */
+  private _filter: QueryDslQueryContainer[] = [];
 
   /** The "aggs" to add to the builder */
   public _aggs: Record<string, AggregationsAggregationContainer> = {};
@@ -3263,6 +3358,7 @@ export default class QueryBuilder<Field extends string = string> {
    *   `'shouldSortByRandom'` clears only `sortByRandom()`.
    * - `'functionScores'` clears score functions and `functionScoreOptions()`.
    * - `'aggs'` also removes the `limit(0)` an `aggregate*` method set.
+   * - `'must'` clears conditions; `'filter'` clears `filter()` clauses.
    * @param target  One name, a list of names, or `null`/nothing for all
    * @throws TypeError for an unknown name (nothing is reset)
    * @chainable
@@ -3272,8 +3368,8 @@ export default class QueryBuilder<Field extends string = string> {
    *   qb.reset(['limit', 'page']);
    *   qb.reset(); // everything
    */
-  reset(target: FieldTypeOrTypes = null): this {
-    let names: FieldType[] = RESETTABLE_FIELDS;
+  reset(target: ResetName | ResetName[] | null = null): this {
+    let names: ResetName[] = RESETTABLE_FIELDS;
     if (Array.isArray(target)) {
       names = target;
     } else if (target !== null) {
@@ -3294,6 +3390,8 @@ export default class QueryBuilder<Field extends string = string> {
         this._excludeFields = empty.getExcludeFields();
       } else if (field === 'must') {
         this._must = empty.getMust();
+      } else if (field === 'filter') {
+        this._filter = empty.getFilter();
       } else if (field === 'aggs') {
         this._aggs = empty.getAggs();
         if (this._limitFromAggregations) {
@@ -3346,6 +3444,7 @@ export default class QueryBuilder<Field extends string = string> {
     copy._fields = structuredClone(this._fields);
     copy._excludeFields = structuredClone(this._excludeFields);
     copy._must = structuredClone(this._must);
+    copy._filter = structuredClone(this._filter);
     copy._aggs = structuredClone(this._aggs);
     copy._functionScores = structuredClone(this._functionScores);
     copy._highlighter = structuredClone(this._highlighter);
@@ -3504,98 +3603,135 @@ export default class QueryBuilder<Field extends string = string> {
   //
 
   /**
-   * Build a boolean SHOULD clause from multiple subquery builders.
+   * Require at least `minimumShouldMatch` of several alternative branches
+   * (a `bool.should`). Each branch is a callback that receives a fresh
+   * QueryBuilder and its index; the conditions it adds must all match for the
+   * branch to match (AND within a branch, OR across branches).
    *
-   * This helper lets you define several alternative branches (disjuncts) of a
-   * query. Each branch is a callback that receives a fresh QueryBuilder. Inside
-   * the callback you add the desired must/term/range/etc. clauses for that
-   * branch. All branches are combined under a bool.should with an optional
-   * minimum_should_match.
+   * - A branch that adds no condition is skipped, as if it were not passed.
+   *   When that leaves fewer non-empty branches than a positive numeric
+   *   `minimumShouldMatch`, it is lowered to their number. When every branch
+   *   is empty, nothing is added.
+   * - With one non-empty branch, its conditions are added directly.
+   * - Sub-builders may only add conditions (including `filter()`, `should()`,
+   *   `mustNot()`, `nested()`); setting anything else on them (sort, limit,
+   *   aggregations, retrievers, ...) throws.
    *
-   * @param {Array<Function>} withBuilders   Callbacks, invoked with (qb, idx), used to build each branch
-   * @param {Object} params                     The configuration object
-   * @property {number} [params.minimumShouldMatch=1]  Minimum number of branches that must match
-   * @returns {this} This QueryBuilder instance for chaining
+   * @param withBuilders  Callbacks, invoked with (qb, idx), one per branch
+   * @param options  `minimumShouldMatch`: how many branches must match
+   *   (default 1); an integer (negative means "all but that many") or a
+   *   string such as `'50%'`
+   * @throws TypeError when `withBuilders` is not an array of functions, or a
+   *   callback sets state other than conditions on its builder
+   * @throws RangeError when a numeric `minimumShouldMatch` is not an integer
+   *   or exceeds the number of branches
    * @chainable
    * @see https://www.elastic.co/guide/en/elasticsearch/reference/9.x/query-dsl-bool-query.html#query-dsl-bool-query-should
    * @example
    * // Match documents that satisfy at least one branch
    * query.should(
    *   [
-   *     (qb) => { qb.term("status", "published"); },
-   *     (qb) => { qb.range("created_at", { gte: "now-7d" }); },
+   *     (qb) => qb.term('status', 'published'),
+   *     (qb) => qb.range('created_at', 'gte', 'now-7d'),
    *   ],
-   *   {
-   *     minimumShouldMatch: 1, // or "50%"
-   *   }
+   *   { minimumShouldMatch: 1 }, // or "50%"
    * );
    */
   should(
-    withBuilders: Array<(qb: QueryBuilder<Field>, idx: number) => any>,
-    {
-      minimumShouldMatch = 1,
-    }: {
-      minimumShouldMatch?: number | string;
-    } = {},
+    withBuilders: Array<(qb: QueryBuilder<Field>, idx: number) => unknown>,
+    options: ShouldOptions = {},
   ): this {
-    if (withBuilders.length === 1) {
-      // just a single condition - treat like must
-      const qb = new QueryBuilder<Field>();
-      withBuilders[0](qb, 0);
-      const musts = qb.getMust();
-      if (musts.length > 0) {
-        this._must.push(musts[0]);
-      }
-      return this;
-    }
-    const bool: any = { should: [], minimum_should_match: minimumShouldMatch };
-    for (let i = 0; i < withBuilders.length; i++) {
-      // should match at least minimumShouldMatch conditions
-      const qb = new QueryBuilder<Field>();
-      withBuilders[i](qb, i);
-      const branch = qb.getMust();
-      if (branch.length === 0) {
-        continue;
-      }
-      if (branch.length === 1) {
-        bool.should.push(branch[0]);
-      } else {
-        bool.should.push({ bool: { must: branch } });
-      }
-    }
-    this._must.push({ bool });
-    return this;
+    return this._addShould('should', withBuilders, options);
   }
 
   /**
-   * Get a Query Builder to add a negative condition
-   * @param withBuilder  A function that takes a QueryBuilder to allow adding conditions
+   * Exclude documents that match any condition the callback adds: each
+   * condition goes under `bool.must_not` (NOT A AND NOT B). Clauses the
+   * callback adds with `filter()` are excluded the same way. An empty
+   * callback adds nothing. To exclude only documents matching several
+   * conditions together, use `shouldNot()` with one branch.
+   * @param withBuilder  A function that receives a QueryBuilder to add
+   *   conditions to
+   * @throws TypeError when `withBuilder` is not a function, or it sets state
+   *   other than conditions on its builder
+   * @chainable
    * @example
    * query.mustNot(qb => qb.term('visibility', 'hidden'))
    */
-  mustNot(withBuilder: (qb: QueryBuilder<Field>) => any): this {
-    const qb = new QueryBuilder<Field>();
-    withBuilder(qb);
-    this._must.push({ bool: { must_not: qb.getMust() } });
+  mustNot(withBuilder: (qb: QueryBuilder<Field>) => unknown): this {
+    assertCallback('mustNot', 'withBuilder', withBuilder);
+    const qb = this._runSubBuilder('mustNot', withBuilder);
+    const clauses = [...qb._must, ...qb._filter];
+    if (clauses.length > 0) {
+      this._must.push({ bool: { must_not: clauses } });
+    }
     return this;
   }
 
   /**
-   * Add a custom match condition, perhaps not supported by the QueryBuilder
-   * @param customMust
-   */
-  must(customMust: QueryDslQueryContainer) {
-    this._must.push(customMust);
-    return this;
-  }
-
-  /**
-   * Get a Query Builder to add a negative condition such as
-   * "exclude documents that match at least k of these clauses"
-   * @param withBuilders  An array of functions that each take a QueryBuilder to allow adding conditions
-   * @param shouldOptions
-   * @property minimumShouldMatch  Number of negative conditions that must match
+   * Add a raw query clause as a scoring condition (`bool.must`); for DSL the
+   * builder has no method for. The clause is copied. To add one in filter
+   * context, call `filter(qb => qb.must(clause))`.
+   * @param customMust  An Elasticsearch query clause
+   * @throws TypeError when `customMust` is not an object
+   * @chainable
    * @example
+   * query.must({ match_phrase: { title: 'quick brown fox' } });
+   */
+  must(customMust: QueryDslQueryContainer): this {
+    this._must.push(copyObjectOption('must', 'customMust', customMust));
+    return this;
+  }
+
+  /**
+   * Add conditions in filter context (`bool.filter`): they must match, but
+   * do not change `_score`, and Elasticsearch can cache them. Use it for
+   * yes/no conditions such as `term`, `range` and `exists`; conditions added
+   * any other way stay scoring `bool.must` clauses. Every condition the
+   * callback adds (including its own `filter()` clauses) becomes a filter;
+   * an empty callback adds nothing.
+   *
+   * With retrievers (`knn`, `semantic`, `rrf`, ...), every condition, scoring
+   * or not, is applied as the retriever's filter: it restricts which
+   * documents are returned but does not affect their rank.
+   * @param withBuilder  A function that receives a QueryBuilder to add
+   *   conditions to
+   * @throws TypeError when `withBuilder` is not a function, or it sets state
+   *   other than conditions on its builder
+   * @chainable
+   * @see https://www.elastic.co/guide/en/elasticsearch/reference/9.x/query-filter-context.html
+   * @example
+   * query
+   *   .match({ field: 'title', phrase: 'apple pie' })
+   *   .filter((qb) => qb.term('status', 'published').range('price', '<', 20));
+   */
+  filter(withBuilder: (qb: QueryBuilder<Field>) => unknown): this {
+    assertCallback('filter', 'withBuilder', withBuilder);
+    const qb = this._runSubBuilder('filter', withBuilder);
+    this._filter.push(...qb._must, ...qb._filter);
+    return this;
+  }
+
+  /**
+   * Get a copy of the clauses added with `filter()`
+   */
+  getFilter(): QueryDslQueryContainer[] {
+    return structuredClone(this._filter);
+  }
+
+  /**
+   * Exclude documents that match at least `minimumShouldMatch` of the
+   * branches: a `bool.must_not` holding `should(withBuilders, options)`.
+   * A branch matches when all of its conditions match, so one branch with
+   * two conditions excludes only documents matching both. Empty branches are
+   * skipped as in `should()`; when all are empty, nothing is added.
+   * @param withBuilders  Callbacks, invoked with (qb, idx), one per branch
+   * @param options  `minimumShouldMatch`: how many branches must match for a
+   *   document to be excluded (default 1)
+   * @throws TypeError/RangeError as `should()` does
+   * @chainable
+   * @example
+   * // exclude documents matching at least 2 of these
    * query.shouldNot([
    *   qb => qb.term('visibility', 'hidden'),
    *   qb => qb.term('color', 'red'),
@@ -3605,54 +3741,163 @@ export default class QueryBuilder<Field extends string = string> {
    * })
    */
   shouldNot(
-    withBuilders: Array<(qb: QueryBuilder<Field>) => any>,
-    shouldOptions: {
-      minimumShouldMatch: number | string;
-    },
+    withBuilders: Array<(qb: QueryBuilder<Field>, idx: number) => unknown>,
+    options: ShouldOptions = {},
   ): this {
-    return this.mustNot((qb) => {
-      qb.should(withBuilders, shouldOptions);
-    });
+    const qb = new QueryBuilder<Field>();
+    qb._addShould('shouldNot', withBuilders, options);
+    if (qb._must.length > 0 || qb._filter.length > 0) {
+      this._must.push({ bool: { must_not: [qb._buildBoolQuery()] } });
+    }
+    return this;
   }
 
   /**
-   * Add a nested condition
-   * @param query  A function that takes a QueryBuilder to allow adding conditions
-   * @param path  The path to this nesting layer
-   * @param scoreMode  score_mode=avg
-   * @param innerHits  inner_hits=undefined
-   * @param ignoreUnmapped  ignoreUnmapped=false
+   * Add a condition on a `nested` field: documents match when at least one
+   * nested object matches every condition the callback adds. Conditions use
+   * full field paths (`reviews.stars`, not `stars`). An empty callback
+   * matches documents that have at least one nested object.
+   * @param path  The nested field
+   * @param query  A function that receives a QueryBuilder to add conditions to
+   * @param scoreMode  `score_mode` (server default `avg`)
+   * @param innerHits  `inner_hits` settings, or `true` for the defaults, to
+   *   return the matching nested objects with each hit
+   * @param ignoreUnmapped  `ignore_unmapped` (server default `false`)
+   * @throws TypeError for invalid options, or when `query` sets state other
+   *   than conditions on its builder
+   * @chainable
    * @example
    * query.nested({
-   *   path: 'tags',
-   *   query: qb => qb.term('name', 'health'),
+   *   path: 'reviews',
+   *   query: (qb) => qb.term('reviews.author', 'ana').range('reviews.stars', 'gte', 4),
+   *   innerHits: true,
    * })
    */
   nested({
     query,
     path,
-    scoreMode = 'avg',
-    innerHits = undefined,
-    ignoreUnmapped = false,
-  }: {
-    query: (qb: QueryBuilder<Field>) => void;
-    path: Field;
-    scoreMode?: QueryDslChildScoreMode;
-    innerHits?: SearchInnerHits;
-    ignoreUnmapped?: boolean;
-  }): this {
-    const qb = new QueryBuilder<Field>();
-    query(qb);
+    scoreMode,
+    innerHits,
+    ignoreUnmapped,
+  }: NestedOptions<Field>): this {
+    if (typeof path !== 'string' || path === '') {
+      throw new TypeError(
+        `nested() expects path to be a non-empty string, got ${describeType(path)}`,
+      );
+    }
+    assertCallback('nested', 'query', query);
+    if (scoreMode !== undefined && !NESTED_SCORE_MODES.has(scoreMode)) {
+      throw new TypeError(
+        `nested() got an unknown scoreMode ${JSON.stringify(scoreMode)}`,
+      );
+    }
+    if (ignoreUnmapped !== undefined && typeof ignoreUnmapped !== 'boolean') {
+      throw new TypeError(
+        `nested() expects ignoreUnmapped to be a boolean, got ${describeType(ignoreUnmapped)}`,
+      );
+    }
+    let innerHitsBody: SearchInnerHits | undefined;
+    if (innerHits === true) {
+      innerHitsBody = {};
+    } else if (innerHits !== undefined && innerHits !== false) {
+      innerHitsBody = copyObjectOption('nested', 'innerHits', innerHits);
+    }
+    const qb = this._runSubBuilder('nested', query);
+    const nested: estypes.QueryDslNestedQuery = {
+      path,
+      query: qb._buildBoolQuery(),
+    };
+    if (scoreMode !== undefined) {
+      nested.score_mode = scoreMode;
+    }
+    if (innerHitsBody !== undefined) {
+      nested.inner_hits = innerHitsBody;
+    }
+    if (ignoreUnmapped !== undefined) {
+      nested.ignore_unmapped = ignoreUnmapped;
+    }
+    this._must.push({ nested });
+    return this;
+  }
+
+  /**
+   * Shared body of `should()` and `shouldNot()`: validate, run each branch
+   * and add the result to this builder.
+   */
+  private _addShould(
+    method: string,
+    withBuilders: Array<(qb: QueryBuilder<Field>, idx: number) => unknown>,
+    options: ShouldOptions,
+  ): this {
+    if (!Array.isArray(withBuilders)) {
+      throw new TypeError(
+        `${method}() expects an array of functions, got ${describeType(withBuilders)}`,
+      );
+    }
+    withBuilders.forEach((build, idx) => {
+      assertCallback(method, `withBuilders[${idx}]`, build);
+    });
+    const { minimumShouldMatch = 1 } = copyObjectOption(
+      method,
+      'options',
+      options,
+    );
+    assertMinimumShouldMatch(method, minimumShouldMatch, withBuilders.length);
+    const branches: QueryBuilder<Field>[] = [];
+    withBuilders.forEach((build, idx) => {
+      const qb = this._runSubBuilder(method, (sub) => build(sub, idx));
+      if (qb._must.length > 0 || qb._filter.length > 0) {
+        branches.push(qb);
+      }
+    });
+    if (branches.length === 0) {
+      return this;
+    }
+    if (branches.length === 1) {
+      // the one branch must match, so its conditions apply directly
+      this._must.push(...branches[0]._must);
+      this._filter.push(...branches[0]._filter);
+      return this;
+    }
+    let required = minimumShouldMatch;
+    if (typeof required === 'number' && required > branches.length) {
+      required = branches.length;
+    }
     this._must.push({
-      nested: {
-        path,
-        query: { bool: { must: qb.getMust() } },
-        score_mode: scoreMode,
-        inner_hits: innerHits,
-        ignore_unmapped: ignoreUnmapped,
+      bool: {
+        should: branches.map((qb) => qb._buildBoolQuery()),
+        minimum_should_match: required,
       },
     });
     return this;
+  }
+
+  /**
+   * Run a sub-builder callback on a fresh builder and return the builder.
+   * @throws TypeError when the callback set anything but conditions on it,
+   *   which would otherwise be silently ignored
+   */
+  private _runSubBuilder(
+    method: string,
+    build: (qb: QueryBuilder<Field>) => unknown,
+  ): QueryBuilder<Field> {
+    const qb = new QueryBuilder<Field>();
+    build(qb);
+    const fresh = new QueryBuilder() as unknown as Record<string, unknown>;
+    const state = qb as unknown as Record<string, unknown>;
+    const ignored = Object.keys(state).filter(
+      (key) =>
+        !CONDITION_STATE.has(key) &&
+        JSON.stringify(state[key]) !== JSON.stringify(fresh[key]),
+    );
+    if (ignored.length > 0) {
+      const names = ignored.map((key) => key.replace(/^_/, '')).join(', ');
+      throw new TypeError(
+        `${method}() callback set ${names} on its sub-builder; only ` +
+          'conditions are used there. Set them on the outer builder.',
+      );
+    }
+    return qb;
   }
 
   //
@@ -3682,7 +3927,7 @@ export default class QueryBuilder<Field extends string = string> {
 
     // Determine what we're working with
     const hasLinearRetrievers = this._retrievers.length > 0;
-    const hasFilters = this._must.length > 0;
+    const hasFilters = this._must.length > 0 || this._filter.length > 0;
 
     // Build the retriever
     if (hasLinearRetrievers) {
@@ -3752,16 +3997,25 @@ export default class QueryBuilder<Field extends string = string> {
   }
 
   /**
-   * Build a bool query from must/must_not conditions
+   * Build one query from the conditions: `match_all` when there are none, a
+   * lone `must` clause as is, otherwise a `bool` with `must` and/or `filter`.
    */
   private _buildBoolQuery(): QueryDslQueryContainer {
-    if (this._must.length === 0) {
-      return { match_all: {} };
-    } else if (this._must.length === 1) {
-      return this._must[0];
-    } else {
+    if (this._filter.length === 0) {
+      if (this._must.length === 0) {
+        return { match_all: {} };
+      }
+      if (this._must.length === 1) {
+        return this._must[0];
+      }
       return { bool: { must: this._must } };
     }
+    const bool: estypes.QueryDslBoolQuery = {};
+    if (this._must.length > 0) {
+      bool.must = this._must;
+    }
+    bool.filter = this._filter;
+    return { bool };
   }
 
   /**
