@@ -198,7 +198,7 @@ describe('IndexManager.create() - Integration', () => {
 
   it('should send the settings and mappings of the specification', async () => {
     const created = await index.create();
-    expect(created.error).toBeUndefined();
+    expect(created.error).toBe(null);
     expect(created.success).toBe(true);
     const meta = await index.getIndexMetadata();
     if (meta.error) {

@@ -66,6 +66,41 @@ export type IndexPatchResult = Awaited<ReturnType<IndexManager['patch']>>;
 export type IndexDeleteResult = Awaited<ReturnType<IndexManager['deleteById']>>;
 export type IndexStatusReport = Awaited<ReturnType<IndexManager['getStatus']>>;
 export type IndexRecreateResult = Awaited<ReturnType<IndexManager['recreate']>>;
+export type IndexCreateOnlyResult = Awaited<
+  ReturnType<IndexManager['createOnly']>
+>;
+/** The create-index request descriptor `getCreateRequest()` returns */
+export type IndexCreateRequestShape = ReturnType<
+  IndexManager['getCreateRequest']
+>;
+/**
+ * What `create()`, `createIfNeeded()`, `recreate()` and
+ * `createAliasIfNeeded()` did. `success` is true only for the first three:
+ * - `CREATED`: the index (or, for `createAliasIfNeeded()`, the alias) was
+ *   created and the alias points at it
+ * - `ALREADY_EXISTS`: the alias already pointed at this index; nothing sent
+ * - `ALIAS_CREATED`: the index existed and the missing alias was added
+ * - `NEEDS_MIGRATION`: the alias points at an older version of this index
+ *   (or one whose version cannot be ordered); it was left alone, run
+ *   `migrateIfNeeded()`
+ * - `NEWER_VERSION_PRESENT`: the alias points at a newer version; left alone
+ * - `ALIAS_CONFLICT`: the alias points at an index that is not a version of
+ *   this one; left alone
+ * - `EXISTS_CHECK_ERROR`, `CREATE_ERROR`, `ALIAS_ERROR`, `DROP_ERROR`,
+ *   `FLUSH_ERROR`: that request failed (see `error` and `errorKind`)
+ */
+export type IndexLifecycleCode =
+  | 'CREATED'
+  | 'ALREADY_EXISTS'
+  | 'ALIAS_CREATED'
+  | 'NEEDS_MIGRATION'
+  | 'NEWER_VERSION_PRESENT'
+  | 'ALIAS_CONFLICT'
+  | 'EXISTS_CHECK_ERROR'
+  | 'CREATE_ERROR'
+  | 'ALIAS_ERROR'
+  | 'DROP_ERROR'
+  | 'FLUSH_ERROR';
 /** The creation request type an `IndexManager` was constructed with */
 export type IndexInferCreate<T> = T extends IndexManager<infer C> ? C : never;
 /** The document shape of an `IndexManager`'s mapping */
@@ -169,6 +204,26 @@ type ErrorMeta = {
   statusCode?: number | null;
   body?: unknown;
   [key: string]: unknown;
+};
+
+/** The error half of a failed step's envelope */
+type StepFailure = IndexErrorShape;
+
+/** What one path of `create()` or `createIfNeeded()` reports */
+type CreateOutcome = {
+  code: IndexLifecycleCode;
+  failure?: StepFailure | null;
+  aliasIndexes?: string[];
+  indexResponse?: IndexCreateOnlyResult | null;
+  aliasResponse?: IndexCreateAliasResult | null;
+};
+
+/** Where the alias points, from `IndexManager._getAliasState()` */
+type AliasState = {
+  failure: StepFailure | null;
+  indexes: string[];
+  attached: boolean;
+  conflict: IndexLifecycleCode | null;
 };
 
 /**
@@ -570,7 +625,7 @@ export default class IndexManager<
     };
     return {
       method: 'PUT',
-      endpoint: `/${this.getFullName()}`,
+      endpoint: `/${body.index}`,
       body,
     };
   }
@@ -600,60 +655,60 @@ export default class IndexManager<
   }
 
   /**
-   * Create the index and then create its alias.
-   * If index creation fails, the alias step is skipped and the error is returned.
-   * @returns A result object including both index and alias responses, timing and error info.
+   * Create the index, then point the alias at it.
+   *
+   * The alias is checked first. When it already points at another index
+   * (e.g. an older version, see `IndexLifecycleCode`), the index is still
+   * created but the alias is left alone, so it never points at two indexes;
+   * `migrateIfNeeded()` moves it. If the check or the index creation fails,
+   * nothing more is sent.
+   * @param more Optional parameters merged into the create-index request.
+   * @returns `success`, a `code`, `aliasIndexes` (where the alias pointed when
+   *   checked), the `indexResponse` and `aliasResponse` of the steps that ran
+   *   (else null), and the envelope; `request` is the create-index request
+   *   and `error`/`errorKind`/`response` describe the step that failed.
    */
-  async create() {
+  async create(more?: Partial<IndexCreateParams>) {
     const start = Date.now();
-    const indexResponse = await this.createOnly();
-    if (indexResponse.error) {
-      return {
-        success: false,
-        took: Date.now() - start,
-        indexResponse,
-        alias: null,
-        error: indexResponse.error,
-        errorKind: indexResponse.errorKind,
-      };
+    const request = this.getCreateRequest(more);
+    const alias = await this._getAliasState();
+    if (alias.failure) {
+      return this._createResult(start, request, {
+        code: 'EXISTS_CHECK_ERROR',
+        failure: alias.failure,
+      });
     }
-    const aliasResponse = await this.createAlias();
-    return {
-      took: Date.now() - start,
-      success: aliasResponse.acknowledged,
-      indexResponse,
-      aliasResponse,
-      ...(aliasResponse.error
-        ? {
-            error: aliasResponse.error,
-            errorKind: aliasResponse.errorKind,
-          }
-        : {}),
-    };
+    const indexResponse = await this.createOnly(more);
+    const createFailure = getFailure(indexResponse);
+    if (createFailure) {
+      return this._createResult(start, request, {
+        code: 'CREATE_ERROR',
+        failure: createFailure,
+        aliasIndexes: alias.indexes,
+        indexResponse,
+      });
+    }
+    return this._attachAlias(start, request, alias, indexResponse, 'CREATED');
   }
 
   /**
-   * Drop index and all data; delete alias if exists
+   * Delete the index and all its data. Elasticsearch removes the index's
+   * aliases with it.
+   * @param more Optional parameters merged into the delete-index request.
    */
   async drop(more?: Partial<DeleteRequestShape>) {
     const start = Date.now();
+    const body = {
+      index: this.getFullName(),
+      ...(more || {}),
+    };
     const request = {
       method: 'DELETE',
-      endpoint: `/${this.getFullName()}`,
-      body: {
-        index: this.getFullName(),
-        ...(more || {}),
-      },
+      endpoint: `/${toPathPart(body.index)}`,
+      body,
     };
     try {
-      const { exists } = await this.aliasExists();
       const response = await this.client.indices.delete(request.body);
-      if (response.acknowledged && exists) {
-        await this.client.indices.deleteAlias({
-          index: this.getFullName(),
-          name: this.getAliasName(),
-        });
-      }
       return {
         acknowledged: response.acknowledged,
         shards: response._shards,
@@ -673,34 +728,73 @@ export default class IndexManager<
   }
 
   /**
-   * Drop and recreate the index, flushing afterwards.
-   * If the index exists, it will be deleted first; then a new one is created.
-   * @returns The result of the create operation.
+   * Drop the index if it exists, create it again with its alias (see
+   * `create()`), then flush. Stops at the first step that fails: a failed
+   * existence check or drop creates nothing, and a failed create skips the
+   * flush.
+   * @param more Optional parameters merged into the create-index request.
+   * @returns The `create()` result plus `dropResponse` and `flushResponse`
+   *   (null when the step did not run); `took` covers every step, and a
+   *   failed drop or flush sets `code` to `DROP_ERROR` or `FLUSH_ERROR`.
    */
-  async recreate() {
+  async recreate(more?: Partial<IndexCreateParams>) {
+    const start = Date.now();
+    const request = this.getCreateRequest(more);
+    let dropResponse: IndexDropResult | null = null;
+    const finish = (
+      result: IndexCreateResult,
+      flushResponse: IndexFlushResult | null = null,
+    ) => ({
+      ...result,
+      took: Date.now() - start,
+      dropResponse,
+      flushResponse,
+    });
     const exists = await this.exists();
-    if (exists.exists) {
-      await this.drop();
+    const existsFailure = getFailure(exists);
+    if (existsFailure) {
+      return finish(
+        this._createResult(start, request, {
+          code: 'EXISTS_CHECK_ERROR',
+          failure: existsFailure,
+        }),
+      );
     }
-    const res = await this.create();
-    await this.flush();
-    return res;
+    if (exists.exists) {
+      dropResponse = await this.drop();
+      const dropFailure = getFailure(dropResponse);
+      if (dropFailure) {
+        return finish(
+          this._createResult(start, request, {
+            code: 'DROP_ERROR',
+            failure: dropFailure,
+          }),
+        );
+      }
+    }
+    const created = await this.create(more);
+    if (!created.success) {
+      return finish(created);
+    }
+    const flushResponse = await this.flush();
+    const flushFailure = getFailure(flushResponse);
+    if (flushFailure) {
+      return finish(
+        { ...created, success: false, code: 'FLUSH_ERROR', ...flushFailure },
+        flushResponse,
+      );
+    }
+    return finish(created, flushResponse);
   }
 
   /**
-   * Create an alias for this index
+   * Point the alias at this index (`PUT /<index>/_alias/<alias>`). This adds
+   * the index to the alias without checking where the alias already points;
+   * `createAliasIfNeeded()` checks first.
    */
   async createAlias(more?: Partial<AliasCreateParams>) {
     const start = Date.now();
-    const request = {
-      method: 'PUT',
-      endpoint: `/${this.getFullName()}/_alias/${this.getAliasName()}`,
-      body: {
-        name: this.getAliasName(),
-        index: this.getFullName(),
-        ...(more || {}),
-      },
-    };
+    const request = this._getPutAliasRequest(more);
     try {
       const response = await this.client.indices.putAlias(request.body);
       return {
@@ -720,18 +814,19 @@ export default class IndexManager<
   }
 
   /**
-   * Drop alias
+   * Remove the alias from this index
    */
   async dropAlias(more?: Partial<AliasDeleteParams>) {
     const start = Date.now();
+    const body = {
+      name: this.getAliasName(),
+      index: this.getFullName(),
+      ...(more || {}),
+    };
     const request = {
       method: 'DELETE',
-      endpoint: `/${this.getFullName()}/_alias/${this.getAliasName()}`,
-      body: {
-        name: this.getAliasName(),
-        index: this.getFullName(),
-        ...(more || {}),
-      },
+      endpoint: getAliasEndpoint(body),
+      body,
     };
     try {
       const response = await this.client.indices.deleteAlias(request.body);
@@ -752,84 +847,182 @@ export default class IndexManager<
   }
 
   /**
-   * Create the index, but only if needed
+   * Make sure the index exists and the alias points at it, without moving an
+   * alias that points elsewhere:
+   * - `ALREADY_EXISTS`: the alias already points at this index; nothing sent
+   * - `CREATED`: the index was created and the alias pointed at it
+   * - `ALIAS_CREATED`: the index existed (or another process created it
+   *   first) and the missing alias was added
+   * - `NEEDS_MIGRATION`, `NEWER_VERSION_PRESENT`, `ALIAS_CONFLICT`: the alias
+   *   points at another index; nothing is created or changed and `success`
+   *   is false with `error: null` (`aliasIndexes` lists where it points)
+   * - `EXISTS_CHECK_ERROR`, `CREATE_ERROR`, `ALIAS_ERROR`: a request failed
+   * @param more Optional parameters merged into the create-index request.
+   * @returns The same shape as `create()` on every path.
    */
-  async createIfNeeded() {
+  async createIfNeeded(more?: Partial<IndexCreateParams>) {
     const start = Date.now();
-    const res = await this.exists();
-    if (res.exists) {
-      return {
-        success: true,
-        took: Date.now() - start,
-        request: res.request,
-        code: 'ALREADY_EXISTS',
-        error: null,
-        errorKind: null,
-      };
-    } else if (res.error) {
-      return {
-        success: false,
-        took: Date.now() - start,
-        request: res.request,
+    const request = this.getCreateRequest(more);
+    const alias = await this._getAliasState();
+    if (alias.failure) {
+      return this._createResult(start, request, {
         code: 'EXISTS_CHECK_ERROR',
-        error: res.error,
-        errorKind: res.errorKind,
-      };
-    } else {
-      const res = await this.create();
-      return {
-        code: res.error ? 'CREATE_ERROR' : 'CREATED',
-        ...res,
-      };
+        failure: alias.failure,
+      });
     }
+    if (alias.conflict) {
+      return this._createResult(start, request, {
+        code: alias.conflict,
+        aliasIndexes: alias.indexes,
+      });
+    }
+    if (alias.attached) {
+      return this._createResult(start, request, {
+        code: 'ALREADY_EXISTS',
+        aliasIndexes: alias.indexes,
+      });
+    }
+    // creating is the existence check: it is atomic, so a process that loses
+    // a creation race sees "already exists" and goes on to add the alias
+    const indexResponse = await this.createOnly(more);
+    const createFailure = getFailure(indexResponse);
+    if (createFailure && !isAlreadyExists(createFailure)) {
+      return this._createResult(start, request, {
+        code: 'CREATE_ERROR',
+        failure: createFailure,
+        aliasIndexes: alias.indexes,
+        indexResponse,
+      });
+    }
+    const code = createFailure ? 'ALIAS_CREATED' : 'CREATED';
+    return this._attachAlias(start, request, alias, indexResponse, code);
   }
 
   /**
-   * Create the alias, but only if needed
-   *
+   * Point the alias at this index unless it already points somewhere.
+   * Codes: `ALREADY_EXISTS` (on this index; nothing sent), `CREATED`,
+   * `NEEDS_MIGRATION` / `NEWER_VERSION_PRESENT` / `ALIAS_CONFLICT` (the alias
+   * points at another index and is left alone; `success: false`,
+   * `error: null`), `EXISTS_CHECK_ERROR`, `ALIAS_ERROR`.
+   * @returns The same keys on every path; `request` is the put-alias request.
    */
   async createAliasIfNeeded() {
     const start = Date.now();
-    const res = await this.aliasExists();
-    if (res.exists) {
-      return {
-        success: true,
-        took: Date.now() - start,
-        request: res.request,
-        code: 'ALREADY_EXISTS',
-        error: null,
-        errorKind: null,
-      };
-    } else if (res.error) {
-      return {
-        success: false,
-        took: Date.now() - start,
-        request: res.request,
-        code: 'ERROR',
-        error: res.error,
-        errorKind: res.errorKind,
-      };
-    } else {
-      const res = await this.createAlias();
-      if (res.acknowledged === false) {
-        return {
-          success: false,
-          took: Date.now() - start,
-          request: res.request,
-          code: 'ERROR',
-          error: res.error,
-          errorKind: res.errorKind,
-        };
-      } else {
-        return {
-          success: true,
-          request: res.request,
-          code: 'CREATED',
-          error: null,
-          errorKind: null,
-        };
-      }
+    const request = this._getPutAliasRequest();
+    const finish = (
+      code: IndexLifecycleCode,
+      aliasIndexes: string[],
+      failure: StepFailure | null = null,
+      aliasResponse: IndexCreateAliasResult | null = null,
+    ) => ({
+      success: isSuccessCode(code),
+      code,
+      aliasIndexes,
+      aliasResponse,
+      request,
+      took: Date.now() - start,
+      ...(failure ?? this._formatNonError(null)),
+    });
+    const alias = await this._getAliasState();
+    if (alias.failure) {
+      return finish('EXISTS_CHECK_ERROR', [], alias.failure);
     }
+    if (alias.conflict) {
+      return finish(alias.conflict, alias.indexes);
+    }
+    if (alias.attached) {
+      return finish('ALREADY_EXISTS', alias.indexes);
+    }
+    const aliasResponse = await this.createAlias();
+    const failure = getFailure(aliasResponse);
+    if (failure) {
+      return finish('ALIAS_ERROR', alias.indexes, failure, aliasResponse);
+    }
+    return finish('CREATED', alias.indexes, null, aliasResponse);
+  }
+
+  /**
+   * The put-alias request for this index and alias
+   */
+  private _getPutAliasRequest(more?: Partial<AliasCreateParams>) {
+    const body = {
+      name: this.getAliasName(),
+      index: this.getFullName(),
+      ...(more || {}),
+    };
+    return {
+      method: 'PUT',
+      endpoint: getAliasEndpoint(body),
+      body,
+    };
+  }
+
+  /**
+   * Where the alias points and what that means for this index: `attached`
+   * when it includes this index, and `conflict`, the code for any other
+   * index it includes (null when there is none)
+   */
+  private async _getAliasState(): Promise<AliasState> {
+    const meta = await this.getAliasMetadata();
+    const fullName = this.getFullName();
+    const indexes: string[] = meta.indexes;
+    const others = indexes.filter((name) => name !== fullName);
+    return {
+      failure: getFailure(meta),
+      indexes,
+      attached: indexes.includes(fullName),
+      conflict: getAliasConflict(this.index, others),
+    };
+  }
+
+  /**
+   * The last step of `create()` and `createIfNeeded()`, after the index
+   * exists: add the alias unless it points at another index
+   */
+  private async _attachAlias(
+    start: number,
+    request: IndexCreateRequestShape,
+    alias: AliasState,
+    indexResponse: IndexCreateOnlyResult,
+    code: 'CREATED' | 'ALIAS_CREATED',
+  ) {
+    if (alias.conflict) {
+      return this._createResult(start, request, {
+        code: alias.conflict,
+        aliasIndexes: alias.indexes,
+        indexResponse,
+      });
+    }
+    const aliasResponse = await this.createAlias();
+    const failure = getFailure(aliasResponse);
+    return this._createResult(start, request, {
+      code: failure ? 'ALIAS_ERROR' : code,
+      failure,
+      aliasIndexes: alias.indexes,
+      indexResponse,
+      aliasResponse,
+    });
+  }
+
+  /**
+   * The result of `create()` and `createIfNeeded()`: the same keys on every
+   * path
+   */
+  private _createResult(
+    start: number,
+    request: IndexCreateRequestShape,
+    outcome: CreateOutcome,
+  ) {
+    return {
+      success: isSuccessCode(outcome.code),
+      code: outcome.code,
+      aliasIndexes: outcome.aliasIndexes ?? [],
+      indexResponse: outcome.indexResponse ?? null,
+      aliasResponse: outcome.aliasResponse ?? null,
+      request,
+      took: Date.now() - start,
+      ...(outcome.failure ?? this._formatNonError(null)),
+    };
   }
 
   /**
@@ -1595,6 +1788,73 @@ function getAliasEndpoint(body: {
     return `/_alias/${name}`;
   }
   return `/${toPathPart(body.index)}/_alias/${name}`;
+}
+
+/**
+ * The error half of a step's envelope, or null when the step succeeded
+ */
+function getFailure(step: {
+  error: Error | null;
+  errorKind: IndexErrorKind | null;
+  response?: unknown;
+}): StepFailure | null {
+  if (!step.error) {
+    return null;
+  }
+  const errorKind = step.errorKind ?? 'javascript';
+  return {
+    error: step.error,
+    errorKind,
+    response:
+      errorKind === 'response' ? ((step.response ?? null) as ErrorMeta) : null,
+  };
+}
+
+/**
+ * Whether a failed create-index request failed because the index exists
+ */
+function isAlreadyExists(failure: StepFailure) {
+  const body = failure.response?.body as
+    | { error?: { type?: string } }
+    | null
+    | undefined;
+  return body?.error?.type === 'resource_already_exists_exception';
+}
+
+/**
+ * Whether a lifecycle code means the index and alias are in place
+ */
+function isSuccessCode(code: IndexLifecycleCode) {
+  return (
+    code === 'CREATED' || code === 'ALREADY_EXISTS' || code === 'ALIAS_CREATED'
+  );
+}
+
+/**
+ * The lifecycle code for an alias that points at `others` besides this
+ * index: a newer version wins, then any index that is not a version of this
+ * one; otherwise (older versions, or versions that cannot be ordered) a
+ * migration is needed. Null when `others` is empty.
+ */
+function getAliasConflict(
+  index: IndexNameManager,
+  others: string[],
+): IndexLifecycleCode | null {
+  if (others.length === 0) {
+    return null;
+  }
+  let code: IndexLifecycleCode = 'NEEDS_MIGRATION';
+  for (const name of others) {
+    const other = IndexNameManager.tryParseByName(name, index.separator);
+    const relation = other ? IndexNameManager.compare(index, other) : null;
+    if (relation === 'newer') {
+      return 'NEWER_VERSION_PRESENT';
+    }
+    if (relation !== 'older' && relation !== 'incomparable') {
+      code = 'ALIAS_CONFLICT';
+    }
+  }
+  return code;
 }
 
 /**

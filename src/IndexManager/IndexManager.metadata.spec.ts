@@ -256,16 +256,19 @@ describe('IndexManager.drop() never rejects (B-007)', () => {
     expect(res.errorKind).toBe('connection');
   });
 
-  it('should resolve when the alias check itself rejects', async () => {
-    const { client } = getRecordingClient();
+  it('should not depend on the alias check (B-006)', async () => {
+    const { client, script, sent } = getRecordingClient();
+    script(`DELETE /${FULL}`, { body: { acknowledged: true } });
     const index = getBooks(client);
     index.aliasExists = async () => {
       throw new TypeError('alias check failed');
     };
     const res = await index.drop();
-    expect(res.acknowledged).toBe(false);
-    expect(res.errorKind).toBe('javascript');
-    expect(res.error?.message).toBe('alias check failed');
+    expect(res.acknowledged).toBe(true);
+    expect(res.error).toBe(null);
+    expect(sent.map((req) => `${req.method} ${req.path}`)).toEqual([
+      `DELETE /${encodeURIComponent(FULL)}`,
+    ]);
   });
 
   it('should resolve when the client throws a non-Error', async () => {
