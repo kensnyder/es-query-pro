@@ -1,11 +1,15 @@
-import { type Client, errors, type estypes } from '@elastic/elasticsearch';
-import getEsClient from '../getEsClient/getEsClient';
-import IndexNameManager, {
-  type IndexNameAttributes,
-} from '../IndexNameManager/IndexNameManager';
+import type { Client, estypes } from '@elastic/elasticsearch';
+import IndexNameManager from '../IndexNameManager/IndexNameManager';
+import {
+  getAllFields,
+  getFulltextFields,
+} from '../mappingFields/mappingFields';
+import type {
+  MappingFieldPath,
+  MappingRecord,
+} from '../mappingFields/mappingTypes';
 import QueryBuilder from '../QueryBuilder/QueryBuilder';
 import QueryRunner from '../QueryRunner/QueryRunner';
-import SchemaManager from '../SchemaManager/SchemaManager';
 import type {
   AliasCreateParams,
   AliasDeleteParams,
@@ -13,17 +17,13 @@ import type {
   AliasMetadataParams,
   BulkRequestParams,
   DeleteRequestShape,
-  ElasticsearchRecord,
   ErrorCause,
   FlushRequestParams,
   GetRequestParams,
   IndexCreateParams,
   IndexExistParams,
   IndexMetadataParams,
-  IndexSettings,
-  MappingProperties,
   PatchRequestParams,
-  SchemaShape,
 } from '../types';
 
 export type IndexErrorShape = IndexManager['_formatError'];
@@ -56,10 +56,12 @@ export type IndexPatchResult = Awaited<ReturnType<IndexManager['patch']>>;
 export type IndexDeleteResult = Awaited<ReturnType<IndexManager['deleteById']>>;
 export type IndexStatusReport = Awaited<ReturnType<IndexManager['getStatus']>>;
 export type IndexRecreateResult = Awaited<ReturnType<IndexManager['recreate']>>;
-export type IndexInferSchema<T extends IndexManager<any>> =
-  T extends IndexManager<infer S> ? S : never;
-export type IndexInferRecordShape<T extends IndexManager<any>> =
-  ElasticsearchRecord<IndexInferSchema<T>>;
+/** The creation request type an `IndexManager` was constructed with */
+export type IndexInferCreate<T> = T extends IndexManager<infer C> ? C : never;
+/** The document shape of an `IndexManager`'s mapping */
+export type IndexInferRecordShape<T> = MappingRecord<IndexInferCreate<T>>;
+/** The field paths a query may name for an `IndexManager` */
+export type IndexInferFields<T> = MappingFieldPath<IndexInferCreate<T>>;
 export type IndexRunShape<T extends IndexManager> = ReturnType<T['run']>;
 export type MigrationParams = {
   onProgress?: (details: MigrationProgressDetails) => void;
@@ -81,8 +83,10 @@ export type StatusReport = {
   took: number;
   fullName: string;
   aliasName: string;
-  indexExists: any;
-  aliasExists: boolean;
+  /** null when existence could not be determined */
+  indexExists: boolean | null;
+  /** null when existence could not be determined */
+  aliasExists: boolean | null;
   needsMigration: boolean;
   needsCreation: boolean;
   summary: 'needsCreation' | 'needsMigration' | 'current';
@@ -92,11 +96,58 @@ export type QueryBuilderProvider = (
 ) => void | QueryBuilder | Promise<QueryBuilder> | Promise<void>;
 
 /**
+ * Options for an `IndexManager`. The index's logical name comes from the
+ * creation request's `index`; these options decide the versioned full name
+ * (`prefix~language~name~vVersion`) and its alias (`prefix~language~name`).
+ */
+export type ManageOptions = {
+  /** The Elasticsearch client to send requests with */
+  client: Client;
+  /** Separator between name parts (default `~`) */
+  separator?: string;
+  /** Index version; changing it triggers a migration (default 1) */
+  version?: number | string;
+  /** A prefix such as `prod` or `app1` (default none) */
+  prefix?: string;
+  /** The language part of the name (default `english`) */
+  language?: string;
+  /**
+   * Whether the cluster is Elastic Cloud Serverless, so APIs it does not
+   * support (e.g. `_flush`) are skipped without a request. Defaults to the
+   * `ES_SERVERLESS` env var.
+   */
+  serverless?: boolean;
+};
+
+/**
+ * How a failed request failed: a response from Elasticsearch, a connection
+ * problem, a timeout, no living nodes, or anything else (`javascript`)
+ */
+export type IndexErrorKind =
+  | 'response'
+  | 'connection'
+  | 'timeout'
+  | 'disconnected'
+  | 'javascript';
+
+/**
+ * The parts of a client `ResponseError` this class reads. Errors are
+ * recognized by `name`, not `instanceof`, so errors from another copy of the
+ * client package are classified too.
+ */
+type ErrorMeta = {
+  statusCode?: number | null;
+  body?: unknown;
+  [key: string]: unknown;
+};
+
+/**
  * ElasticSearch index manager for creating, searching and saving data
  * for a particular index
  */
 export default class IndexManager<
-  ThisSchema extends SchemaShape = SchemaShape,
+  const Create extends
+    estypes.IndicesCreateRequest = estypes.IndicesCreateRequest,
 > {
   /**
    * Builds the index name and alias
@@ -109,12 +160,19 @@ export default class IndexManager<
   public client: Client;
 
   /**
-   *
+   * The creation request given to the constructor, unchanged. Its `index` is
+   * the logical name; `getCreateRequest()` sends the full name instead.
    */
-  public analyzer: string;
-  public schema: SchemaManager<ThisSchema>;
-  public settings: any;
+  public readonly createSpec: Create;
+
+  /**
+   * Full-text field paths of the mapping (see `getFulltextFields()`)
+   */
   public fulltextFields: string[];
+
+  /**
+   * Field paths of the mapping (see `getAllFields()`)
+   */
   public allFields: string[];
 
   /**
@@ -125,92 +183,73 @@ export default class IndexManager<
 
   /**
    * Define the index with the given configuration
-   * @param client  The client to use (defaults to getEsClient())
-   * @param serverless  Whether the cluster is Elastic Cloud Serverless, so
-   *   APIs it does not support (e.g. `_flush`) are skipped without a request.
-   *   Defaults to the `ES_SERVERLESS` env var.
-   * @param index  The index information (see IndexNameManager.ts)
-   * @property name
-   * @property version
-   * @property prefix
-   * @property language
-   * @property separator
-   * @param analyzer
-   * @param schema  The schema definition (see schemaToMappings.spec.js)
-   * @param properties  Additional ElasticSearch mapping properties to add to schema; e.g. for custom fields
-   * @param settings  The ElasticSearch settings; e.g. for sort hints
+   * @param options  The client plus naming options (see `ManageOptions`)
+   * @param create  The Elasticsearch index creation request; `index` is the
+   *   logical name and everything else (`settings`, `mappings`, `aliases`,
+   *   ...) is sent unchanged when the index is created
+   * @throws {TypeError} When `options`, `options.client` or `create` is missing
+   * @throws {Error} When `create.index` is not a valid index name, or
+   *   `create.aliases` contains this manager's own alias name
    */
-  constructor({
-    index,
-    schema = {} as ThisSchema,
-    settings = {} as IndexSettings,
-    analyzer = 'english',
-    properties = {} as MappingProperties,
-    client = getEsClient(),
-    serverless,
-  }: {
-    client?: Client;
-    index: IndexNameAttributes;
-    schema?: ThisSchema;
-    properties?: MappingProperties;
-    analyzer?: string;
-    settings?: IndexSettings;
-    serverless?: boolean;
-  }) {
-    this.client = client;
-    this.serverless = serverless;
-    this.settings = settings;
-    this.analyzer = analyzer || 'english';
-    this.index = new IndexNameManager(index);
-    this.schema = new SchemaManager({
-      schema,
-      properties,
+  constructor(options: ManageOptions, create: Create) {
+    if (!options || typeof options !== 'object') {
+      throw new TypeError(
+        'IndexManager: the first argument (options) is required and must ' +
+          'be an object with a "client"',
+      );
+    }
+    if (!options.client) {
+      throw new TypeError(
+        'IndexManager: options.client is required; pass an ' +
+          'Elasticsearch Client instance',
+      );
+    }
+    if (!create || typeof create !== 'object') {
+      throw new TypeError(
+        'IndexManager: the second argument (create) is required and must ' +
+          'be an index creation request with an "index" name',
+      );
+    }
+    this.client = options.client;
+    this.serverless = options.serverless;
+    this.createSpec = create;
+    this.index = new IndexNameManager({
+      name: create.index,
+      separator: options.separator,
+      version: options.version,
+      prefix: options.prefix,
+      language: options.language,
     });
-    this.fulltextFields = this.schema.getFulltextFields();
-    this.allFields = this.schema.getAllFields();
+    const aliasName = this.getAliasName();
+    if (create.aliases && Object.hasOwn(create.aliases, aliasName)) {
+      throw new Error(
+        `IndexManager: create.aliases must not contain "${aliasName}"; ` +
+          'IndexManager creates and moves that alias itself',
+      );
+    }
+    this.fulltextFields = getFulltextFields(create);
+    this.allFields = getAllFields(create);
   }
 
   /**
    * Normalize errors thrown by the Elasticsearch client into a consistent shape.
    * Distinguishes between response, connection, timeout, disconnected, and generic JS errors.
+   * Errors are recognized by their `name`, so errors thrown by another copy
+   * of the client package are classified the same way.
    * @param e The error thrown by the client or runtime.
    * @returns A normalized error object with `error`, `errorKind`, and optional `response`.
    */
-  _formatError(e: any) {
-    if (e instanceof errors.ResponseError) {
-      // Handle Elasticsearch response errors
-      return {
-        error: e,
-        errorKind: 'response',
-        response: e.meta || null,
-      };
-    }
-    if (e instanceof errors.ConnectionError) {
-      return {
-        error: e,
-        errorKind: 'connection',
-        response: null,
-      };
-    }
-    if (e instanceof errors.TimeoutError) {
-      return {
-        error: e,
-        errorKind: 'timeout',
-        response: null,
-      };
-    }
-    if (e instanceof errors.NoLivingConnectionsError) {
-      return {
-        error: e,
-        errorKind: 'disconnected',
-        response: null,
-      };
-    }
-    // Handle other types of errors
+  _formatError(e: unknown): {
+    error: Error;
+    errorKind: IndexErrorKind;
+    response: ErrorMeta | null;
+  } {
+    const errorKind = getErrorKind(e);
     return {
       error: e as Error,
-      errorKind: 'javascript',
-      response: null,
+      errorKind,
+      // only Elasticsearch response errors carry response metadata
+      response: errorKind === 'response' ? getErrorMeta(e) : null,
     };
   }
 
@@ -296,14 +335,14 @@ export default class IndexManager<
         ...this._formatNonError(exists),
       };
     } catch (e) {
-      const error = e as errors.ResponseError;
-      console.log('aliasExists error', error);
-      if (error.meta.statusCode === 404) {
+      console.log('aliasExists error', e);
+      const meta = getErrorMeta(e);
+      if (meta?.statusCode === 404) {
         return {
           exists: false,
           request,
           took: Date.now() - start,
-          ...this._formatNonError(e.meta || null),
+          ...this._formatNonError(meta),
         };
       }
       return {
@@ -330,7 +369,8 @@ export default class IndexManager<
     };
     try {
       const response = await this.client.indices.get(request.body);
-      const indexName = Object.keys(response.body)[0];
+      // keyed by concrete index name
+      const indexName = Object.keys(response)[0];
       return {
         name: indexName,
         request,
@@ -380,7 +420,7 @@ export default class IndexManager<
         ...this._formatNonError(response),
       };
     } catch (e) {
-      if (e.meta?.statusCode === 404) {
+      if (getErrorMeta(e)?.statusCode === 404) {
         return {
           success: true,
           indexes: [],
@@ -447,7 +487,7 @@ export default class IndexManager<
     try {
       const response = await this.client.indices.flush(request.body);
       return {
-        success: response._shards.failed === 0,
+        success: (response._shards?.failed ?? 0) === 0,
         skipped: false,
         request,
         took: Date.now() - start,
@@ -470,27 +510,28 @@ export default class IndexManager<
         skipped: false,
         request,
         took: Date.now() - start,
-        ...this._formatError(e as Error),
+        ...this._formatError(e),
       };
     }
   }
 
   /**
-   * Build the request payload to create this index with mappings and settings.
+   * Build the request payload to create this index: the creation request
+   * given to the constructor with `index` replaced by the full name.
+   * `createSpec` is not changed.
    * @param more Optional additional create-index parameters to merge into the request.
    * @returns A request descriptor containing method, endpoint and body.
    */
   getCreateRequest(more?: Partial<IndexCreateParams>) {
-    const sm = new SchemaManager(this.schema);
+    const body: estypes.IndicesCreateRequest = {
+      ...this.createSpec,
+      index: this.getFullName(),
+      ...(more || {}),
+    };
     return {
       method: 'PUT',
       endpoint: `/${this.getFullName()}`,
-      body: {
-        index: this.getFullName(),
-        mappings: sm.toMappings(),
-        settings: this.settings,
-        ...(more || {}),
-      },
+      body,
     };
   }
 
@@ -756,7 +797,7 @@ export default class IndexManager<
    * @param id  The record id
    * @param body  The record to save
    */
-  async put(id: number | string, body: ElasticsearchRecord<ThisSchema>) {
+  async put(id: number | string, body: MappingRecord<Create>) {
     const start = Date.now();
     const request = {
       method: 'PUT',
@@ -782,7 +823,7 @@ export default class IndexManager<
         result: null,
         took: Date.now() - start,
         request,
-        ...this._formatError(e as Error),
+        ...this._formatError(e),
       };
     }
   }
@@ -793,17 +834,16 @@ export default class IndexManager<
    * @param [more]  Additional body params
    */
   async putBulk(
-    records: ElasticsearchRecord<ThisSchema>[],
+    records: MappingRecord<Create>[],
     more?: Partial<BulkRequestParams>,
   ) {
     const start = Date.now();
     const index = this.getAliasName();
     const bulkBody: any[] = [];
     for (const record of records) {
-      bulkBody.push(
-        { index: { _index: index, _id: record.id || crypto.randomUUID() } },
-        record,
-      );
+      const id = (record as { id?: unknown }).id;
+      const _id = id ? String(id) : crypto.randomUUID();
+      bulkBody.push({ index: { _index: index, _id } }, record);
     }
     const request = {
       method: 'PUT',
@@ -818,14 +858,16 @@ export default class IndexManager<
       const response = await this.client.bulk(request.body);
       const errors: ErrorCause[] = [];
       const report = response.items.map((item) => {
-        if (item.index.error) {
-          errors.push(item.index.error);
+        // only `index` operations are sent
+        const op = item.index;
+        if (op?.error) {
+          errors.push(op.error);
         }
         return {
-          status: item.index.status,
-          error: item.index.error,
-          effect: item.index.result,
-          version: item.index._version,
+          status: op?.status,
+          error: op?.error,
+          effect: op?.result,
+          version: op?._version,
         };
       });
       return {
@@ -843,7 +885,7 @@ export default class IndexManager<
         errors: [],
         request,
         took: Date.now() - start,
-        ...this._formatError(e as Error),
+        ...this._formatError(e),
       };
     }
   }
@@ -856,7 +898,7 @@ export default class IndexManager<
    */
   async patch(
     id: string,
-    body: Partial<ElasticsearchRecord<ThisSchema>>,
+    body: Partial<MappingRecord<Create>>,
     more?: Partial<PatchRequestParams>,
   ) {
     const start = Date.now();
@@ -912,11 +954,7 @@ export default class IndexManager<
       aliasExists: aliasExists.exists,
       needsMigration,
       needsCreation,
-      summary: needsCreation
-        ? ('needsCreation' as const)
-        : needsMigration
-          ? ('needsMigration' as const)
-          : ('current' as const),
+      summary: getStatusSummary(needsCreation, needsMigration),
     };
   }
 
@@ -970,7 +1008,7 @@ export default class IndexManager<
       recordsToMigrate: 0,
       createdAlias: false,
       createdIndex: false,
-      oldNames: [],
+      oldNames: [] as string[],
       newName: this.getFullName(),
     };
     try {
@@ -1038,7 +1076,7 @@ export default class IndexManager<
             if (pollInterval < 200) {
               pollInterval = 200;
             }
-            const taskInfo = await this.client.reindex({
+            const { task: taskId } = await this.client.reindex({
               wait_for_completion: false,
               // make migrated records searchable as soon as the task completes
               refresh: true,
@@ -1047,10 +1085,15 @@ export default class IndexManager<
               dest: { index: status.fullName, op_type: 'index' },
               slices,
             });
+            if (taskId === undefined) {
+              throw new Error(
+                `Reindexing ${oldIndex} did not return a task id to follow`,
+              );
+            }
             while (true) {
               await new Promise((r) => setTimeout(r, pollInterval));
               const taskStatus = await this.client.tasks.get({
-                task_id: taskInfo.task,
+                task_id: taskId,
               });
               // TODO: check if there is a task error and abort
               const updatedCount = taskStatus.task.status.updated;
@@ -1074,7 +1117,7 @@ export default class IndexManager<
                   done,
                   total,
                   percent: 100,
-                  taskId: taskInfo.task,
+                  taskId,
                   newIndex: status.fullName,
                   alias: status.aliasName,
                 });
@@ -1083,7 +1126,7 @@ export default class IndexManager<
                   done,
                   total,
                   percent: 100,
-                  taskId: taskInfo.task,
+                  taskId,
                   newIndex: status.fullName,
                   alias: status.aliasName,
                 });
@@ -1094,14 +1137,14 @@ export default class IndexManager<
                   done,
                   total,
                   percent,
-                  taskId: taskInfo.task,
+                  taskId,
                   newIndex: status.fullName,
                   alias: status.aliasName,
                 });
               }
             }
           } catch (e) {
-            onError?.(e);
+            onError?.(toError(e));
           }
         };
         for (const name of aliasInfo.indexes) {
@@ -1167,7 +1210,7 @@ export default class IndexManager<
         };
       }
     } catch (e) {
-      onError?.(e);
+      onError?.(toError(e));
       return {
         success: false,
         ...meta,
@@ -1194,8 +1237,10 @@ export default class IndexManager<
       },
     };
     try {
-      const response = await this.client.get(request.body);
-      const record = response._source;
+      const response = await this.client.get<MappingRecord<Create>>(
+        request.body,
+      );
+      const record = response._source ?? null;
       return {
         record,
         took: Date.now() - start,
@@ -1205,7 +1250,7 @@ export default class IndexManager<
       return {
         record: null,
         took: Date.now() - start,
-        ...this._formatError(e as Error),
+        ...this._formatError(e),
       };
     }
   }
@@ -1215,7 +1260,7 @@ export default class IndexManager<
    * @param withQueryRunner Callback that receives a `QueryRunner` bound to this index.
    * @returns The value returned by the callback.
    */
-  run<T>(withQueryRunner: (runner: QueryRunner<ThisSchema>) => T) {
+  run<T>(withQueryRunner: (runner: QueryRunner<Create>) => T) {
     return withQueryRunner(new QueryRunner(this));
   }
 
@@ -1313,9 +1358,7 @@ export default class IndexManager<
    * @returns A result with success flag, request info, timing, and client response/error.
    */
   async deleteMany(
-    withQueryBuilder?: (
-      builder: QueryBuilder,
-    ) => void | QueryBuilder | Promise<void | QueryBuilder>,
+    withQueryBuilder?: QueryBuilderProvider,
     more?: Omit<estypes.SearchRequest, 'index' | 'query'>,
   ) {
     const start = Date.now();
@@ -1366,54 +1409,129 @@ function isServerlessEnv() {
  * responds 410 with `api_not_available_exception`).
  */
 function isApiNotAvailable(e: unknown) {
-  if (!(e instanceof errors.ResponseError)) {
+  if (getErrorName(e) !== 'ResponseError') {
     return false;
   }
-  const body = e.meta?.body as { error?: { type?: string } } | undefined;
+  const body = getErrorMeta(e)?.body as
+    | { error?: { type?: string } }
+    | null
+    | undefined;
   return body?.error?.type === 'api_not_available_exception';
+}
+
+/**
+ * The `name` of a thrown value, or '' when it has none
+ */
+function getErrorName(e: unknown) {
+  if (typeof e === 'object' && e !== null && 'name' in e) {
+    if (typeof e.name === 'string') {
+      return e.name;
+    }
+  }
+  return '';
+}
+
+/**
+ * Classify a thrown value by its `name`. The client's error classes set
+ * these names (see `@elastic/transport`'s `errors.js`); comparing names
+ * instead of using `instanceof` also works for errors from another copy of
+ * the client package.
+ */
+function getErrorKind(e: unknown): IndexErrorKind {
+  switch (getErrorName(e)) {
+    case 'ResponseError':
+      return 'response';
+    case 'ConnectionError':
+      return 'connection';
+    case 'TimeoutError':
+      return 'timeout';
+    case 'NoLivingConnectionsError':
+      return 'disconnected';
+    default:
+      return 'javascript';
+  }
+}
+
+/**
+ * The response metadata (`statusCode`, `body`, ...) of a client error, or
+ * null when the thrown value has none
+ */
+function getErrorMeta(e: unknown): ErrorMeta | null {
+  if (typeof e === 'object' && e !== null && 'meta' in e) {
+    const meta = e.meta;
+    if (typeof meta === 'object' && meta !== null) {
+      return meta as ErrorMeta;
+    }
+  }
+  return null;
+}
+
+/**
+ * The thrown value as an `Error` (wrapped when it is not one)
+ */
+function toError(e: unknown) {
+  if (e instanceof Error) {
+    return e;
+  }
+  return new Error(String(e));
+}
+
+/**
+ * The one-word status summary for `getStatus()`
+ */
+function getStatusSummary(needsCreation: boolean, needsMigration: boolean) {
+  if (needsCreation) {
+    return 'needsCreation' as const;
+  }
+  if (needsMigration) {
+    return 'needsMigration' as const;
+  }
+  return 'current' as const;
 }
 
 /*
 Example:
 
-export const postIndex = new IndexManager({
-  index: {
-    name: 'post',
-    version: '1',
-    analyzer: 'english',
-    prefix: 'prod',
-  }
-  schema: {
-    id: 'integer',
-    uuid: 'keyword',
-    copiedFrom: 'keyword',
-    externalRef: 'keyword',
-    title: 'text',
-    body: 'text',
-    postType: 'keyword',
-    postSubType: 'keyword',
-    createdAt: 'date',
-    divisionId: 'integer',
-    divisionUuid: 'keyword',
-    mediaFilenames: 'text',
-    mediaContents: 'text',
-    taxonomy: {
-      taxId: 'integer',
-      taxName: 'keyword',
-      taxUuid: 'keyword',
-      choiceId: 'integer',
-      choiceUuid: 'keyword',
-      choiceName: 'keyword',
+import { Client } from '@elastic/elasticsearch';
+import { IndexManager } from 'es-query-pro';
+
+const client = new Client({ node: process.env.ES_ENDPOINT });
+
+export const postIndex = new IndexManager(
+  { client, version: 1, prefix: 'prod' },
+  {
+    index: 'post',
+    settings: {
+      // Specify fields (other than relevance) we might sort by to make
+      // sorting faster.
+      // See https://www.elastic.co/blog/index-sorting-elasticsearch-6-0
+      index: {
+        sort: { field: ['createdAt'], order: ['desc'] },
+      },
+    },
+    mappings: {
+      properties: {
+        id: { type: 'integer' },
+        uuid: { type: 'keyword' },
+        title: {
+          type: 'text',
+          analyzer: 'english',
+          fields: { exact: { type: 'keyword', ignore_above: 256 } },
+        },
+        body: { type: 'text', analyzer: 'english' },
+        postType: { type: 'keyword' },
+        createdAt: { type: 'date' },
+        taxonomy: {
+          type: 'nested',
+          properties: {
+            taxId: { type: 'integer' },
+            taxName: { type: 'keyword' },
+          },
+        },
+      },
     },
   },
-  settings: {
-    // Specify fields (other than relevance) we might sort by to make sorting faster
-    // See https://www.elastic.co/blog/index-sorting-elasticsearch-6-0
-    index: {
-      'sort.field': ['createdAt'],
-      'sort.order': ['desc'],
-    },
-  },
-});
+);
+// prod~english~post~v1 (index), prod~english~post (alias)
 
  */

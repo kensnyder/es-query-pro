@@ -1,4 +1,3 @@
-import { estypes } from '@elastic/elasticsearch';
 import type { Merge } from 'type-fest';
 import type IndexManager from '../IndexManager/IndexManager';
 import type {
@@ -303,7 +302,7 @@ export default class SchemaRegistry {
     return this.indexes.map((index) => ({
       alias: index.getAliasName(),
       name: index.getFullName(),
-      version: index.schema.schema.version,
+      version: index.index.version,
     }));
   }
 

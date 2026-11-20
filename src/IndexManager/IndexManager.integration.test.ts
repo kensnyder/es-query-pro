@@ -7,28 +7,29 @@ import {
   jest,
   setDefaultTimeout,
 } from 'bun:test';
-import { getBooksData, getBooksSchema } from '../testFixtures/books';
+import { getBooksCreateRequest, getBooksData } from '../testFixtures/books';
+import { getTestClient } from '../testFixtures/testClient';
 import IndexManager, { type MigrationProgressDetails } from './IndexManager';
 
 // remote clusters (e.g. Elastic Cloud) need more than bun's 5s default
 setDefaultTimeout(30_000);
 
 describe('QueryBuilder - Integration', () => {
-  const booksIndex = new IndexManager({
-    index: {
-      name: `books_${Date.now()}`,
+  const booksIndex = new IndexManager(
+    {
+      client: getTestClient(),
       version: 1,
       prefix: 'test',
       language: 'english',
     },
-    schema: getBooksSchema(),
-  });
+    getBooksCreateRequest(`books_${Date.now()}`),
+  );
 
   beforeAll(async () => {
     await booksIndex.drop();
     const created = await booksIndex.create();
     if (created.error) {
-      throw new Error(created.error);
+      throw created.error;
     }
     await booksIndex.createAlias();
     const bulk = await booksIndex.putBulk(getBooksData(), { refresh: true });
@@ -49,14 +50,16 @@ describe('QueryBuilder - Integration', () => {
       format: 'json',
     });
     for (const { index } of indexes) {
-      await booksIndex.client.indices.delete({ index });
+      if (index) {
+        await booksIndex.client.indices.delete({ index });
+      }
     }
   });
 
   it('should work with no criteria', async () => {
     const found = await booksIndex.findMany();
     if (found.error) {
-      throw new Error(found.error);
+      throw found.error;
     }
     const ids = found.records.map((r) => r.id).sort();
     expect(ids).toEqual(['1', '2', '3']);
@@ -154,8 +157,7 @@ describe('QueryBuilder - Integration', () => {
 
     expect((await booksIndex.count()).total).toBe(3);
     expect(onProgress).toHaveBeenCalled();
-    const calls = onProgress.mock
-      .calls as unknown as MigrationProgressDetails[];
+    const calls = onProgress.mock.calls;
     const lastCall = calls[calls.length - 1][0];
     expect(lastCall.done).toBe(3);
     expect(lastCall.total).toBe(3);
@@ -164,5 +166,66 @@ describe('QueryBuilder - Integration', () => {
       qb.matchPhrase({ field: 'title', phrase: 'Chamber' });
     });
     expect(total).toEqual(1);
+  });
+});
+
+describe('IndexManager.create() - Integration', () => {
+  const create = getBooksCreateRequest(`books_spec_${Date.now()}`);
+  const index = new IndexManager(
+    { client: getTestClient(), prefix: 'test' },
+    {
+      ...create,
+      settings: {
+        analysis: {
+          analyzer: {
+            englishplus: {
+              type: 'custom',
+              tokenizer: 'standard',
+              filter: ['lowercase', 'asciifolding'],
+            },
+          },
+        },
+      },
+      mappings: {
+        ...create.mappings,
+        properties: {
+          ...create.mappings?.properties,
+          premise: {
+            type: 'text',
+            analyzer: 'englishplus',
+            fields: { exact: { type: 'keyword', ignore_above: 256 } },
+          },
+        },
+      },
+    },
+  );
+
+  afterAll(async () => {
+    await index.drop();
+  });
+
+  it('should send the settings and mappings of the specification', async () => {
+    const created = await index.create();
+    expect(created.error).toBeUndefined();
+    expect(created.success).toBe(true);
+    const meta = await index.getIndexMetadata();
+    if (meta.error) {
+      throw meta.error;
+    }
+    expect(meta.name).toBe(index.getFullName());
+    const state = meta.response[index.getFullName()];
+    expect(state?.settings?.index?.analysis?.analyzer).toHaveProperty(
+      'englishplus',
+    );
+    expect(state?.mappings?.properties?.premise).toEqual({
+      type: 'text',
+      analyzer: 'englishplus',
+      fields: { exact: { type: 'keyword', ignore_above: 256 } },
+    });
+    // a sub-field from the books fixture, passed through untouched
+    expect(state?.mappings?.properties?.title).toMatchObject({
+      fields: { fvh: { type: 'text', term_vector: 'with_positions_offsets' } },
+    });
+    expect(await index.aliasExists()).toMatchObject({ exists: true });
   });
 });

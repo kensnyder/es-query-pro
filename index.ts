@@ -15,7 +15,6 @@ export {
   type IndexExistsShape,
   type IndexFlushResult,
   type IndexInferRecordShape,
-  type IndexInferSchema,
   type IndexMetadataShape,
   type IndexPatchResult,
   type IndexPutBulkResult,

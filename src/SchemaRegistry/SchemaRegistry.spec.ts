@@ -1,10 +1,11 @@
 import { describe, expect, it, spyOn } from 'bun:test';
-import type IndexManager from '../IndexManager/IndexManager';
+import type { Client } from '@elastic/elasticsearch';
 import type {
   MigrationParams,
   MigrationProgressDetails,
   StatusReport,
 } from '../IndexManager/IndexManager';
+import IndexManager from '../IndexManager/IndexManager';
 import SchemaRegistry from './SchemaRegistry';
 
 type Summary = StatusReport['summary'];
@@ -87,6 +88,34 @@ describe('SchemaRegistry', () => {
     const input = [1, 2, 3, 4, 5, 6, 7];
     const chunks = registry.chunkify(input, 3);
     expect(chunks).toEqual([[1, 2, 3], [4, 5, 6], [7]]);
+  });
+
+  it('should list each index with its version', () => {
+    const client = {} as Client;
+    const books = new IndexManager(
+      { client, prefix: 'test', version: 3 },
+      {
+        index: 'books',
+        mappings: { properties: { id: { type: 'keyword' } } },
+      },
+    );
+    const authors = new IndexManager(
+      { client, version: '2024a' },
+      { index: 'authors' },
+    );
+    const registry = new SchemaRegistry([books]).register(authors);
+    expect(registry.listIndexes()).toEqual([
+      {
+        alias: 'test~english~books',
+        name: 'test~english~books~v3',
+        version: 3,
+      },
+      {
+        alias: 'english~authors',
+        name: 'english~authors~v2024a',
+        version: '2024a',
+      },
+    ]);
   });
 });
 

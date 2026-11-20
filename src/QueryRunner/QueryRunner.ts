@@ -1,7 +1,7 @@
 import type { estypes } from '@elastic/elasticsearch';
 import type IndexManager from '../IndexManager/IndexManager';
+import type { MappingRecord } from '../mappingFields/mappingTypes';
 import QueryBuilder from '../QueryBuilder/QueryBuilder';
-import type { ElasticsearchRecord, SchemaShape } from '../types';
 
 export type QueryFindManyResult<T extends QueryRunner<any>> = Awaited<
   ReturnType<T['findMany']>
@@ -13,11 +13,20 @@ export type QueryCountResult<T extends QueryRunner<any>> = Awaited<
   ReturnType<T['count']>
 >;
 
-export default class QueryRunner<ThisSchema extends SchemaShape> {
-  public index: IndexManager<ThisSchema>;
+/**
+ * A search hit: the record's `_source` plus its `_score`
+ */
+export type QueryRecord<Create> = MappingRecord<Create> & {
+  _score?: number | null;
+};
+
+export default class QueryRunner<
+  Create extends estypes.IndicesCreateRequest = estypes.IndicesCreateRequest,
+> {
+  public index: IndexManager<Create>;
   public builder: QueryBuilder;
 
-  constructor(index: IndexManager<ThisSchema>) {
+  constructor(index: IndexManager<Create>) {
     this.index = index;
     this.builder = new QueryBuilder({
       index: this.index.getAliasName(),
@@ -29,15 +38,10 @@ export default class QueryRunner<ThisSchema extends SchemaShape> {
    * @param response  The result from withEsClient()
    * @private
    */
-  formatResponse(
-    response: estypes.SearchResponse<ElasticsearchRecord<ThisSchema>>,
-  ) {
+  formatResponse(response: estypes.SearchResponse<MappingRecord<Create>>) {
     if (response?.hits?.hits) {
-      const records: ElasticsearchRecord<ThisSchema>[] = response.hits.hits.map(
-        (hit) => ({
-          ...hit._source,
-          _score: hit._score,
-        }),
+      const records = response.hits.hits.map(
+        (hit): QueryRecord<Create> => ({ ...hit._source, _score: hit._score }),
       );
       return {
         records,
@@ -52,7 +56,7 @@ export default class QueryRunner<ThisSchema extends SchemaShape> {
       };
     }
     return {
-      records: [],
+      records: [] as QueryRecord<Create>[],
       total: 0,
       took: response?.took,
       aggregations: {} as any,
@@ -169,12 +173,12 @@ export async function updateMany({
       ...more,
     };
     try {
-      const result: estypes.SearchResponse<ElasticsearchRecord<ThisSchema>> =
-        await this.index.client.search(request);
+      const result =
+        await this.index.client.search<MappingRecord<Create>>(request);
       return { request, ...this.formatResponse(result) };
     } catch (e) {
       return {
-        records: [],
+        records: [] as QueryRecord<Create>[],
         total: null,
         request,
         took: null,
@@ -221,7 +225,7 @@ export async function updateMany({
     const { _source, retriever, query, ...other } = this.builder.getQuery();
     const request = {
       ...other,
-      query: query || retriever.standard.query,
+      query: query || retriever?.standard?.query,
       ...more,
     };
     try {
@@ -238,7 +242,7 @@ export async function updateMany({
         total: null,
         took: Date.now() - start,
         request,
-        response: e.meta || null,
+        response: (e as { meta?: unknown } | null)?.meta || null,
         error: e as Error,
       };
     }
