@@ -846,7 +846,8 @@ describe('QueryBuilder.matchBoostedPhrase()', () => {
       {
         bool: {
           should: [
-            { match_phrase: { title: { query: 'Harry Potter', boost: 1 } } },
+            // B-045: the exact phrase gets the highest default boost
+            { match_phrase: { title: { query: 'Harry Potter', boost: 5 } } },
             {
               match: {
                 title: { query: 'Harry Potter', operator: 'and', boost: 3 },

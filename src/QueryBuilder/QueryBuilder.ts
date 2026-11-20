@@ -1,5 +1,4 @@
 import type { estypes } from '@elastic/elasticsearch'; // TypeScript needs estypes even if we don't use it
-import isDefined from '../isDefined/isDefined';
 import isEmptyObject from '../isEmptyObject/isEmptyObject';
 import { normalizeTimeZone } from '../normalizeTimeZone/normalizeTimeZone';
 import type {
@@ -86,6 +85,139 @@ function copyFieldList(method: string, fields: unknown): string[] {
   }
   return [...fields];
 }
+
+/** Options of a `range` query that `QueryBuilder.range()` passes through */
+export type RangeOptions = Pick<
+  estypes.QueryDslUntypedRangeQuery,
+  'format' | 'time_zone' | 'relation' | 'boost'
+>;
+
+const RANGE_OPTION_KEYS = ['format', 'time_zone', 'relation', 'boost'] as const;
+
+/** Every accepted (lower-cased) range operator and its DSL name */
+const RANGE_OPERATORS: Record<string, string | undefined> = {
+  '<': 'lt',
+  lt: 'lt',
+  '<=': 'lte',
+  lte: 'lte',
+  '>': 'gt',
+  gt: 'gt',
+  '>=': 'gte',
+  gte: 'gte',
+  between: 'between',
+};
+
+/**
+ * Convert one range bound to its DSL value: `undefined` for a missing bound
+ * (`null`, `undefined` or a blank string), an ISO 8601 string for a `Date`.
+ * @throws TypeError when `value` is not a number, string or `Date`
+ * @throws RangeError when `value` is a non-finite number or an invalid `Date`
+ */
+function toRangeBound(value: unknown): string | number | undefined {
+  if (value === null || value === undefined) {
+    return undefined;
+  }
+  if (typeof value === 'string') {
+    return value.trim() === '' ? undefined : value;
+  }
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) {
+      throw new RangeError(`range() expects a finite number, got ${value}`);
+    }
+    return value;
+  }
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) {
+      throw new RangeError('range() got an invalid Date');
+    }
+    return value.toISOString();
+  }
+  throw new TypeError(
+    `range() expects a number, string or Date, got ${typeof value}`,
+  );
+}
+
+/**
+ * Throw if a `between` pair of two numbers or two `Date`s is reversed. String
+ * bounds are not compared: they may be date math or use a custom format.
+ * @throws RangeError when `min > max`
+ */
+function assertRangeOrder(min: unknown, max: unknown) {
+  let reversed = false;
+  if (typeof min === 'number' && typeof max === 'number') {
+    reversed = min > max;
+  } else if (min instanceof Date && max instanceof Date) {
+    reversed = min.getTime() > max.getTime();
+  }
+  if (reversed) {
+    throw new RangeError(
+      `range(): "between" min (${String(min)}) is greater than max (${String(max)})`,
+    );
+  }
+}
+
+/** Built-in date formats that parse `Date#toISOString()` output */
+const ISO_DATE_FORMATS = new Set([
+  'strict_date_optional_time',
+  'date_optional_time',
+  'strict_date_optional_time_nanos',
+  'strict_date_time',
+  'date_time',
+]);
+
+/**
+ * Throw if a `Date` bound is combined with a `format` that cannot parse its
+ * ISO 8601 string. Elasticsearch does not reject that combination; the
+ * search silently matches nothing.
+ * @throws TypeError when no `||`-separated part of `format` is ISO 8601
+ */
+function assertDateFormat(values: unknown[], format: unknown) {
+  if (typeof format !== 'string' || !values.some((v) => v instanceof Date)) {
+    return;
+  }
+  const accepted = format.split('||').some((f) => {
+    return ISO_DATE_FORMATS.has(f.trim());
+  });
+  if (!accepted) {
+    throw new TypeError(
+      `range(): a Date is sent as ISO 8601, which format "${format}" ` +
+        'cannot parse; pass a string in that format instead',
+    );
+  }
+}
+
+/**
+ * Copy the known range options that are set; other keys are ignored.
+ * @throws TypeError when `options` is not an object
+ */
+function pickRangeOptions(options: unknown): RangeOptions {
+  if (options === null || typeof options !== 'object') {
+    throw new TypeError('range() expects options to be an object');
+  }
+  const picked: Record<string, unknown> = {};
+  for (const key of RANGE_OPTION_KEYS) {
+    const value = (options as Record<string, unknown>)[key];
+    if (value !== undefined) {
+      picked[key] = value;
+    }
+  }
+  return picked as RangeOptions;
+}
+
+/** True for `null`, `undefined`, and strings that are empty or whitespace */
+function isBlankPhrase(phrase: unknown): boolean {
+  if (phrase === null || phrase === undefined) {
+    return true;
+  }
+  return typeof phrase === 'string' && phrase.trim() === '';
+}
+
+/** The default `matchBoostedPhrase()` boost of each operator */
+const BOOSTED_PHRASE_DEFAULTS: Record<BoostOperator, number> = {
+  exact: 5,
+  and: 3,
+  or: 1,
+};
 
 /** A highlight definition whose `fields` is always a keyed object */
 export type HighlightDefinition = Omit<
@@ -459,90 +591,90 @@ export default class QueryBuilder<Field extends string = string> {
   //
 
   /**
-   * Append filters for the given range expression
+   * Append a `range` condition. A missing bound (`null`, `undefined` or a
+   * blank string) is open: a comparison with no value, or `between` with
+   * neither bound, adds nothing.
    * @param field  The name of the field to search
    * @param operator  One of the following: > < >= <= gt lt gte lte between
-   * @param range  The limit(s) to search against
+   * @param range  One bound (a number, a string such as `'2020-01-01'` or
+   *   `'now-1d'`, or a `Date`) for a comparison operator, or a `[min, max]`
+   *   pair (both inclusive) for `between`. `Date` values are sent as ISO 8601
+   *   UTC strings, so a `Date` with a custom `format` throws unless the
+   *   format includes an ISO one (e.g. `'dd/MM/yyyy||strict_date_time'`);
+   *   pass strings in the custom format instead.
+   * @param options  Optional `format`, `time_zone` (applied to string dates
+   *   without an offset, not to `Date` values or `now`), `relation` (for
+   *   range fields) and `boost`
+   * @throws TypeError on an unknown operator, an array used with a comparison
+   *   operator, a non-pair for `between`, a value that is not a number,
+   *   string or `Date`, or a `Date` with a non-ISO `format`
+   * @throws RangeError on a non-finite number, an invalid `Date`, or a
+   *   `between` pair whose numeric or `Date` min is greater than its max
    * @example
    *   qb.range('price', 'between', [10, 20]);
+   *   qb.range('published_at', '>=', new Date('2020-01-01'));
+   *   qb.range('published_at', 'between', ['01/01/2020', null], {
+   *     format: 'dd/MM/yyyy',
+   *     time_zone: 'Europe/Paris',
+   *   });
    */
-  range(field: Field, operator: RangeOperator, range: RangeShape): this {
-    const opMap: Record<string, string> = {
-      '<': 'lt',
-      lt: 'lt',
-      '<=': 'lte',
-      lte: 'lte',
-      '>': 'gt',
-      gt: 'gt',
-      '>=': 'gte',
-      gte: 'gte',
-      between: 'between',
-    };
-
-    const normalizedOp = operator.toLowerCase();
-    const opName = opMap[normalizedOp] || normalizedOp;
-
-    // Validate operator
-    if (!Object.values(opMap).includes(opName)) {
+  range(
+    field: Field,
+    operator: RangeOperator,
+    range: RangeShape | null | undefined,
+    options: RangeOptions = {},
+  ): this {
+    if (typeof operator !== 'string') {
+      throw new TypeError(
+        `range() expects a string operator, got ${typeof operator}`,
+      );
+    }
+    const opName = RANGE_OPERATORS[operator.toLowerCase()];
+    if (!opName) {
       throw new TypeError(`Unsupported range operator: ${operator}`);
     }
-
-    // Handle "between" specially
+    const bounds: Record<string, string | number> = {};
     if (opName === 'between') {
       if (!Array.isArray(range) || range.length !== 2) {
         throw new TypeError('range(): "between" expects an array [min, max]');
       }
-
-      const [min, max] = range;
-
-      if (!isDefined(min) && !isDefined(max)) {
-        return this;
+      const min = toRangeBound(range[0]);
+      const max = toRangeBound(range[1]);
+      assertRangeOrder(range[0], range[1]);
+      if (min !== undefined) {
+        bounds.gte = min;
       }
-
-      if (isDefined(min) && isDefined(max)) {
-        this._must.push({
-          range: {
-            [field]: { gte: min, lte: max },
-          },
-        });
-        return this;
+      if (max !== undefined) {
+        bounds.lte = max;
       }
-
-      // Single-sided between
-      if (isDefined(min) && !isDefined(max)) {
-        this._must.push({
-          range: {
-            [field]: { gte: min },
-          },
-        });
-        return this;
+    } else {
+      if (Array.isArray(range)) {
+        throw new TypeError(
+          `range(): an array is only allowed with "between", not "${operator}"`,
+        );
       }
-
-      if (!isDefined(min) && isDefined(max)) {
-        this._must.push({
-          range: {
-            [field]: { lte: max },
-          },
-        });
-        return this;
+      const value = toRangeBound(range);
+      if (value !== undefined) {
+        bounds[opName] = value;
       }
     }
-
-    // Standard comparison operators
-    this._must.push({
-      range: {
-        [field]: { [opName]: range },
-      },
-    });
-
+    if (isEmptyObject(bounds)) {
+      return this;
+    }
+    const picked = pickRangeOptions(options);
+    assertDateFormat(Array.isArray(range) ? range : [range], picked.format);
+    this._must.push({ range: { [field]: { ...bounds, ...picked } } });
     return this;
   }
 
   /**
-   * Add a full-text phrase matching condition
+   * Add a full-text phrase condition (`match_phrase`). A blank phrase
+   * (empty or whitespace only) adds nothing.
    * @param field  The name of the field to search
-   * @param phrase  A phrase string containing multipe words
+   * @param phrase  A phrase string containing multiple words
    * @param slop  Word proximity allowed between phrase terms (default 0)
+   * @param options  Any other match_phrase options (`analyzer`, `boost`,
+   *   `zero_terms_query`, ...)
    * @return {QueryBuilder}
    * @chainable
    * @example
@@ -551,17 +683,20 @@ export default class QueryBuilder<Field extends string = string> {
   matchPhrase({
     field,
     phrase,
-    slop = 0,
-  }: {
+    ...options
+  }: Omit<estypes.QueryDslMatchPhraseQuery, 'query'> & {
     field: Field;
     phrase: string;
-    slop?: number;
   }): this {
+    if (isBlankPhrase(phrase)) {
+      return this;
+    }
     this._must.push({
       match_phrase: {
         [field]: {
+          ...options,
           query: phrase,
-          slop,
+          slop: options.slop ?? 0,
         },
       },
     });
@@ -569,10 +704,13 @@ export default class QueryBuilder<Field extends string = string> {
   }
 
   /**
-   * Add a full-text phrase matching condition
+   * Add a phrase condition whose last word is a prefix
+   * (`match_phrase_prefix`), e.g. for search-as-you-type. A blank phrase
+   * adds nothing.
    * @param field  The name of the field to search
-   * @param phrase  A phrase string containing multipe words
-   * @param options  Any other match_phrase_prefix options (e.g., slop, max_expansions)
+   * @param phrase  A phrase string containing multiple words
+   * @param options  Any other match_phrase_prefix options (`slop` (default
+   *   0), `max_expansions`, `analyzer`, `boost`, `zero_terms_query`)
    * @return {QueryBuilder}
    * @chainable
    * @example
@@ -586,6 +724,9 @@ export default class QueryBuilder<Field extends string = string> {
     field: Field;
     phrase: string;
   }): this {
+    if (isBlankPhrase(phrase)) {
+      return this;
+    }
     this._must.push({
       match_phrase_prefix: {
         [field]: {
@@ -599,12 +740,15 @@ export default class QueryBuilder<Field extends string = string> {
   }
 
   /**
-   * Create a basic match clause and add any of the available options.
-   * than they would be in a regular multi_match builder
-   * See the "Combining OR, AND, and match phrase queries" section of https://www.elastic.co/blog/how-to-improve-elasticsearch-search-relevance-with-boolean-queries.
+   * Add a `match` condition with any of the available options. A blank
+   * phrase (empty or whitespace only) adds nothing.
    * @param field The field to search
    * @param phrase  The value to match on
-   * @param options  Any other match options, including `analyzer`, `boost`, `operator`, `minimum_should_match`, `fuzziness`, `lenient`, `prefix_length`, `max_expansions`, `fuzzy_rewrite`, `zero_terms_query`, `cutoff_frequency`, and `fuzzy_transpositions`
+   * @param options  Any other match options: `analyzer`,
+   *   `auto_generate_synonyms_phrase_query`, `boost`, `fuzziness`,
+   *   `fuzzy_rewrite`, `fuzzy_transpositions`, `lenient`, `max_expansions`,
+   *   `minimum_should_match`, `operator`, `prefix_length` and
+   *   `zero_terms_query`
    * @chainable
    * @example
    *   qb.match({ field: 'title', phrase: 'elastic', operator: 'and' });
@@ -617,6 +761,9 @@ export default class QueryBuilder<Field extends string = string> {
     phrase: string;
     field: Field;
   }): this {
+    if (isBlankPhrase(phrase)) {
+      return this;
+    }
     this._must.push({
       match: {
         [field]: {
@@ -629,16 +776,23 @@ export default class QueryBuilder<Field extends string = string> {
   }
 
   /**
-   * Create a basic multi_match clause and add any of the available options
-   * @param fields The field to search
+   * Add a `multi_match` condition with any of the available options. Field
+   * names may carry a boost (`'title^2'`) or a wildcard. A blank phrase adds
+   * nothing.
+   * @param fields  The field or fields to search (default: the index's
+   *   `index.query.default_field` setting)
    * @param phrase  The value to match on
-   * @param options  Additional options, including `analyzer`, `auto_generate_synonyms_phrase_query`, `cutoff_frequency`, `fuzziness`, `fuzzy_rewrite`, `fuzzy_transpositions`, `lenient`, `max_expansions`, `minimum_should_match`, `operator`, `prefix_length`, `slop`, `tie_breaker`, `type`, `zero_terms_query`
+   * @param options  Additional options: `analyzer`,
+   *   `auto_generate_synonyms_phrase_query`, `boost`, `fuzziness`,
+   *   `fuzzy_rewrite`, `fuzzy_transpositions`, `lenient`, `max_expansions`,
+   *   `minimum_should_match`, `operator`, `prefix_length`, `slop`,
+   *   `tie_breaker`, `type` and `zero_terms_query`
    * @chainable
    * @example
    *   qb.multiMatch({
-   *     fields: ['title^2','summary],
+   *     fields: ['title^2', 'summary'],
    *     phrase: 'elastic',
-   *     operator: 'and'
+   *     operator: 'and',
    *   });
    */
   multiMatch({
@@ -646,36 +800,49 @@ export default class QueryBuilder<Field extends string = string> {
     phrase,
     ...options
   }: Omit<QueryDslMultiMatchQuery, 'query'> & { phrase: string }): this {
-    this._must.push({
-      multi_match: {
-        fields,
-        ...options,
-        query: phrase,
-      },
-    });
+    if (isBlankPhrase(phrase)) {
+      return this;
+    }
+    const clause: QueryDslMultiMatchQuery = { ...options, query: phrase };
+    if (fields !== undefined) {
+      clause.fields = Array.isArray(fields) ? [...fields] : fields;
+    }
+    this._must.push({ multi_match: clause });
     return this;
   }
 
   /**
-   * Match a term with boosted relevancy for exact phrases and "AND" matches.
-   * This approach is described in the "Combining OR, AND, and match phrase queries" section of
+   * Match a phrase with boosted relevancy for exact phrases and "AND"
+   * matches. This approach is described in the "Combining OR, AND, and match
+   * phrase queries" section of
    * https://www.elastic.co/blog/how-to-improve-elasticsearch-search-relevance-with-boolean-queries
-   * It gives more weight to the phrase as a whole so results with the whole phrase will be higher
-   * in the results.
+   * It gives more weight to the phrase as a whole, so results with the whole
+   * phrase rank higher than results with all of its words, which rank higher
+   * than results with some of its words. A document must match at least one
+   * operator. A blank phrase adds nothing.
    * @param field  The name of the field to search
-   * @param term  The search phrase
-   * @param weights  Weights for each operator (in order)
-   * @param operators  Operators to include (an array of "or", "and", "exact")
+   * @param phrase  The search phrase
+   * @param operators  Operators to include, any of "exact" (`match_phrase`),
+   *   "and" (all words) and "or" (any word). Default `['exact', 'and']`.
+   * @param weights  Boost of each operator, by position in `operators`. A
+   *   missing weight defaults by operator: exact 5, and 3, or 1.
    * @return {QueryBuilder}
+   * @throws TypeError on an unknown operator
+   * @throws RangeError on a weight that is negative or not a finite number
    * @chainable
    * @example
-   *   qb.matchBoostedPhrase({ field: 'title', phrase: 'elastic search', operators: ['exact','and','or'], weights: [5,3,1] });
+   *   qb.matchBoostedPhrase({
+   *     field: 'title',
+   *     phrase: 'elastic search',
+   *     operators: ['exact', 'and', 'or'],
+   *     weights: [5, 3, 1],
+   *   });
    */
   matchBoostedPhrase({
     field,
     phrase,
     operators = ['exact', 'and'],
-    weights = [1, 3, 5],
+    weights = [],
   }: {
     field: Field;
     phrase: string;
@@ -683,47 +850,27 @@ export default class QueryBuilder<Field extends string = string> {
     weights?: number[];
   }): this {
     const should: QueryDslQueryContainer[] = [];
-
     for (let i = 0; i < operators.length; i++) {
       const op = operators[i];
-      const boost = typeof weights[i] === 'number' ? weights[i] : 1;
-
+      if (!Object.hasOwn(BOOSTED_PHRASE_DEFAULTS, op)) {
+        throw new TypeError(
+          `matchBoostedPhrase() got unknown operator "${String(op)}"; ` +
+            'expected "exact", "and" or "or"',
+        );
+      }
+      const boost = weights[i] ?? BOOSTED_PHRASE_DEFAULTS[op];
+      assertNumber('matchBoostedPhrase', boost, { min: 0 });
       if (op === 'exact') {
+        should.push({ match_phrase: { [field]: { query: phrase, boost } } });
+      } else {
         should.push({
-          match_phrase: {
-            [field]: {
-              query: phrase,
-              boost: boost,
-            },
-          },
-        });
-      } else if (op === 'and') {
-        should.push({
-          match: {
-            [field]: {
-              query: phrase,
-              operator: 'and',
-              boost: boost,
-            },
-          },
-        });
-      } else if (op === 'or') {
-        should.push({
-          match: {
-            [field]: {
-              query: phrase,
-              operator: 'or',
-              boost: boost,
-            },
-          },
+          match: { [field]: { query: phrase, operator: op, boost } },
         });
       }
     }
-
-    if (should.length > 0) {
+    if (should.length > 0 && !isBlankPhrase(phrase)) {
       this._must.push({ bool: { should, minimum_should_match: 1 } });
     }
-
     return this;
   }
 
@@ -824,11 +971,34 @@ export default class QueryBuilder<Field extends string = string> {
     return this; // Enable chaining
   }
 
-  escapeWildcards(text: string) {
+  /**
+   * Escape the characters that are special in a `wildcard` query value
+   * (`\`, `*` and `?`) so that `text` matches literally.
+   * @param text  The literal text
+   * @returns The escaped text, e.g. `'50%*off?'` → `'50%\\*off\\?'`
+   * @throws TypeError when `text` is not a string
+   * @example
+   *   qb.wildcard('sku', `${QueryBuilder.escapeWildcards(userInput)}*`);
+   */
+  static escapeWildcards(text: string): string {
+    if (typeof text !== 'string') {
+      throw new TypeError(
+        `escapeWildcards() expects a string, got ${typeof text}`,
+      );
+    }
     return text
       .replace(/\\/g, '\\\\') // Escape backslashes first
       .replace(/\*/g, '\\*') // Escape asterisks
       .replace(/\?/g, '\\?'); // Escape question marks
+  }
+
+  /**
+   * Instance alias of the static `QueryBuilder.escapeWildcards()`.
+   * @param text  The literal text
+   * @returns The text with `\`, `*` and `?` escaped
+   */
+  escapeWildcards(text: string): string {
+    return QueryBuilder.escapeWildcards(text);
   }
 
   /**
