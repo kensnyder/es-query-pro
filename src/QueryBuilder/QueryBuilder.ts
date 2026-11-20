@@ -347,8 +347,10 @@ export type TermsOrderBy<Field extends string = string> = {
 
 /** Arguments of `QueryBuilder.aggregateTerm()` */
 export type AggregateTermOptions<Field extends string = string> = {
-  /** The field to bucket by; the aggregation is named after it */
+  /** The field to bucket by */
   field: Field;
+  /** Name of the aggregation in the response [default: the field] */
+  name?: string;
   /** Maximum number of buckets, an integer >= 1 (default 25) */
   limit?: number;
   /** Add `doc_count_error_upper_bound` to each bucket (default false) */
@@ -512,10 +514,341 @@ export type HighlightDefinition = Omit<
   'fields'
 > & { fields: Record<string, estypes.SearchHighlightField> };
 
-/** A composite aggregation source that names the field it buckets on */
-type CompositeSourceWithField<
-  K extends keyof AggregationsCompositeAggregationSource,
-> = NonNullable<AggregationsCompositeAggregationSource[K]> & { field: string };
+/** Options shared by the composite `aggregate*` helpers */
+export type CompositeAggregationOptions = {
+  /** Name of the aggregation in the response [default: the field] */
+  name?: string;
+  /** Buckets per page, an integer >= 1 [default=25] */
+  limit?: number;
+  /**
+   * The previous response's `aggregations.<name>.after_key`, to fetch the
+   * next page of buckets
+   */
+  after?: estypes.AggregationsCompositeAggregateKey;
+};
+
+/** A composite `histogram` source; it is named after its `field` */
+export type CompositeHistogramSource<Field extends string = string> = Omit<
+  estypes.AggregationsCompositeHistogramAggregation,
+  'field'
+> & { field: Field };
+
+/**
+ * A composite `date_histogram` source; it is named after its `field`.
+ * `time_zone` may also be a number of minutes east of UTC.
+ */
+export type CompositeDateHistogramSource<Field extends string = string> = Omit<
+  estypes.AggregationsCompositeDateHistogramAggregation,
+  'field' | 'time_zone'
+> & { field: Field; time_zone?: string | number };
+
+/** A composite `geotile_grid` source; it is named after its `field` */
+export type CompositeGeotileGridSource<Field extends string = string> = Omit<
+  estypes.AggregationsCompositeGeoTileGridAggregation,
+  'field'
+> & { field: Field };
+
+/** Arguments of `QueryBuilder.aggregateHistogram()` */
+export type AggregateHistogramOptions<Field extends string = string> =
+  CompositeAggregationOptions & {
+    /** The numeric field to bucket */
+    field: Field;
+    /** Bucket key order [default='asc'] */
+    order?: SortOrder;
+  } & (
+      | {
+          /** Bucket width, a number > 0 */
+          interval: number;
+          orderBy?: CompositeHistogramSource<Field>[];
+        }
+      | {
+          interval?: number;
+          /** The sources to bucket by, replacing `interval` and `order` */
+          orderBy: CompositeHistogramSource<Field>[];
+        }
+    );
+
+/** Arguments of `QueryBuilder.aggregateDateHistogram()` */
+export type AggregateDateHistogramOptions<Field extends string = string> =
+  CompositeAggregationOptions & {
+    /** The date field to bucket */
+    field: Field;
+    /** Calendar interval, e.g. `'1d'`, `'1M'`, `'month'` */
+    calendarInterval?: string;
+    /** Fixed interval, e.g. `'90m'`, `'24h'` */
+    fixedInterval?: string;
+    /** Zone name or offset, or minutes east of UTC [default: UTC] */
+    timeZone?: string | number;
+    /** Format of the bucket keys [default: epoch milliseconds] */
+    format?: string;
+    /** Shift of the bucket boundaries, e.g. `'+6h'` (see `dateHistogram`) */
+    offset?: string;
+    /** Bucket key order [default='asc'] */
+    order?: SortOrder;
+    /** The sources to bucket by, replacing the options above */
+    orderBy?: CompositeDateHistogramSource<Field>[];
+  };
+
+/** Arguments of `QueryBuilder.aggregateGeotileGrid()` */
+export type AggregateGeotileGridOptions<Field extends string = string> =
+  CompositeAggregationOptions & {
+    /** The `geo_point` or `geo_shape` field to bucket */
+    field: Field;
+    /** Zoom level, an integer 0 to 29 [default: the server's, 7] */
+    precision?: number;
+    /** Only consider tiles that intersect this box */
+    bounds?: estypes.GeoBounds;
+    /** Bucket key order [default='asc'] */
+    order?: SortOrder;
+    /** The sources to bucket by, replacing the options above */
+    orderBy?: CompositeGeotileGridSource<Field>[];
+  };
+
+/** The intervals `QueryBuilder.dateHistogram()` accepts */
+export type DateHistogramInterval =
+  | 'year'
+  | 'quarter'
+  | 'month'
+  | 'week'
+  | 'day'
+  | 'hour'
+  | 'minute'
+  | 'second';
+
+/** Arguments of `QueryBuilder.dateHistogram()` */
+export type DateHistogramOptions<Field extends string = string> = {
+  /** The date field to bucket */
+  field: Field;
+  /** The bucket size; week and longer follow the calendar */
+  interval: DateHistogramInterval;
+  /** Name of the aggregation in the response [default: the field] */
+  name?: string;
+  /** Shift of the bucket boundaries, e.g. `'+6h'`, `'-30m'`, `'1d'` */
+  offset?: string | null;
+  /** Zone name or offset, or minutes east of UTC [default='UTC'] */
+  timeZone?: string | number;
+  /** @deprecated Use `timeZone` */
+  timezone?: string | number;
+  /**
+   * Return empty buckets from `min` to `max` even outside the data: epoch
+   * ms, or strings in the interval's key format (e.g. `'2024-01'`)
+   */
+  extendedBounds?: estypes.AggregationsExtendedBounds<estypes.AggregationsFieldDateMath>;
+};
+
+/** Interval and key format that `dateHistogram()` sends for each interval */
+const DATE_HISTOGRAM_INTERVALS: Record<
+  DateHistogramInterval,
+  {
+    interval: Pick<
+      estypes.AggregationsDateHistogramAggregation,
+      'calendar_interval' | 'fixed_interval'
+    >;
+    format: string;
+  }
+> = {
+  year: { interval: { calendar_interval: '1y' }, format: 'uuuu' },
+  quarter: { interval: { calendar_interval: '1q' }, format: "uuuu-'Q'Q" },
+  month: { interval: { calendar_interval: '1M' }, format: 'uuuu-MM' },
+  // ISO week-based year and week
+  week: { interval: { calendar_interval: '1w' }, format: "YYYY-'W'ww" },
+  day: { interval: { calendar_interval: '1d' }, format: 'uuuu-MM-dd' },
+  hour: { interval: { fixed_interval: '1h' }, format: "uuuu-MM-dd'T'HH" },
+  minute: {
+    interval: { fixed_interval: '1m' },
+    format: "uuuu-MM-dd'T'HH:mm",
+  },
+  second: {
+    interval: { fixed_interval: '1s' },
+    format: "uuuu-MM-dd'T'HH:mm:ss",
+  },
+};
+
+/**
+ * Date histogram offsets Elasticsearch accepts: an optional sign, an integer
+ * and a time unit. ES rejects `w`, `M`, `q` and `y`; upper-case units are
+ * refused here because `M` (month) and `m` (minute) are easy to confuse.
+ */
+const DATE_OFFSET_PATTERN = /^[+-]?\d+(nanos|micros|ms|s|m|h|d)$/;
+
+/**
+ * Throw unless `offset` is a date histogram offset Elasticsearch accepts.
+ * @throws TypeError when `offset` is not a string
+ * @throws RangeError when it does not match `DATE_OFFSET_PATTERN`
+ */
+function assertDateOffset(
+  method: string,
+  offset: unknown,
+): asserts offset is string {
+  assertString(method, 'offset', offset);
+  if (!DATE_OFFSET_PATTERN.test(offset)) {
+    throw new RangeError(
+      `${method}() expects offset to be an optional sign, an integer and ` +
+        `one of the units nanos, micros, ms, s, m, h, d (e.g. "+6h", ` +
+        `"-30m", "1d"); got ${JSON.stringify(offset)}`,
+    );
+  }
+}
+
+/**
+ * Get the aggregation name: `name` when given, else `field`.
+ * @throws TypeError when `name` is set but not a string
+ * @throws RangeError when `name` is empty or contains `[`, `]` or `>`,
+ *   which Elasticsearch rejects
+ */
+function aggregationName(method: string, name: unknown, field: string) {
+  if (name === undefined) {
+    return field;
+  }
+  assertString(method, 'name', name);
+  if (name === '' || /[[\]>]/.test(name)) {
+    throw new RangeError(
+      `${method}() expects name to be non-empty without "[", "]" or ">", ` +
+        `got ${JSON.stringify(name)}`,
+    );
+  }
+  return name;
+}
+
+/**
+ * Throw unless `value` is a finite number > 0.
+ * @throws TypeError when `value` is not a number
+ * @throws RangeError when it is not finite or not > 0
+ */
+function assertPositive(method: string, name: string, value: unknown) {
+  if (typeof value !== 'number') {
+    throw new TypeError(
+      `${method}() expects ${name} to be a number, got ${describeType(value)}`,
+    );
+  }
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new RangeError(
+      `${method}() expects ${name} to be a finite number > 0, got ${value}`,
+    );
+  }
+}
+
+/**
+ * Throw unless `precision` is a geotile zoom level, an integer 0 to 29.
+ * @throws TypeError when it is not a number
+ * @throws RangeError when it is not an integer from 0 to 29
+ */
+function assertGeotilePrecision(method: string, precision: unknown) {
+  if (typeof precision !== 'number') {
+    throw new TypeError(
+      `${method}() expects precision to be a number, got ${describeType(precision)}`,
+    );
+  }
+  if (!Number.isInteger(precision) || precision < 0 || precision > 29) {
+    throw new RangeError(
+      `${method}() expects precision to be an integer from 0 to 29, got ${precision}`,
+    );
+  }
+}
+
+/**
+ * Copy a plain object option (a composite `after` key, extended bounds).
+ * @throws TypeError when `value` is not a non-array object
+ */
+function copyObjectOption<T>(method: string, name: string, value: T): T {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new TypeError(
+      `${method}() expects ${name} to be an object, got ${describeType(value)}`,
+    );
+  }
+  return structuredClone(value);
+}
+
+/**
+ * Validate and copy `orderBy` sources, keying each by its field and
+ * wrapping it with `toSource`. Returns null when there are none.
+ * @throws TypeError when `orderBy` is not an array or a source has no field
+ */
+function compositeSources<S extends { field: string }>(
+  method: string,
+  orderBy: readonly S[] | undefined,
+  toSource: (source: S) => AggregationsCompositeAggregationSource,
+): Record<string, AggregationsCompositeAggregationSource>[] | null {
+  if (orderBy === undefined) {
+    return null;
+  }
+  if (!Array.isArray(orderBy)) {
+    throw new TypeError(`${method}() expects orderBy to be an array`);
+  }
+  if (orderBy.length === 0) {
+    return null;
+  }
+  return orderBy.map((source: S, i) => {
+    if (
+      source === null ||
+      typeof source !== 'object' ||
+      typeof source.field !== 'string' ||
+      source.field === ''
+    ) {
+      throw new TypeError(
+        `${method}() expects orderBy[${i}].field to be a field name`,
+      );
+    }
+    return { [source.field]: toSource(structuredClone(source)) };
+  });
+}
+
+/**
+ * Wrap a composite `histogram` source.
+ * @throws RangeError/TypeError when `interval` is not a number > 0
+ */
+function histogramSource(
+  method: string,
+  source: CompositeHistogramSource,
+): AggregationsCompositeAggregationSource {
+  assertPositive(method, 'interval', source.interval);
+  return { histogram: source };
+}
+
+/**
+ * Wrap a composite `date_histogram` source, normalizing its `time_zone`.
+ * @throws TypeError unless exactly one of the two intervals is a string
+ * @throws RangeError for an offset or time zone Elasticsearch rejects
+ */
+function dateHistogramSource(
+  method: string,
+  source: CompositeDateHistogramSource,
+): AggregationsCompositeAggregationSource {
+  const { calendar_interval, fixed_interval, offset, time_zone } = source;
+  const intervals = [calendar_interval, fixed_interval].filter(
+    (interval) => interval !== undefined,
+  );
+  if (intervals.length !== 1 || typeof intervals[0] !== 'string') {
+    throw new TypeError(
+      `${method}() expects exactly one of calendarInterval or fixedInterval ` +
+        '(calendar_interval or fixed_interval in orderBy) as a string',
+    );
+  }
+  if (offset !== undefined) {
+    assertDateOffset(method, offset);
+  }
+  const { time_zone: _, ...rest } = source;
+  if (time_zone === undefined) {
+    return { date_histogram: rest };
+  }
+  return {
+    date_histogram: { ...rest, time_zone: normalizeTimeZone(time_zone) },
+  };
+}
+
+/**
+ * Wrap a composite `geotile_grid` source.
+ * @throws RangeError/TypeError when `precision` is set but not 0 to 29
+ */
+function geotileGridSource(
+  method: string,
+  source: CompositeGeotileGridSource,
+): AggregationsCompositeAggregationSource {
+  if (source.precision !== undefined) {
+    assertGeotilePrecision(method, source.precision);
+  }
+  return { geotile_grid: source };
+}
 
 /**
  * ElasticSearch query builder (ElasticSearch 9 only)
@@ -2045,13 +2378,15 @@ export default class QueryBuilder<Field extends string = string> {
 
   /**
    * Count documents per distinct value of a field (a `terms` aggregation,
-   * like SQL's `GROUP BY`). The aggregation is named after `field`; a
-   * second call for the same field replaces the first.
+   * like SQL's `GROUP BY`). The aggregation is named `name`, or after
+   * `field`; a second aggregation with the same name replaces the first.
    *
    * Unless a limit was set with `limit()`, this also sets the limit to 0 so
    * the search returns buckets but no hits; `reset('aggs')` undoes that.
    * @see https://www.elastic.co/docs/reference/aggregations/search-aggregations-bucket-terms-aggregation
    * @param options.field  The field to bucket by, usually a `keyword` field
+   * @param options.name  Name of the aggregation in the response, to keep
+   *   two aggregations on one field apart [default: `field`]
    * @param options.limit  Maximum number of buckets, an integer >= 1
    *   [default=25]
    * @param options.showTermDocCountError  Add `doc_count_error_upper_bound`
@@ -2070,8 +2405,10 @@ export default class QueryBuilder<Field extends string = string> {
    * @throws TypeError when `orderBy` is empty, an `order` is not `'asc'` or
    *   `'desc'`, `exclude` is not an array of strings, `missing` is not a
    *   string, number or boolean, or the removed `missing_bucket` or
-   *   `missing_order` option is given (use `missing`)
-   * @throws RangeError when `limit` is not an integer >= 1
+   *   `missing_order` option is given (use `missing`), or `name` is not a
+   *   string
+   * @throws RangeError when `limit` is not an integer >= 1, or `name` is
+   *   empty or contains `[`, `]` or `>`
    * @chainable
    * @example
    *   qb.aggregateTerm({ field: 'author' });
@@ -2100,6 +2437,7 @@ export default class QueryBuilder<Field extends string = string> {
       exclude = [],
       missing,
     } = options;
+    const name = aggregationName('aggregateTerm', options.name, field);
     for (const removed of ['missing_bucket', 'missing_order']) {
       if (removed in options) {
         throw new TypeError(
@@ -2131,7 +2469,7 @@ export default class QueryBuilder<Field extends string = string> {
     if (excluded.length > 0) {
       terms.exclude = excluded;
     }
-    this._aggs[field] = aggs ? { terms, aggs } : { terms };
+    this._aggs[name] = aggs ? { terms, aggs } : { terms };
     this._defaultToNoHits();
     return this;
   }
@@ -2148,162 +2486,198 @@ export default class QueryBuilder<Field extends string = string> {
   }
 
   /**
-   * Return faceted data binned by a numeric interval using a composite "histogram" source.
+   * Add a composite aggregation named `name` (or after `field`) with the
+   * given sources, and default the limit to 0 like the other `aggregate*`.
+   * @throws TypeError/RangeError for an invalid name, limit or after key
+   */
+  private _addComposite(
+    method: string,
+    options: CompositeAggregationOptions & { field: string },
+    sources: Record<string, AggregationsCompositeAggregationSource>[],
+  ): this {
+    const { field, limit = 25, after } = options;
+    const name = aggregationName(method, options.name, field);
+    assertNumber(method, limit, { min: 1, integer: true });
+    const composite: estypes.AggregationsCompositeAggregation = {
+      size: limit,
+      sources,
+    };
+    if (after !== undefined) {
+      composite.after = copyObjectOption(method, 'after', after);
+    }
+    this._aggs[name] = { composite };
+    this._defaultToNoHits();
+    return this;
+  }
+
+  /**
+   * Count documents per numeric range of equal width (a `composite`
+   * aggregation with one `histogram` source). Buckets come in key order
+   * (they cannot be ordered by count) and only non-empty buckets are
+   * returned. Pages hold `limit` buckets: pass the response's
+   * `aggregations.<name>.after_key` as `after` to get the next page, until a
+   * page comes back with no buckets.
    *
-   * Unlike `aggregateTerm`, histograms cannot be ordered by `_count` inside `composite`;
-   * buckets are emitted in key order (you control direction via each source's `order`).
-   *
-   * @param field  The numeric field to bucket (e.g., 'price', 'durationMs')
-   * @param interval  The width of each histogram bucket (e.g., 10, 1000)
-   * @param limit  The maximum number of composite buckets to return per page [default=25]
-   * @param orderBy  Array of composite histogram sources to control ordering (and add secondary sort keys).
-   *   If omitted, a single source is synthesized from `{ field, interval, order: 'asc' }`.
-   * @property field  Numeric field name for the histogram source
-   * @property interval  Bucket width for the histogram source
-   * @property order  'asc' or 'desc' for bucket-key order (default 'asc')
-   * @return {QueryBuilder}
+   * The aggregation is named `name`, or after `field`. Each bucket's `key` is
+   * an object keyed by source (the field): `{ price: 50 }` is the bucket
+   * from 50 up to `50 + interval`. Unless a limit was set with `limit()`,
+   * this also sets the limit to 0 (aggregations only, no hits).
+   * @see https://www.elastic.co/docs/reference/aggregations/search-aggregations-bucket-composite-aggregation
+   * @param options.field  The numeric field to bucket
+   * @param options.interval  Bucket width, a number > 0; not needed when
+   *   `orderBy` is given
+   * @param options.name  Name of the aggregation in the response
+   *   [default: `field`]
+   * @param options.limit  Buckets per page, an integer >= 1 [default=25]
+   * @param options.after  The previous page's `after_key`
+   * @param options.order  Bucket key order, `'asc'` or `'desc'`
+   *   [default='asc']
+   * @param options.orderBy  Composite `histogram` sources (`{ field,
+   *   interval, order? }`) to bucket by instead of `field`, `interval` and
+   *   `order`; several sources give one bucket per combination
+   * @throws TypeError when `interval` is missing without `orderBy`, a value
+   *   has the wrong type, or `after` is not an object
+   * @throws RangeError when an `interval` is not > 0, `limit` is not an
+   *   integer >= 1, or `name` is invalid
    * @chainable
    * @example
    *   qb.aggregateHistogram({ field: 'price', interval: 50 });
+   *   // next page: pass the previous response's after_key
    *   qb.aggregateHistogram({
-   *     field: 'latencyMs',
-   *     interval: 25,
-   *     orderBy: [{ field: 'latencyMs', interval: 25, order: 'desc' }],
+   *     field: 'price',
+   *     interval: 50,
+   *     limit: 10,
+   *     after: response.aggregations.price.after_key,
    *   });
+   *   // two aggregations on one field
+   *   qb.aggregateTerm({ field: 'price', name: 'price_terms' });
+   *   qb.aggregateHistogram({ field: 'price', interval: 50, name: 'bands' });
    */
-  aggregateHistogram({
-    field,
-    interval,
-    limit = 25,
-    orderBy,
-  }: {
-    field: Field;
-    interval: number;
-    limit?: number;
-    orderBy?: Array<CompositeSourceWithField<'histogram'>>;
-  }): this {
-    const sources: Array<
-      Record<string, AggregationsCompositeAggregationSource>
-    > =
-      orderBy && orderBy.length > 0
-        ? orderBy.map((o) => ({ [o.field]: { histogram: o } }))
-        : [{ [field]: { histogram: { field, interval, order: 'asc' } } }];
-
-    this._aggs[field] = {
-      composite: {
-        size: limit,
-        sources,
-      },
-    };
-    this._defaultToNoHits();
-    return this;
+  aggregateHistogram(options: AggregateHistogramOptions<Field>): this {
+    const method = 'aggregateHistogram';
+    const { field, interval, order = 'asc', orderBy } = options;
+    let sources = compositeSources(method, orderBy, (source) =>
+      histogramSource(method, source),
+    );
+    if (!sources) {
+      if (interval === undefined) {
+        throw new TypeError(`${method}() expects interval unless orderBy`);
+      }
+      const source = histogramSource(method, { field, interval, order });
+      sources = [{ [field]: source }];
+    }
+    return this._addComposite(method, options, sources);
   }
 
   /**
-   * Return faceted data binned by time using a composite "date_histogram" source.
+   * Count documents per time interval (a `composite` aggregation with one
+   * `date_histogram` source). Buckets come in key order and only non-empty
+   * buckets are returned; pass the response's
+   * `aggregations.<name>.after_key` as `after` to get the next page. For a
+   * chart that needs every interval, including empty ones, use
+   * `dateHistogram()`.
    *
-   * You must specify either `calendarInterval` (e.g., '1d', '1w', '1M') or `fixedInterval`
-   * (e.g., '24h', '15m'). Ordering by `_count` is not supported in `composite`; buckets are
-   * sorted by key(s) you define.
-   *
-   * @param field  The date/datetime field to bucket (e.g., '@timestamp')
-   * @param limit  The maximum number of composite buckets to return per page [default=25]
-   * @param calendarInterval  Calendar-based interval (one of year|quarter|month|week|day|hour|minute|second)
-   * @param fixedInterval  Fixed time interval string (e.g., '24h', '90m'); use instead of `calendarInterval`
-   * @param timeZone  IANA time zone or offset to apply when bucketing (e.g., 'America/Denver', '+00:00')
-   * @param format  Output format for the bucket key as a date string
-   * @param offset  Shift the bucket boundaries (e.g., '+6h', '-1d')
-   * @param order  'asc' or 'desc' for the primary source (default 'asc')
-   * @param orderBy  Array of composite date-histogram sources. If omitted, a single source is built
-   *   from the parameters above.
-   * @property field  Date field name
-   * @property calendar_interval  Calendar interval (snake_case form for the composite source)
-   * @property fixed_interval  Fixed interval string (snake_case form)
-   * @property time_zone  Time zone for bucketing (snake_case form)
-   * @property format  Output format for bucket keys
-   * @property offset  Boundary shift for buckets
-   * @property order  'asc' | 'desc' for source key ordering
-   * @return {QueryBuilder}
+   * Set exactly one of `calendarInterval` (`minute`/`1m`, `hour`/`1h`,
+   * `day`/`1d`, `week`/`1w`, `month`/`1M`, `quarter`/`1q`, `year`/`1y`) or
+   * `fixedInterval` (any whole number of `ms`, `s`, `m`, `h` or `d`). The
+   * aggregation is named `name`, or after `field`; each bucket's `key` is
+   * `{ <field>: <epoch ms or formatted date> }`. Unless a limit was set with
+   * `limit()`, this also sets the limit to 0 (aggregations only, no hits).
+   * @see https://www.elastic.co/docs/reference/aggregations/search-aggregations-bucket-composite-aggregation
+   * @param options.field  The date field to bucket
+   * @param options.calendarInterval  Calendar-aware interval
+   * @param options.fixedInterval  Fixed-length interval
+   * @param options.timeZone  Zone name (`'America/Denver'`), offset
+   *   (`'+05:30'`) or minutes east of UTC (`330`), checked and normalized
+   *   by `normalizeTimeZone()` [default: UTC]
+   * @param options.format  Date format of the bucket keys, e.g.
+   *   `'uuuu-MM-dd'` [default: epoch milliseconds]
+   * @param options.offset  Shift of the bucket boundaries; same rules as
+   *   `dateHistogram()`
+   * @param options.order  Bucket key order [default='asc']
+   * @param options.name  Name of the aggregation [default: `field`]
+   * @param options.limit  Buckets per page, an integer >= 1 [default=25]
+   * @param options.after  The previous page's `after_key`
+   * @param options.orderBy  Composite `date_histogram` sources (snake_case
+   *   keys: `{ field, calendar_interval | fixed_interval, time_zone?,
+   *   format?, offset?, order? }`) to bucket by instead of the options above;
+   *   each is checked the same way
+   * @throws TypeError unless exactly one interval is set (per source), or
+   *   when a value has the wrong type
+   * @throws RangeError for an invalid offset, time zone, limit or name
    * @chainable
    * @example
-   *   qb.aggregateDateHistogram({ field: '@timestamp', calendarInterval: 'day' });
+   *   qb.aggregateDateHistogram({ field: 'created_at', calendarInterval: 'day' });
    *   qb.aggregateDateHistogram({
-   *     field: '@timestamp',
+   *     field: 'created_at',
    *     fixedInterval: '1h',
    *     timeZone: 'America/Denver',
+   *     format: "uuuu-MM-dd'T'HH",
    *     order: 'desc',
    *   });
    */
-  aggregateDateHistogram({
-    field,
-    limit = 25,
-    calendarInterval,
-    fixedInterval,
-    timeZone,
-    format,
-    offset,
-    order = 'asc',
-    orderBy,
-  }: {
-    field: Field;
-    limit?: number;
-    calendarInterval?: string;
-    fixedInterval?: string;
-    timeZone?: string;
-    format?: string;
-    offset?: string;
-    order?: 'asc' | 'desc';
-    orderBy?: Array<CompositeSourceWithField<'date_histogram'>>;
-  }): this {
-    let sources: Array<Record<string, AggregationsCompositeAggregationSource>>;
-
-    if (orderBy && orderBy.length > 0) {
-      sources = orderBy.map((o) => ({ [o.field]: { date_histogram: o } }));
-    } else {
-      // Build a single date_histogram source from the provided params
-      const src: AggregationsCompositeAggregationSource['date_histogram'] = {
-        field,
-        order,
-        ...(calendarInterval ? { calendar_interval: calendarInterval } : {}),
-        ...(fixedInterval ? { fixed_interval: fixedInterval } : {}),
-        ...(timeZone ? { time_zone: timeZone } : {}),
-        ...(format ? { format } : {}),
-        ...(offset ? { offset } : {}),
-      };
-      if (!src.calendar_interval && !src.fixed_interval) {
-        throw new Error(
-          'aggregateDateHistogram: require either calendarInterval or fixedInterval.',
-        );
+  aggregateDateHistogram(options: AggregateDateHistogramOptions<Field>): this {
+    const method = 'aggregateDateHistogram';
+    const {
+      field,
+      calendarInterval,
+      fixedInterval,
+      timeZone,
+      format,
+      offset,
+      order = 'asc',
+      orderBy,
+    } = options;
+    let sources = compositeSources(method, orderBy, (source) =>
+      dateHistogramSource(method, source),
+    );
+    if (!sources) {
+      const source: CompositeDateHistogramSource = { field, order };
+      if (calendarInterval !== undefined) {
+        source.calendar_interval = calendarInterval;
       }
-      sources = [{ [field]: { date_histogram: src } }];
+      if (fixedInterval !== undefined) {
+        source.fixed_interval = fixedInterval;
+      }
+      if (timeZone !== undefined) {
+        source.time_zone = timeZone;
+      }
+      if (format !== undefined) {
+        source.format = format;
+      }
+      if (offset !== undefined) {
+        source.offset = offset;
+      }
+      sources = [{ [field]: dateHistogramSource(method, source) }];
     }
-
-    this._aggs[field] = {
-      composite: {
-        size: limit,
-        sources,
-      },
-    };
-    this._defaultToNoHits();
-    return this;
+    return this._addComposite(method, options, sources);
   }
 
   /**
-   * Return faceted data binned by map tiles using a composite "geotile_grid" source.
+   * Count documents per map tile (a `composite` aggregation with one
+   * `geotile_grid` source). Only non-empty tiles are returned, in key order;
+   * pass the response's `aggregations.<name>.after_key` as `after` to get
+   * the next page.
    *
-   * @param field  The `geo_point` field to bucket (e.g., 'location')
-   * @param precision  Tile precision (zoom level) from 0–29 (higher = finer grid)
-   * @param limit  The maximum number of composite buckets to return per page [default=25]
-   * @param bounds  Optional bounding box to limit tiles considered
-   *   (e.g., { top_left: "41,-109", bottom_right: "37,-102" })
-   * @param order  'asc' or 'desc' for the tile key order (default 'asc')
-   * @param orderBy  Array of composite geotile grid sources. If omitted, a single source is built
-   *   from the parameters above.
-   * @property field  geo_point field name for the grid source
-   * @property precision  Tile precision level
-   * @property bounds  Bounding box for the grid source
-   * @property order  'asc' | 'desc' for key ordering
-   * @return {QueryBuilder}
+   * The aggregation is named `name`, or after `field`; each bucket's `key` is
+   * `{ <field>: '<zoom>/<x>/<y>' }`. Unless a limit was set with `limit()`,
+   * this also sets the limit to 0 (aggregations only, no hits).
+   * @see https://www.elastic.co/docs/reference/aggregations/search-aggregations-bucket-composite-aggregation
+   * @param options.field  The `geo_point` or `geo_shape` field to bucket
+   * @param options.precision  Zoom level, an integer from 0 (whole world)
+   *   to 29 (finest) [default: the server's, 7]
+   * @param options.bounds  Only consider tiles that intersect this box,
+   *   e.g. `{ top_left: '41,-109', bottom_right: '37,-102' }`
+   * @param options.order  Tile key order [default='asc']
+   * @param options.name  Name of the aggregation [default: `field`]
+   * @param options.limit  Buckets per page, an integer >= 1 [default=25]
+   * @param options.after  The previous page's `after_key`
+   * @param options.orderBy  Composite `geotile_grid` sources (`{ field,
+   *   precision?, bounds?, order? }`) to bucket by instead of the options
+   *   above
+   * @throws TypeError when a value has the wrong type
+   * @throws RangeError when `precision` is not an integer from 0 to 29, or
+   *   for an invalid limit or name
    * @chainable
    * @example
    *   qb.aggregateGeotileGrid({ field: 'location', precision: 7 });
@@ -2313,47 +2687,23 @@ export default class QueryBuilder<Field extends string = string> {
    *     bounds: { top_left: '40.8,-74.3', bottom_right: '40.4,-73.6' },
    *   });
    */
-  aggregateGeotileGrid({
-    field,
-    precision,
-    limit = 25,
-    bounds,
-    order = 'asc',
-    orderBy,
-  }: {
-    field: Field;
-    precision: number;
-    limit?: number;
-    bounds?: { top_left: string; bottom_right: string };
-    order?: 'asc' | 'desc';
-    orderBy?: Array<CompositeSourceWithField<'geotile_grid'>>;
-  }): this {
-    const sources: Array<
-      Record<string, AggregationsCompositeAggregationSource>
-    > =
-      orderBy && orderBy.length > 0
-        ? orderBy.map((o) => ({ [o.field]: { geotile_grid: o } }))
-        : [
-            {
-              [field]: {
-                geotile_grid: {
-                  field,
-                  precision,
-                  ...(bounds ? { bounds } : {}),
-                  order,
-                },
-              },
-            },
-          ];
-
-    this._aggs[field] = {
-      composite: {
-        size: limit,
-        sources,
-      },
-    };
-    this._defaultToNoHits();
-    return this;
+  aggregateGeotileGrid(options: AggregateGeotileGridOptions<Field>): this {
+    const method = 'aggregateGeotileGrid';
+    const { field, precision, bounds, order = 'asc', orderBy } = options;
+    let sources = compositeSources(method, orderBy, (source) =>
+      geotileGridSource(method, source),
+    );
+    if (!sources) {
+      const source: CompositeGeotileGridSource = { field, order };
+      if (precision !== undefined) {
+        source.precision = precision;
+      }
+      if (bounds !== undefined) {
+        source.bounds = copyObjectOption(method, 'bounds', bounds);
+      }
+      sources = [{ [field]: geotileGridSource(method, source) }];
+    }
+    return this._addComposite(method, options, sources);
   }
 
   /**
@@ -2415,96 +2765,111 @@ export default class QueryBuilder<Field extends string = string> {
   }
 
   /**
-   * Add a date histogram aggregation (COUNT(*) grouped by time buckets).
-   * ES 9 requires using `calendar_interval` or `fixed_interval` (the old `interval` is removed).
-   * @see https://www.elastic.co/guide/en/elasticsearch/reference/current/search-aggregations-bucket-datehistogram-aggregation.html
+   * Count documents per time interval for a chart: a plain `date_histogram`
+   * aggregation that returns **every** interval from the first document to
+   * the last (or across `extendedBounds`), including empty ones
+   * (`min_doc_count: 0`). It is not paged or truncated; Elasticsearch's
+   * `search.max_buckets` setting caps the total.
    *
-   * @param field     The date/datetime field to bucket (e.g. '@timestamp')
-   * @param interval  One of: 'year' | 'quarter' | 'month' | 'week' | 'day' | 'hour' | 'minute' | 'second'
-   *                  - calendar intervals (year, quarter, month, week, day) align to calendar boundaries
-   *                  - fixed intervals (hour, minute, second here) use exact durations (uniform size)
-   * @param limit     Max number of buckets returned per page (via composite size) [default=100]
-   * @param offset    Shift bucket boundaries (e.g. '+6h', '-1d'); must include a unit compatible with your interval
-   * @param timezone  IANA TZ (e.g. 'America/Denver'), 'UTC'/'Z', a string offset '±HH:MM', or a numeric minute offset
-   * @returns         This instance (chainable)
-   *
+   * The aggregation is named `name`, or after `field`. The response has
+   * `aggregations.<name>.buckets`, each `{ key, key_as_string, doc_count }`,
+   * where `key` is the bucket start in epoch milliseconds and
+   * `key_as_string` is formatted for the interval (`'2024'`, `'2024-Q1'`,
+   * `'2024-05'`, `'2024-W18'`, `'2024-05-02'`, `'2024-05-02T10'`,
+   * `'2024-05-02T10:30'`, `'2024-05-02T10:30:15'`). Unless a limit was set
+   * with `limit()`, this also sets the limit to 0 (aggregations only, no
+   * hits).
+   * @see https://www.elastic.co/docs/reference/aggregations/search-aggregations-bucket-datehistogram-aggregation
+   * @param options.field  The date field to bucket
+   * @param options.interval  `'year'`, `'quarter'`, `'month'`, `'week'` and
+   *   `'day'` follow the calendar in `timeZone` (a day can be 23 or 25
+   *   hours); `'hour'`, `'minute'` and `'second'` are fixed lengths
+   * @param options.name  Name of the aggregation [default: `field`]
+   * @param options.timeZone  Zone name (`'America/Denver'`, `'UTC'`),
+   *   offset (`'+05:30'`, `'-0800'`) or minutes **east** of UTC (`330`),
+   *   checked and normalized by `normalizeTimeZone()`. Prefer zone names:
+   *   fixed offsets ignore daylight saving time [default='UTC']
+   * @param options.timezone  Deprecated alias of `timeZone`
+   * @param options.offset  Shift of the bucket boundaries: an optional sign,
+   *   a whole number and one of `nanos`, `micros`, `ms`, `s`, `m`, `h`, `d`
+   *   (e.g. `'+6h'` starts days at 06:00, `'-30m'`, `'1d'`). Elasticsearch
+   *   has no week, month, quarter or year offsets (`'+1M'` is rejected).
+   * @param options.extendedBounds  `{ min, max }` to return empty buckets
+   *   for, even before the first or after the last document: epoch
+   *   milliseconds, or strings in the interval's key format (Elasticsearch
+   *   parses them with it: `'2024-01'` for `'month'`, `'2024-Q1'` for
+   *   `'quarter'`)
+   * @throws TypeError when `timeZone` and `timezone` are both set, the
+   *   removed `limit` option is given, or a value has the wrong type
+   * @throws RangeError for an unknown `interval`, or an invalid `offset`,
+   *   time zone or `name`
+   * @chainable
    * @example
-   *   qb.dateHistogram({ field: 'created_at', interval: 'month', timezone: 'UTC' });
-   *   qb.dateHistogram({ field: '@timestamp', interval: 'hour', offset: '+30m', timezone: 'America/Denver' });
+   *   qb.dateHistogram({ field: 'created_at', interval: 'month' });
+   *   // response.aggregations.created_at.buckets:
+   *   //   [{ key: 1704067200000, key_as_string: '2024-01', doc_count: 3 }, ...]
+   *   qb.dateHistogram({
+   *     field: 'created_at',
+   *     interval: 'day',
+   *     name: 'per_day',
+   *     timeZone: 'America/Denver',
+   *     offset: '+6h',
+   *     extendedBounds: { min: '2024-01-01', max: '2024-12-31' },
+   *   });
    */
-  dateHistogram({
-    field,
-    interval,
-    limit = 100,
-    offset = null,
-    timezone = 'UTC',
-  }: {
-    field: Field;
-    interval:
-      | 'year'
-      | 'quarter'
-      | 'month'
-      | 'week'
-      | 'day'
-      | 'hour'
-      | 'minute'
-      | 'second';
-    limit?: number;
-    offset?: string | null;
-    timezone?: string | number;
-  }): this {
-    // Map human-friendly interval names to ES9 calendar/fixed intervals and output formats (Java time)
-    const intervals: Record<
-      | 'year'
-      | 'quarter'
-      | 'month'
-      | 'week'
-      | 'day'
-      | 'hour'
-      | 'minute'
-      | 'second',
-      { code: string; format: string; kind: 'calendar' | 'fixed' }
-    > = {
-      year: { code: '1y', format: 'uuuu', kind: 'calendar' },
-      quarter: { code: '1q', format: "uuuu-'Q'Q", kind: 'calendar' },
-      month: { code: '1M', format: 'uuuu-MM', kind: 'calendar' },
-      week: { code: '1w', format: "YYYY-'W'ww", kind: 'calendar' }, // ISO week-based year/week
-      day: { code: '1d', format: 'uuuu-MM-dd', kind: 'calendar' },
-      hour: { code: '1h', format: "uuuu-MM-dd'T'HH", kind: 'fixed' },
-      minute: { code: '1m', format: "uuuu-MM-dd'T'HH:mm", kind: 'fixed' },
-      second: { code: '1s', format: "uuuu-MM-dd'T'HH:mm:ss", kind: 'fixed' },
-    } as const;
-
-    const intv = intervals[interval];
-    if (!intv) {
-      const supported = Object.keys(intervals).join(', ');
-      throw new Error(
-        `QueryBuilder.dateHistogram(): interval not supported. Supported intervals are ${supported}.`,
+  dateHistogram(options: DateHistogramOptions<Field>): this {
+    const method = 'dateHistogram';
+    const {
+      field,
+      interval,
+      offset = null,
+      timeZone,
+      timezone,
+      extendedBounds,
+    } = options;
+    if ((options as { limit?: unknown }).limit !== undefined) {
+      throw new TypeError(
+        `${method}() no longer accepts limit: it returns every bucket`,
       );
     }
-
-    const timeZone = normalizeTimeZone(timezone);
-
-    // Validate offset if provided (ES expects things like "+6h", "-1d", "+30m")
-    if (offset != null) {
-      const okOffset = /^[+-]\d+(ms|s|m|h|d|w|M|q|y)$/.test(offset);
-      if (!okOffset) {
-        throw new Error(
-          `QueryBuilder.dateHistogram(): offset must look like "+30m", "-6h", "+1d", etc. Received ${JSON.stringify(offset)}`,
-        );
-      }
+    const name = aggregationName(method, options.name, field);
+    if (
+      typeof interval !== 'string' ||
+      !Object.hasOwn(DATE_HISTOGRAM_INTERVALS, interval)
+    ) {
+      const supported = Object.keys(DATE_HISTOGRAM_INTERVALS).join(', ');
+      throw new RangeError(
+        `${method}() expects interval to be one of ${supported}, ` +
+          `got ${JSON.stringify(interval)}`,
+      );
     }
-
-    return this.aggregateDateHistogram({
+    if (timeZone !== undefined && timezone !== undefined) {
+      throw new TypeError(
+        `${method}() takes timeZone or its deprecated alias timezone, not both`,
+      );
+    }
+    const spec = DATE_HISTOGRAM_INTERVALS[interval];
+    const histogram: estypes.AggregationsDateHistogramAggregation = {
       field,
-      limit,
-      fixedInterval: intv.kind === 'fixed' ? intv.code : undefined,
-      calendarInterval: intv.kind === 'calendar' ? intv.code : undefined,
-      format: intv.format,
-      timeZone, // pass through; ES uses "time_zone"
-      offset: offset ?? undefined,
-      order: 'asc',
-    });
+      ...spec.interval,
+      format: spec.format,
+      time_zone: normalizeTimeZone(timeZone ?? timezone ?? 'UTC'),
+      min_doc_count: 0,
+    };
+    if (offset !== null && offset !== undefined) {
+      assertDateOffset(method, offset);
+      histogram.offset = offset;
+    }
+    if (extendedBounds !== undefined) {
+      histogram.extended_bounds = copyObjectOption(
+        method,
+        'extendedBounds',
+        extendedBounds,
+      );
+    }
+    this._aggs[name] = { date_histogram: histogram };
+    this._defaultToNoHits();
+    return this;
   }
 
   //

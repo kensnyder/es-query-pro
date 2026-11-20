@@ -1,0 +1,27 @@
+# QB5 handoff — composite and histogram aggregations
+
+## Findings fixed
+- **B-050** (reproduce-first) — **partly reproduced** on serverless. As the report says, the server rejects `+1w`/`+1q`/`+1y` (plain and composite) and accepts unsigned `6h`, and the old regex accepted the former and rejected the latter. **Not as reported:** `+1M` is not read as one minute; the server rejects it with a 400 (it lowercases every unit except `M`). It also accepts `nanos`/`micros` and upper-case units (`+1H`). Fix: `/^[+-]?\d+(nanos|micros|ms|s|m|h|d)$/` (lower-case only, so `M`/`m` cannot be confused), shared by `dateHistogram` and `aggregateDateHistogram` (including `orderBy` sources). Bad format → `RangeError`, non-string → `TypeError`.
+- **B-051** — `CompositeSourceWithField` removed; new source types are built on the concrete `estypes.AggregationsComposite{Histogram,DateHistogram,GeoTileGrid}Aggregation`, `field` typed `Field`. The 5 tsc errors in these methods are gone (`linear` in `getBody` remains, QB8/QB9).
+- **B-054 / D9** — composite helpers take `after` (the previous `after_key`, copied). `dateHistogram()` now emits a plain `date_histogram` with `min_doc_count: 0`, plus new `extendedBounds` (`extended_bounds`; strings are parsed with the interval's key format, e.g. `'2024-01'`, or pass epoch ms).
+- **B-096** — `aggregateDateHistogram` throws `TypeError` unless exactly one of `calendarInterval`/`fixedInterval` is set, also per `orderBy` source; `timeZone` (now `string | number`) and sources' `time_zone` go through `normalizeTimeZone`.
+- **S-022** — `name` option on `aggregateTerm`, `aggregateHistogram`, `aggregateDateHistogram`, `aggregateGeotileGrid`, `dateHistogram` (default: the field; empty or `[`/`]`/`>` → `RangeError`). Shared private `_addComposite()` (name, `limit` integer >= 1, `after`, QB4's `_defaultToNoHits()` kept). `aggregateHistogram` needs `interval` only without `orderBy` (union type); new `order` option.
+- **S-052** — `dateHistogram` takes `timeZone`; `timezone` kept as `@deprecated` alias (both → `TypeError`). Geotile `precision` must be an integer 0–29 (`RangeError`), now optional (server default 7). The 100-vs-25 limit mismatch is moot: `dateHistogram` has no limit.
+- **B-099 / S-025 (these methods)** — JSDoc rewritten (response shapes, paging, offsets, time zones); tests for every histogram method and offset form.
+
+## Public API (CHANGELOG)
+- **Breaking:** `dateHistogram()` response is `buckets: [{ key: <epoch ms>, key_as_string, doc_count }]` (was composite `key: { <field>: '...' }`), includes empty buckets and is never truncated; its `limit` option is removed (passing it throws `TypeError`). Invalid offsets/intervals now throw `RangeError` (was `Error`); `+1w/+1M/+1q/+1y` are rejected locally, unsigned and `nanos`/`micros` offsets are accepted. `aggregateDateHistogram` throws `TypeError` (was `Error`) for missing intervals and also for both. `orderBy[].field` is typed `Field`. Geotile `bounds` widened to `estypes.GeoBounds`. `UTC` is still sent as `time_zone: 'Z'` (unchanged).
+- **Added:** `name` (all five), `after` (composite helpers), `order` (histogram), `extendedBounds`/`timeZone` (`dateHistogram`). New types in `QueryBuilder.ts`: `CompositeAggregationOptions`, `CompositeHistogramSource<F>`, `CompositeDateHistogramSource<F>`, `CompositeGeotileGridSource<F>`, `AggregateHistogramOptions<F>`, `AggregateDateHistogramOptions<F>`, `AggregateGeotileGridOptions<F>`, `DateHistogramInterval`, `DateHistogramOptions<F>`.
+
+## For other tasks
+- **DOCS:** export the 9 types above. README: replace the `dateHistogram(dateField, intervalName, timezone)` row with the object form (`{ field, interval, name?, timeZone?, offset?, extendedBounds? }`, response shape, offset units); add rows for `aggregateHistogram`, `aggregateDateHistogram`, `aggregateGeotileGrid` (paging with `after`/`after_key`, `name`); `aggregateTerm` `name`.
+- **Orchestrator:** `git status` shows my deleted probe `src/QueryBuilder/zz_probe_qb5.integration.test.ts` as `AD` (someone staged it before I deleted it); unstage it. My new files were also staged by someone else; I ran no git write commands.
+- Not fixed (out of scope, noted): the offset regex accepts any integer size; the server silently overflows huge values (`+2000000000d` gave a 5-day shift). The `week` key format `YYYY-'W'ww` was not verified on the server.
+
+## Pre-existing tests edited (D9 shape only)
+- `QueryBuilder.spec.ts`: the two `dateHistogram()` tests expect `{ date_histogram: { …, min_doc_count: 0 } }` instead of composite.
+- `QueryBuilder.integration.test.ts`: "date histogram over published_at by year" reads `key_as_string`, expects 21 yearly buckets (1998–2018) and filters empty ones for the same 3 keys/counts.
+
+## Tests (serverless target only; Docker not run; no capability gates)
+- `QueryBuilder.histogram.spec.ts` 22 unit + type tests (18 failed before the fix). `QueryBuilder.histogram.integration.test.ts` 38 tests: B-050 server behavior, every accepted offset shifts buckets as expected (plain + composite), local rejections, empty/untruncated buckets (199 days), `extendedBounds`, time zones, paging histogram/date histogram/geotile to exhaustion, two aggs on one field, geotile on `places`.
+- Gate: `bun test src/QueryBuilder` 383 pass; QueryRunner + IndexManager.fields + readmeSamples + typesOnlyImports 36 pass; biome clean; typecheck: `QueryBuilder.ts` only `linear` + `publicExports.spec.ts` 1; other errors are in `src/IndexManager/*`/`src/SchemaRegistry/*` from the parallel agent's `StatusReport` work.

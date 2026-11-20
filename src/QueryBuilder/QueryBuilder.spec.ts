@@ -345,21 +345,12 @@ describe('QueryBuilder.dateHistogram()', () => {
     const full = qb.getQuery();
     expect(full.aggs).toEqual({
       published_at: {
-        composite: {
-          size: 100,
-          sources: [
-            {
-              published_at: {
-                date_histogram: {
-                  calendar_interval: '1M',
-                  field: 'published_at',
-                  format: 'uuuu-MM',
-                  order: 'asc',
-                  time_zone: '+02:00',
-                },
-              },
-            },
-          ],
+        date_histogram: {
+          calendar_interval: '1M',
+          field: 'published_at',
+          format: 'uuuu-MM',
+          min_doc_count: 0,
+          time_zone: '+02:00',
         },
       },
     });
@@ -375,21 +366,12 @@ describe('QueryBuilder.dateHistogram()', () => {
     const full = qb.getQuery();
     expect(full.aggs).toEqual({
       published_at: {
-        composite: {
-          size: 100,
-          sources: [
-            {
-              published_at: {
-                date_histogram: {
-                  calendar_interval: '1M',
-                  field: 'published_at',
-                  format: 'uuuu-MM',
-                  order: 'asc',
-                  time_zone: '+02:00',
-                },
-              },
-            },
-          ],
+        date_histogram: {
+          calendar_interval: '1M',
+          field: 'published_at',
+          format: 'uuuu-MM',
+          min_doc_count: 0,
+          time_zone: '+02:00',
         },
       },
     });

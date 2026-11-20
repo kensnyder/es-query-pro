@@ -275,9 +275,12 @@ describe('QueryBuilder - Integration', () => {
     qb.index(index);
     qb.dateHistogram({ field: 'published_at', interval: 'year' });
     const result: any = await client.search(qb.getQuery());
+    // plain date_histogram (D9): every year from 1998 to 2018, empty ones too
     const buckets = result.aggregations.published_at.buckets;
-    const keys = buckets.map((b: any) => b.key.published_at);
-    const counts = buckets.map((b: any) => b.doc_count);
+    expect(buckets).toHaveLength(21);
+    const nonEmpty = buckets.filter((b: any) => b.doc_count > 0);
+    const keys = nonEmpty.map((b: any) => b.key_as_string);
+    const counts = nonEmpty.map((b: any) => b.doc_count);
     expect(keys).toEqual(['1998', '1999', '2018']);
     expect(counts).toEqual([1, 1, 1]);
   });
