@@ -405,14 +405,14 @@ describe('QueryBuilder.sort()', () => {
     qb.sort('published_at')
       .sort('updated_at', 'desc')
       .sort('-created_at')
-      .sort({ _score: 'desc' } as any)
-      .sort([{ name: 'asc' }, { created_at: 'desc' }] as any);
+      .sort({ _score: 'desc' })
+      .sort([{ name: 'asc' }, { created_at: 'desc' }]);
     const full = qb.getQuery();
     expect(full.sort).toEqual([
       { published_at: { order: 'asc' } },
       { updated_at: { order: 'desc' } },
       { created_at: { order: 'desc' } },
-      { _score: 'desc' } as any,
+      { _score: { order: 'desc' } },
       { name: { order: 'asc' } },
       { created_at: { order: 'desc' } },
     ]);

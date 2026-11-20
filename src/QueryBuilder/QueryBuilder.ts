@@ -5,6 +5,7 @@ import type {
   AggregationsAggregationContainer,
   AggregationsCompositeAggregationSource,
   BoostOperator,
+  FieldType,
   FieldTypeOrTypes,
   InferenceCohereSimilarityType,
   InnerRetriever,
@@ -851,6 +852,269 @@ function geotileGridSource(
 }
 
 /**
+ * One clause for `sort()`: a field name (`'-name'` sorts descending), an
+ * object mapping field names to `'asc'`/`'desc'`, or an Elasticsearch sort
+ * object such as `{ price: { order: 'desc', missing: '_last' } }`.
+ */
+export type SortClause = SortCombinations | { [field: string]: SortOrder };
+
+/** Options for `sortByRandom()` */
+export type RandomSortOptions<Field extends string = string> = {
+  /**
+   * Seed (an integer or a non-empty string). With a seed, the same seed
+   * gives the same order on every request, so pages do not overlap. Without
+   * one, every request is shuffled anew.
+   */
+  seed?: number | string;
+  /**
+   * Field with doc values hashed with the seed (requires `seed`). Default
+   * `_seq_no`, which is not unique across shards and changes when a document
+   * is updated; add a tie-breaker `sort()` or use a unique numeric field.
+   */
+  field?: Field | '_seq_no';
+};
+
+/** Options for the `function_score` wrapper, see `functionScoreOptions()` */
+export type FunctionScoreOptions = {
+  /** How the functions' scores are combined (`score_mode`, ES default `multiply`) */
+  scoreMode?: estypes.QueryDslFunctionScoreMode;
+  /** How the combined score is combined with the query score (`boost_mode`) */
+  boostMode?: estypes.QueryDslFunctionBoostMode;
+  /** Upper limit for the functions' combined score (`max_boost`) */
+  maxBoost?: number;
+  /** Drop documents whose final score is lower (`min_score`) */
+  minScore?: number;
+};
+
+/** Every name `reset()` accepts; `reset()` with no argument resets all */
+const RESETTABLE_FIELDS: FieldType[] = [
+  'fields',
+  'excludeFields',
+  'must',
+  'aggs',
+  'functionScores',
+  'highlighter',
+  'sorts',
+  'shouldSortByRandom',
+  'retrievers',
+  'normalizer',
+  'rankWindowSize',
+  'rankConstant',
+  'rescore',
+  'minScore',
+  'searchAfter',
+  'trackTotalHits',
+  'page',
+  'limit',
+];
+
+/** The size Elasticsearch uses when a search sends none */
+const DEFAULT_PAGE_SIZE = 10;
+
+const SORT_ORDERS = new Set<unknown>(['asc', 'desc']);
+
+const FUNCTION_SCORE_MODES = new Set<unknown>([
+  'multiply',
+  'sum',
+  'avg',
+  'first',
+  'max',
+  'min',
+]);
+
+const FUNCTION_BOOST_MODES = new Set<unknown>([
+  'multiply',
+  'replace',
+  'sum',
+  'avg',
+  'max',
+  'min',
+]);
+
+const FUNCTION_SCORE_OPTION_KEYS = new Set<string>([
+  'scoreMode',
+  'boostMode',
+  'maxBoost',
+  'minScore',
+]);
+
+/**
+ * Throw unless `value` is `'asc'` or `'desc'`.
+ * @throws TypeError when `value` is not a string
+ * @throws RangeError for any other string
+ */
+function assertSortOrder(
+  what: string,
+  value: unknown,
+): asserts value is SortOrder {
+  if (typeof value !== 'string') {
+    throw new TypeError(
+      `sort() expects ${what} to be 'asc' or 'desc', got ${describeType(value)}`,
+    );
+  }
+  if (!SORT_ORDERS.has(value)) {
+    throw new RangeError(
+      `sort() expects ${what} to be 'asc' or 'desc', got '${value}'`,
+    );
+  }
+}
+
+/**
+ * Convert one `sort()` argument into Elasticsearch sort clauses, one per
+ * field, each with an explicit order (`_score` defaults to descending).
+ * @throws TypeError/RangeError for anything that is not a valid clause
+ */
+function toSortClauses(
+  clause: unknown,
+  direction: SortDirection | undefined,
+): SortCombinations[] {
+  if (typeof clause === 'string') {
+    return [fieldNameSort(clause, direction)];
+  }
+  if (direction !== undefined) {
+    throw new TypeError(
+      "sort() takes a direction only with a field name, e.g. sort('price', 'desc')",
+    );
+  }
+  if (clause === null || typeof clause !== 'object' || Array.isArray(clause)) {
+    throw new TypeError(
+      `sort() expects a field name or a sort object, got ${describeType(clause)}`,
+    );
+  }
+  const entries = Object.entries(clause);
+  if (entries.length === 0) {
+    throw new TypeError('sort() expects a sort object with at least one key');
+  }
+  return entries.map(([name, value]) => objectSort(name, value));
+}
+
+/** Sort clause for `'name'`, `'-name'` or `('name', direction)` */
+function fieldNameSort(
+  name: string,
+  direction: SortDirection | undefined,
+): SortCombinations {
+  const descending = name.startsWith('-');
+  const field = descending ? name.slice(1) : name;
+  if (field === '') {
+    throw new RangeError(`sort() expects a field name, got '${name}'`);
+  }
+  if (direction !== undefined) {
+    assertSortOrder('the direction', direction);
+    if (descending) {
+      throw new TypeError(
+        `sort() got both a '-' prefix and a direction for '${name}'`,
+      );
+    }
+    return { [field]: { order: direction } };
+  }
+  if (descending || field === '_score') {
+    return { [field]: { order: 'desc' } };
+  }
+  return { [field]: { order: 'asc' } };
+}
+
+/** Sort clause for one key of a sort object (a copy of its options) */
+function objectSort(name: string, value: unknown): SortCombinations {
+  if (name === '') {
+    throw new RangeError('sort() expects a non-empty field name');
+  }
+  if (typeof value === 'string') {
+    assertSortOrder(`the order of '${name}'`, value);
+    return { [name]: { order: value } };
+  }
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new TypeError(
+      `sort() expects '${name}' to be 'asc', 'desc' or an options object, ` +
+        `got ${describeType(value)}`,
+    );
+  }
+  const order = (value as { order?: unknown }).order;
+  if (order !== undefined) {
+    assertSortOrder(`the order of '${name}'`, order);
+  }
+  return { [name]: structuredClone(value) } as SortCombinations;
+}
+
+/** True when a sort clause sorts by `_score` (in either direction) */
+function isScoreSort(sort: SortCombinations): boolean {
+  if (typeof sort === 'string') {
+    return sort === '_score';
+  }
+  return Object.keys(sort)[0] === '_score';
+}
+
+/**
+ * Validate `sortByRandom()` options and build the `random_score` body.
+ * @throws TypeError/RangeError for invalid options
+ */
+function randomScore(options: unknown): estypes.QueryDslRandomScoreFunction {
+  if (options === null || typeof options !== 'object') {
+    throw new TypeError(
+      `sortByRandom() expects options to be an object, got ${describeType(options)}`,
+    );
+  }
+  const { seed, field } = options as RandomSortOptions;
+  if (seed === undefined) {
+    if (field !== undefined) {
+      throw new TypeError('sortByRandom() needs a seed to use a field');
+    }
+    return {};
+  }
+  if (typeof seed === 'string') {
+    if (seed === '') {
+      throw new RangeError('sortByRandom() expects a non-empty seed');
+    }
+  } else {
+    assertNumber('sortByRandom', seed, { integer: true });
+  }
+  if (field === undefined) {
+    return { seed, field: '_seq_no' };
+  }
+  assertString('sortByRandom', 'field', field);
+  if (field === '') {
+    throw new RangeError('sortByRandom() expects a non-empty field');
+  }
+  return { seed, field };
+}
+
+/**
+ * Validate `functionScoreOptions()` input.
+ * @throws TypeError/RangeError for unknown keys or invalid values
+ */
+function assertFunctionScoreOptions(options: unknown) {
+  if (
+    options === null ||
+    typeof options !== 'object' ||
+    Array.isArray(options)
+  ) {
+    throw new TypeError(
+      `functionScoreOptions() expects an object, got ${describeType(options)}`,
+    );
+  }
+  for (const [key, value] of Object.entries(options)) {
+    if (!FUNCTION_SCORE_OPTION_KEYS.has(key)) {
+      throw new TypeError(`functionScoreOptions() got an unknown key '${key}'`);
+    }
+    if (value === undefined) {
+      continue;
+    }
+    if (key === 'scoreMode' && !FUNCTION_SCORE_MODES.has(value)) {
+      throw new TypeError(
+        `functionScoreOptions() got an unknown scoreMode ${JSON.stringify(value)}`,
+      );
+    }
+    if (key === 'boostMode' && !FUNCTION_BOOST_MODES.has(value)) {
+      throw new TypeError(
+        `functionScoreOptions() got an unknown boostMode ${JSON.stringify(value)}`,
+      );
+    }
+    if (key === 'maxBoost' || key === 'minScore') {
+      assertNumber('functionScoreOptions', value);
+    }
+  }
+}
+
+/**
  * ElasticSearch query builder (ElasticSearch 9 only)
  */
 export default class QueryBuilder<Field extends string = string> {
@@ -916,6 +1180,12 @@ export default class QueryBuilder<Field extends string = string> {
 
   /** If true, use "random_score" for a function score */
   public _shouldSortByRandom: boolean = false;
+
+  /** The `random_score` body (seed and field) used when sorting by random */
+  private _randomScore: estypes.QueryDslRandomScoreFunction = {};
+
+  /** Options for the `function_score` wrapper */
+  private _functionScoreOptions: FunctionScoreOptions = {};
 
   constructor({
     index,
@@ -2877,13 +3147,17 @@ export default class QueryBuilder<Field extends string = string> {
   //
 
   /**
-   * Set the max number of results to return
-   * @param limit  The max
+   * Set the max number of results to return (`size`). Without a limit,
+   * Elasticsearch returns 10 hits and `page()` pages by 10.
+   * @param limit  An integer >= 0 (0 returns no hits, e.g. aggregations only)
+   * @throws TypeError when `limit` is not a number
+   * @throws RangeError when `limit` is negative, fractional or not finite
    * @chainable
    * @example
    *   qb.limit(25);
    */
   limit(limit: number): this {
+    assertNumber('limit', limit, { min: 0, integer: true });
     this._limit = limit;
     this._limitFromAggregations = false;
     return this;
@@ -2901,13 +3175,18 @@ export default class QueryBuilder<Field extends string = string> {
   }
 
   /**
-   * Set the page of results to return
-   * @param page  Where 1 is the first page
+   * Set the page of results to return. Pages are `limit()` hits long, or 10
+   * (the Elasticsearch default size) when no limit is set. A page > 1 cannot
+   * be combined with `searchAfter()`: `getOptions()`/`getQuery()` throw.
+   * @param page  An integer >= 1, where 1 is the first page
+   * @throws TypeError when `page` is not a number
+   * @throws RangeError when `page` is < 1, fractional or not finite
    * @chainable
    * @example
-   *   qb.page(3);
+   *   qb.limit(20).page(3); // hits 41-60
    */
   page(page: number): this {
+    assertNumber('page', page, { min: 1, integer: true });
     this._page = page;
     return this;
   }
@@ -2924,80 +3203,91 @@ export default class QueryBuilder<Field extends string = string> {
   }
 
   /**
-   * Add a sort field
-   * @param field  The field to sort by
-   * @param  maybeDirection  The direction, asc or desc
+   * Add one or more sort clauses; each call appends to the earlier ones.
+   * Every clause is stored as `{ <field>: { order, ...options } }`.
+   *
+   * - `'name'` sorts ascending, `'-name'` descending; `'_score'` (relevance)
+   *   sorts descending, best match first, unless a direction is given.
+   * - `{ name: 'asc' | 'desc' }`; an object with several keys becomes one
+   *   clause per key, in key order.
+   * - Elasticsearch sort objects such as
+   *   `{ price: { order: 'desc', missing: '_last' } }` or `_geo_distance`
+   *   are copied as they are.
+   * - An array of any of the above.
+   *
+   * Field names are not checked against the mapping, so metadata fields
+   * (`_score`, `_doc`, `_shard_doc`) and `'-'`-prefixed names work.
+   * @param field  A field name, a sort object or an array of either
+   * @param direction  With a field name only: `'asc'` or `'desc'`
+   * @throws TypeError/RangeError for an invalid clause or direction (nothing
+   *   is added)
    * @see https://www.elastic.co/guide/en/elasticsearch/reference/current/sort-search-results.html
    * @chainable
-   * @examples:
+   * @example
    *   qb.sort('-created_at');
    *   qb.sort('created_at', 'desc');
    *   qb.sort('_score');
    *   qb.sort({ created_at: 'desc' });
-   *   qb.sort([ { name: 'asc' }, { created_at: 'desc' } ]);
+   *   qb.sort([{ name: 'asc' }, '-created_at']);
+   *   qb.sort({ price: { order: 'desc', missing: '_last' } });
    */
-  sort(field: SortCombinations, maybeDirection?: SortDirection): this {
-    // DESC string such as "-created_at"
-    if (typeof field === 'string' && field.slice(0, 1) === '-') {
-      this._sorts.push({ [field.slice(1)]: { order: 'desc' } });
-    } else if (typeof field === 'string') {
-      this._sorts.push({ [field]: { order: maybeDirection || 'asc' } });
-    } else if (Array.isArray(field)) {
-      field.forEach((f) => {
-        const field = Object.keys(f)[0];
-        const direction = f[field];
-        this._sorts.push({ [field]: { order: direction } });
-      });
-    } else {
-      // keyword such as "_score"
-      // or object such as { "name" : "desc" }
-      this._sorts.push(field);
+  sort(field: string, direction?: SortDirection): this;
+  sort(clause: SortClause | SortClause[]): this;
+  sort(clause: SortClause | SortClause[], direction?: SortDirection): this {
+    if (Array.isArray(clause) && direction !== undefined) {
+      throw new TypeError(
+        "sort() takes a direction only with a field name, e.g. sort('price', 'desc')",
+      );
     }
+    const clauses = Array.isArray(clause) ? clause : [clause];
+    const sorts = clauses.flatMap((item) => toSortClauses(item, direction));
+    this._sorts.push(...sorts);
     return this;
   }
 
   /**
-   * Get the sort clauses to apply to the search.
-   * @returns An array of sort specifications in Elasticsearch format.
+   * Get a copy of the sort clauses added with `sort()`. The body may add a
+   * leading `_score` clause for `sortByRandom()`.
+   * @returns An array of sort clauses in Elasticsearch format.
    * @example
    *   qb.sort('_score');
-   *   const sorts = qb.getSort();
+   *   qb.getSort(); // [{ _score: { order: 'desc' } }]
    */
-  getSort() {
-    return this._sorts;
+  getSort(): SortCombinations[] {
+    return structuredClone(this._sorts);
   }
 
   /**
-   * Reset one or more properties of this instance to its initial value
-   * @param field
+   * Reset one or more parts of this builder to their initial value.
+   * - `'sorts'` clears `sort()` clauses and `sortByRandom()`;
+   *   `'shouldSortByRandom'` clears only `sortByRandom()`.
+   * - `'functionScores'` clears score functions and `functionScoreOptions()`.
+   * - `'aggs'` also removes the `limit(0)` an `aggregate*` method set.
+   * @param target  One name, a list of names, or `null`/nothing for all
+   * @throws TypeError for an unknown name (nothing is reset)
+   * @chainable
    * @example
    *   qb.fields(['a']).limit(5);
    *   qb.reset('fields');
+   *   qb.reset(['limit', 'page']);
+   *   qb.reset(); // everything
    */
-  reset(field: FieldTypeOrTypes = null): this {
-    const all: FieldTypeOrTypes = [
-      'fields',
-      'excludeFields',
-      'must',
-      'aggs',
-      'functionScores',
-      'highlighter',
-      'sorts',
-      'retrievers',
-      'normalizer',
-      'rankWindowSize',
-      'rankConstant',
-      'rescore',
-      'minScore',
-      'searchAfter',
-      'trackTotalHits',
-      'page',
-      'limit',
-    ];
-    const fields =
-      field === null ? all : Array.isArray(field) ? field : [field];
+  reset(target: FieldTypeOrTypes = null): this {
+    let names: FieldType[] = RESETTABLE_FIELDS;
+    if (Array.isArray(target)) {
+      names = target;
+    } else if (target !== null) {
+      names = [target];
+    }
+    for (const name of names) {
+      if (!RESETTABLE_FIELDS.includes(name)) {
+        throw new TypeError(
+          `reset() got an unknown name ${JSON.stringify(name)}; expected one of ${RESETTABLE_FIELDS.join(', ')}`,
+        );
+      }
+    }
     const empty = new QueryBuilder();
-    for (const field of fields) {
+    for (const field of names) {
       if (field === 'fields') {
         this._fields = empty.getFields();
       } else if (field === 'excludeFields') {
@@ -3012,11 +3302,14 @@ export default class QueryBuilder<Field extends string = string> {
         }
       } else if (field === 'functionScores') {
         this._functionScores = empty.getFunctionScores();
+        this._functionScoreOptions = empty.getFunctionScoreOptions();
       } else if (field === 'highlighter') {
         this._highlighter = empty.getHighlighter();
       } else if (field === 'sorts') {
         this._sorts = empty.getSort();
-        this._shouldSortByRandom = empty.getSortByRandom();
+        this.sortByRandom(false);
+      } else if (field === 'shouldSortByRandom') {
+        this.sortByRandom(false);
       } else if (field === 'retrievers') {
         this._retrievers = empty.getRetrievers();
       } else if (field === 'normalizer') {
@@ -3069,16 +3362,42 @@ export default class QueryBuilder<Field extends string = string> {
     copy._searchAfter = structuredClone(this._searchAfter);
     copy._trackTotalHits = this._trackTotalHits;
     copy._shouldSortByRandom = this._shouldSortByRandom;
+    copy._randomScore = structuredClone(this._randomScore);
+    copy._functionScoreOptions = { ...this._functionScoreOptions };
     return copy;
   }
 
   /**
-   * Enable or disable sorting by random
-   * @param trueOrFalse
+   * Enable or disable sorting by random. Adds a `random_score` function to
+   * the `function_score` wrapper (with `boost_mode: 'replace'` unless
+   * `functionScoreOptions()` sets a `boostMode`). With other score functions,
+   * the default `score_mode` (`multiply`) gives a weighted random order.
+   *
+   * Random order goes first: when `sort()` clauses exist and the first one
+   * is not `_score`, the body sorts by `_score` descending first, and the
+   * `sort()` clauses only break ties (useful with a seed and `searchAfter()`).
+   * Only applies on the standard query path (not with retrievers).
+   * @param enabled  `false` turns random order off and forgets the seed
+   * @param options  `seed` for a reproducible order (stable pages), and the
+   *   `field` hashed with it (default `_seq_no`)
+   * @throws TypeError/RangeError for invalid arguments
    * @chainable
+   * @example
+   *   qb.sortByRandom(); // a new order on every request
+   *   qb.sortByRandom(true, { seed: userSessionId }).limit(20).page(2);
    */
-  sortByRandom(trueOrFalse: boolean = true): this {
-    this._shouldSortByRandom = trueOrFalse;
+  sortByRandom(
+    enabled: boolean = true,
+    options: RandomSortOptions<Field> = {},
+  ): this {
+    if (typeof enabled !== 'boolean') {
+      throw new TypeError(
+        `sortByRandom() expects a boolean, got ${describeType(enabled)}`,
+      );
+    }
+    const random = randomScore(options);
+    this._shouldSortByRandom = enabled;
+    this._randomScore = enabled ? random : {};
     return this;
   }
 
@@ -3090,12 +3409,47 @@ export default class QueryBuilder<Field extends string = string> {
   }
 
   /**
-   * Add a function score definition (e.g. gauss/exp/linear decay,
-   * field_value_factor, script_score). All added functions are applied to
-   * the final query inside a single `function_score` wrapper when
-   * getBody()/getQuery() is called. Function scores only apply when the
-   * query is built on the standard query path; when retrievers (kNN, RRF,
-   * semantic) are in use the functions are ignored.
+   * Get a copy of the `random_score` settings: `{ seed, field }` when
+   * `sortByRandom()` was given a seed, otherwise `{}`.
+   */
+  getSortByRandomOptions(): RandomSortOptions {
+    return { ...this._randomScore } as RandomSortOptions;
+  }
+
+  /**
+   * Add a score function (e.g. a gauss/exp/linear decay, `field_value_factor`,
+   * `script_score`, `weight`, `random_score`). All added functions are
+   * applied to the final query inside a single `function_score` wrapper when
+   * getBody()/getQuery() is called; see `functionScoreOptions()` for how
+   * they are combined. Function scores only apply when the query is built on
+   * the standard query path; when retrievers (kNN, RRF, semantic) are in use
+   * the functions are ignored. The function is copied.
+   * @param functionScore  One Elasticsearch `function_score` function
+   * @throws TypeError when `functionScore` is not an object
+   * @see https://www.elastic.co/guide/en/elasticsearch/reference/9.x/query-dsl-function-score-query.html
+   * @chainable
+   * @example
+   *   qb.scoreFunction({
+   *     field_value_factor: { field: 'popularity', modifier: 'log1p' },
+   *   });
+   */
+  scoreFunction(functionScore: QueryDslFunctionScoreContainer): this {
+    if (
+      functionScore === null ||
+      typeof functionScore !== 'object' ||
+      Array.isArray(functionScore)
+    ) {
+      throw new TypeError(
+        `scoreFunction() expects a function object, got ${describeType(functionScore)}`,
+      );
+    }
+    this._functionScores.push(structuredClone(functionScore));
+    return this;
+  }
+
+  /**
+   * Add a score function; the same as `scoreFunction()`, which also takes
+   * functions other than decays.
    * @see https://www.elastic.co/guide/en/elasticsearch/reference/9.x/query-dsl-function-score-query.html#function-decay
    * @chainable
    * @example
@@ -3106,8 +3460,43 @@ export default class QueryBuilder<Field extends string = string> {
    *   });
    */
   decayFunctionScore(functionScore: QueryDslFunctionScoreContainer): this {
-    this._functionScores.push(functionScore);
+    return this.scoreFunction(functionScore);
+  }
+
+  /**
+   * Set how score functions are combined: `scoreMode` (`score_mode`),
+   * `boostMode` (`boost_mode`), `maxBoost` (`max_boost`) and `minScore`
+   * (`min_score`, applied to the final score). Merges into the current
+   * options; a key passed as `undefined` is removed. The options are sent
+   * only when there is at least one score function or `sortByRandom()`.
+   * @throws TypeError for unknown keys or modes
+   * @throws RangeError for non-finite numbers
+   * @chainable
+   * @example
+   *   qb.scoreFunction({ weight: 2 })
+   *     .functionScoreOptions({ scoreMode: 'sum', boostMode: 'multiply' });
+   */
+  functionScoreOptions(options: FunctionScoreOptions): this {
+    assertFunctionScoreOptions(options);
+    const merged: FunctionScoreOptions = {};
+    const entries = Object.entries({
+      ...this._functionScoreOptions,
+      ...options,
+    });
+    for (const [key, value] of entries) {
+      if (value !== undefined) {
+        Object.assign(merged, { [key]: value });
+      }
+    }
+    this._functionScoreOptions = merged;
     return this;
+  }
+
+  /**
+   * Get a copy of the options set with `functionScoreOptions()`.
+   */
+  getFunctionScoreOptions(): FunctionScoreOptions {
+    return { ...this._functionScoreOptions };
   }
 
   //
@@ -3317,14 +3706,16 @@ export default class QueryBuilder<Field extends string = string> {
     } else if (hasFilters) {
       // STANDARD RETRIEVER PATH (with query)
       body.query = this._applyScoreFunctions(this._buildBoolQuery());
-      if (this._sorts.length > 0) {
-        body.sort = this._sorts;
+      const sorts = this._getSortClauses();
+      if (sorts.length > 0) {
+        body.sort = sorts;
       }
     } else {
       // match all documents
       body.query = this._applyScoreFunctions({ match_all: {} });
-      if (this._sorts.length > 0) {
-        body.sort = this._sorts;
+      const sorts = this._getSortClauses();
+      if (sorts.length > 0) {
+        body.sort = sorts;
       }
     }
 
@@ -3374,26 +3765,55 @@ export default class QueryBuilder<Field extends string = string> {
   }
 
   /**
+   * Copies of the `sort()` clauses, led by `_score` descending when
+   * `sortByRandom()` is on and the first clause does not sort by `_score`
+   * (otherwise a field sort would make the random score irrelevant).
+   */
+  private _getSortClauses(): SortCombinations[] {
+    const sorts = structuredClone(this._sorts);
+    if (
+      this._shouldSortByRandom &&
+      sorts.length > 0 &&
+      !isScoreSort(sorts[0])
+    ) {
+      sorts.unshift({ _score: { order: 'desc' } });
+    }
+    return sorts;
+  }
+
+  /**
    * Wrap a query in a function_score containing any functions added via
-   * decayFunctionScore() plus a random_score function if sortByRandom()
-   * is enabled. Returns the query untouched when there is nothing to apply.
+   * scoreFunction() plus a random_score function if sortByRandom() is
+   * enabled, with the functionScoreOptions(). Returns the query untouched
+   * when there is no function to apply.
    */
   private _applyScoreFunctions(
     query: QueryDslQueryContainer,
   ): QueryDslQueryContainer {
-    const functions: QueryDslFunctionScoreContainer[] = [
-      ...this._functionScores,
-    ];
+    const functions = structuredClone(this._functionScores);
     if (this._shouldSortByRandom) {
-      functions.push({ random_score: {} });
+      functions.push({ random_score: { ...this._randomScore } });
     }
     if (functions.length === 0) {
       return query;
     }
     const functionScore: QueryDslFunctionScoreQuery = { query, functions };
-    if (this._shouldSortByRandom) {
+    const { scoreMode, boostMode, maxBoost, minScore } =
+      this._functionScoreOptions;
+    if (scoreMode !== undefined) {
+      functionScore.score_mode = scoreMode;
+    }
+    if (boostMode !== undefined) {
+      functionScore.boost_mode = boostMode;
+    } else if (this._shouldSortByRandom) {
       // random_score should fully replace the relevance score
       functionScore.boost_mode = 'replace';
+    }
+    if (maxBoost !== undefined) {
+      functionScore.max_boost = maxBoost;
+    }
+    if (minScore !== undefined) {
+      functionScore.min_score = minScore;
     }
     return { function_score: functionScore };
   }
@@ -3409,14 +3829,22 @@ export default class QueryBuilder<Field extends string = string> {
     > = {};
     if (this._limit !== null) {
       options.size = this._limit;
-      if (this._page > 1) {
-        options.from = this._limit * (this._page - 1);
-      }
+    }
+    const from = (this._limit ?? DEFAULT_PAGE_SIZE) * (this._page - 1);
+    if (from > 0) {
+      options.from = from;
     }
     if (typeof this._minScore === 'number') {
       options.min_score = this._minScore;
     }
     if (Array.isArray(this._searchAfter) && this._searchAfter.length > 0) {
+      if (options.from !== undefined) {
+        throw new TypeError(
+          `searchAfter() cannot be combined with page(${this._page}): ` +
+            'Elasticsearch requires from to be 0 with search_after. ' +
+            "Use page 1 (reset('page')) and page with the hits' sort values.",
+        );
+      }
       options.search_after = structuredClone(this._searchAfter);
     }
     if (

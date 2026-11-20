@@ -3,7 +3,7 @@ import type {
   AggregationsAggregationContainer,
   SortCombinations,
 } from '../types';
-import QueryBuilder from './QueryBuilder';
+import QueryBuilder, { type SortClause } from './QueryBuilder';
 
 type Field = 'brand' | 'title' | 'price' | 'stats.rating' | 'tags';
 
@@ -134,10 +134,11 @@ describe('QueryBuilder rescore with a sort (S-021, D11)', () => {
   };
 
   it('allows a lone _score descending sort', () => {
-    // a raw '_score' is descending in Elasticsearch; sort('_score') emits
-    // ascending order today (QB6), so it is not used here
-    for (const sort of ['_score', { _score: 'desc' }, { _score: {} }]) {
+    // raw clauses check the guard itself; sort() normalizes to {order}
+    const sorts: SortClause[] = ['_score', { _score: 'desc' }, { _score: {} }];
+    for (const sort of sorts) {
       expect(withSorts(sort).getBody().rescore).toHaveLength(1);
+      expect(build().sort(sort).getBody().rescore).toHaveLength(1);
     }
     expect(
       build()
