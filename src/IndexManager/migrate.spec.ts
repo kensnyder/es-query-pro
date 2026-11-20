@@ -441,7 +441,7 @@ describe('migrateIfNeeded() - the migration flow (D1)', () => {
   it('checks the first status quickly, then backs off to pollInterval', async () => {
     const { manager, script, sent } = scenario();
     const times: number[] = [];
-    script('GET /_tasks/*', (req) => {
+    script('GET /_tasks/*', () => {
       times.push(performance.now());
       const done = times.length >= 4;
       return { body: taskBody({ completed: done }) };

@@ -941,7 +941,7 @@ class Migration {
   }
 
   private failPass(pass: PassResult, phase: MigrationPassPhase) {
-    if (pass.ok) {
+    if (pass.ok === true) {
       throw new Error('failPass() needs a failed pass');
     }
     return this.fail(pass.code, phase, pass.failure, {

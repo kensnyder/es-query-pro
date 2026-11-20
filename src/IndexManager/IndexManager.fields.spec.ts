@@ -103,7 +103,8 @@ describe('IndexManager query callbacks with an inline specification', () => {
       return runner.updateMany({ title: 'x', 'categories.name': 'y' });
     });
     expect(sent.at(-1)?.path).toBe('/english~books/_update_by_query');
-    expect((sent.at(-1)?.body as any).script.params.updates).toEqual([
+    const body = sent.at(-1)?.body as any;
+    expect(body?.script?.params?.updates).toEqual([
       { path: ['title'], value: 'x' },
       { path: ['categories', 'name'], value: 'y' },
     ]);
