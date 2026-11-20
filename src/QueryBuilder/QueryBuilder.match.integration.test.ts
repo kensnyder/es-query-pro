@@ -282,8 +282,11 @@ describe('QueryBuilder.range() - Integration (B-091, S-048)', () => {
   });
 
   it('server: a Date with a non-ISO format matches nothing', async () => {
-    // why range() throws for that combination
-    const response = await client.search({
+    // why range() throws for that combination. Every shard fails to parse
+    // the date: with several shards (serverless) the search returns 200 and
+    // no hits, with one (stateful) a 400; with partial results off it is a
+    // 400 everywhere.
+    const request: estypes.SearchRequest = {
       index: books,
       query: {
         range: {
@@ -293,8 +296,21 @@ describe('QueryBuilder.range() - Integration (B-091, S-048)', () => {
           },
         },
       },
-    });
-    expect(response.hits.hits).toHaveLength(0);
+    };
+    let hits = 0;
+    try {
+      hits = (await client.search(request)).hits.hits.length;
+    } catch (e) {
+      expect(String(e)).toContain('failed to parse date field');
+    }
+    expect(hits).toBe(0);
+    let error: unknown;
+    try {
+      await client.search({ ...request, allow_partial_search_results: false });
+    } catch (e) {
+      error = e;
+    }
+    expect(String(error)).toContain('failed to parse date field');
   });
 
   it('passes format through', async () => {

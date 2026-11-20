@@ -330,10 +330,18 @@ describe('moreLikeThis() - Integration (S-024)', () => {
   });
 
   it('several fields', async () => {
+    // Lucene's more_like_this queries each like-term in the one field with
+    // the highest doc freq (the first on a tie), using shard-local stats, so
+    // a term in both fields gives shard-layout-dependent results. Here
+    // 'leather' is only in body ('1') and 'tent' is in title and body of '3'.
+    const leatherTent = { like: 'leather tent', ...options };
+    expect(
+      await ids((qb) => qb.moreLikeThis({ field: 'title', ...leatherTent })),
+    ).toEqual(['3']);
     expect(
       await ids((qb) =>
-        qb.moreLikeThis({ field: ['title', 'body'], like, ...options }),
+        qb.moreLikeThis({ field: ['title', 'body'], ...leatherTent }),
       ),
-    ).toEqual(['1', '2', '3']);
+    ).toEqual(['1', '3']);
   });
 });

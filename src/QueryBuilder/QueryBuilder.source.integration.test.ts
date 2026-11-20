@@ -132,9 +132,10 @@ describe('QueryBuilder source filtering - Integration', () => {
 });
 
 describe('QueryBuilder highlighting - Integration', () => {
-  // With several shards the search "succeeds" with the failing shards'
-  // hits silently missing; with allow_partial_search_results: false (or a
-  // single shard) the whole search fails.
+  // With several shards (serverless) the search "succeeds" with the failing
+  // shards' hits silently missing; with a single shard (stateful) or
+  // allow_partial_search_results: false the whole search fails. Either way
+  // no hit comes back highlighted.
   for (const [label, query, field] of [
     ['a text field', { match: { title: 'harry' } }, 'title'],
     ['a keyword field', { term: { country: 'United Kingdom' } }, 'country'],
@@ -145,10 +146,23 @@ describe('QueryBuilder highlighting - Integration', () => {
         query,
         highlight: { type: 'fvh', fields: { [field]: {} } },
       };
-      const partial = await client.search(request);
-      expect(partial.hits.hits).toHaveLength(0);
-      expect(partial._shards.failed).toBeGreaterThan(0);
-      expect(JSON.stringify(partial._shards.failures)).toContain('term vector');
+      let partial: estypes.SearchResponse | undefined;
+      let rejected = '';
+      try {
+        partial = await client.search(request);
+      } catch (e) {
+        // every shard failed: the search itself is rejected
+        rejected = String((e as Error).message);
+      }
+      if (partial) {
+        expect(partial.hits.hits).toHaveLength(0);
+        expect(partial._shards.failed).toBeGreaterThan(0);
+        expect(JSON.stringify(partial._shards.failures)).toContain(
+          'term vector',
+        );
+      } else {
+        expect(rejected).toContain('term vector');
+      }
       let error: unknown;
       try {
         await client.search({

@@ -462,13 +462,14 @@ describe('QueryBuilder.filter() (S-019, S-057, D5)', () => {
       .knn({ field: 'title', vector: [1, 0, 0], k: 3, weight: 1 })
       .term('tag', 'b')
       .filter((sub) => sub.term('tag', 'a'));
-    expect(qb.getBody().retriever?.linear?.filter).toEqual([
+    // QB9 (S-057): a lone retriever takes the conditions as its own filter
+    expect(qb.getBody().retriever?.knn?.filter).toEqual([
       { bool: { must: [B], filter: [A] } },
     ]);
     const onlyFilter = new QueryBuilder<Field>()
       .knn({ field: 'title', vector: [1, 0, 0], k: 3, weight: 1 })
       .filter((sub) => sub.term('tag', 'a'));
-    expect(onlyFilter.getBody().retriever?.linear?.filter).toEqual([
+    expect(onlyFilter.getBody().retriever?.knn?.filter).toEqual([
       { bool: { filter: [A] } },
     ]);
   });

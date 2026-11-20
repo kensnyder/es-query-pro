@@ -35,7 +35,8 @@ describe('QueryBuilder.getQuery()', () => {
     };
     expect(query.getQuery()).toEqual(result);
     expect(query.toJSON()).toEqual(result);
-    expect(query.valueOf()).toEqual(result);
+    // QB9 (S-059, D12): valueOf() was removed; the default returns the builder
+    expect(query.valueOf()).toBe(query);
   });
   it('should use asterisk when no fields are specified', () => {
     const query = new QueryBuilder();

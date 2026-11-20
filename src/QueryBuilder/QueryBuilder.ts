@@ -1185,6 +1185,65 @@ function weightedLexicalRetriever(
   return { standard: { query: { bool: { should } } } };
 }
 
+/**
+ * Add a query to a lone retriever's own `filter` (every retriever type
+ * accepts one), after any filter it already has. Returns a new container.
+ */
+function withRetrieverFilter(
+  retriever: RetrieverContainer,
+  query: QueryDslQueryContainer,
+): RetrieverContainer {
+  const [type, definition] = Object.entries(retriever as object)[0] as [
+    string,
+    estypes.RetrieverBase,
+  ];
+  const filter: QueryDslQueryContainer[] = [];
+  if (definition.filter !== undefined) {
+    filter.push(...[definition.filter].flat());
+  }
+  filter.push(query);
+  return { [type]: { ...definition, filter } } as RetrieverContainer;
+}
+
+/**
+ * Copy builder state deeply: arrays, plain objects and dates are copied;
+ * anything else (primitives, functions, class instances) is kept as is.
+ * Unlike `structuredClone`, this never throws.
+ */
+function copyState<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value.map(copyState) as T;
+  }
+  if (value instanceof Date) {
+    return new Date(value.getTime()) as T;
+  }
+  if (value === null || typeof value !== 'object') {
+    return value;
+  }
+  const proto = Object.getPrototypeOf(value);
+  if (proto !== Object.prototype && proto !== null) {
+    return value;
+  }
+  const copy = {} as Record<string, unknown>;
+  for (const [key, item] of Object.entries(value)) {
+    // defineProperty, so a "__proto__" key stays a plain key
+    Object.defineProperty(copy, key, {
+      value: copyState(item),
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+  }
+  return copy as T;
+}
+
+/**
+ * The `from` and `size` of a search, which retriever windows cover. When
+ * `sizeSent` is false the request has no `size` (Elasticsearch uses 10 and
+ * does not check windows against it).
+ */
+type PageWindow = { from: number; size: number; sizeSent: boolean };
+
 /** The size Elasticsearch uses when a search sends none */
 const DEFAULT_PAGE_SIZE = 10;
 
@@ -1437,6 +1496,9 @@ export default class QueryBuilder<Field extends string = string> {
   /** The number of results to find before ranking */
   public _rankWindowSize = 50;
 
+  /** True once `rankWindowSize()` was called: `getBody()` then never raises it */
+  private _rankWindowSizeSet = false;
+
   /** The rrf rank_constant (an integer >= 1; higher values flatten ranks) */
   public _rankConstant = 20;
 
@@ -1643,7 +1705,12 @@ export default class QueryBuilder<Field extends string = string> {
 
   /**
    * Set rank_window_size: the number of results each retriever finds
-   * before they are combined (rrf and linear retrievers)
+   * before they are combined (rrf and linear retrievers). Without this
+   * call, `getBody()` uses 50, raised to cover `from + size` (and any
+   * rescore `windowSize`) so every page can be returned. Once set, the value
+   * is sent as is: `getBody()` throws when it is below `limit()`
+   * (Elasticsearch rejects an rrf or linear window below the `size` sent),
+   * and pages past it come back empty.
    * @param size  An integer >= 1 (default 50)
    * @throws TypeError when `size` is not a number
    * @throws RangeError when `size` is not an integer >= 1
@@ -1653,6 +1720,7 @@ export default class QueryBuilder<Field extends string = string> {
   rankWindowSize(size: number): this {
     assertNumber('rankWindowSize', size, { min: 1, integer: true });
     this._rankWindowSize = size;
+    this._rankWindowSizeSet = true;
     return this;
   }
 
@@ -2802,41 +2870,186 @@ export default class QueryBuilder<Field extends string = string> {
   /**
    * Get the retrievers added by `knn()`, `semantic()`, `rrf()` and
    * `weightedSemantic()`, built with the current rank settings and
-   * normalizer. Returns new objects on every call.
+   * normalizer (rrf's rank_window_size as `getBody()` sends it, raised to
+   * cover the page unless `rankWindowSize()` was called). Returns new
+   * objects on every call.
    * @returns The inner retrievers with their weight and normalizer
    */
   getRetrievers(): InnerRetriever[] {
+    return this._buildInnerRetrievers(this._getRankWindow(this._pageWindow()));
+  }
+
+  /** The inner retrievers, built with the given rank window */
+  private _buildInnerRetrievers(rankWindow: number): InnerRetriever[] {
     return this._retrievers.map((intent) => ({
-      retriever: this._buildRetriever(intent),
+      retriever: this._buildRetriever(intent, rankWindow),
       weight: intent.weight,
       normalizer: this._normalizer,
     }));
   }
 
   /**
-   * Build the body's `retriever` from the stored retrievers: a lone
-   * retriever as is, otherwise (several retrievers, or any conditions) a
-   * `linear` retriever whose `filter` holds the conditions.
+   * The `from` and `size` the search sends: `limit()` (or the page size
+   * Elasticsearch uses by default) and `page()`, unless overridden.
    */
-  private _getRetrieverBody(hasConditions: boolean): RetrieverContainer {
-    const retrievers = this.getRetrievers();
-    if (retrievers.length === 1 && !hasConditions) {
-      return retrievers[0].retriever;
-    }
-    // The normalizer goes on each inner retriever only: Elasticsearch 9.1
-    // rejects a top-level linear normalizer together with retrievers.
-    const linear: estypes.LinearRetriever = {
-      retrievers,
-      rank_window_size: this._rankWindowSize,
+  private _pageWindow(overrides: Partial<SearchRequest> = {}): PageWindow {
+    const pageSize = this._limit ?? DEFAULT_PAGE_SIZE;
+    return {
+      from: overrides.from ?? pageSize * (this._page - 1),
+      size: overrides.size ?? pageSize,
+      sizeSent: overrides.size !== undefined || this._limit !== null,
     };
-    if (hasConditions) {
-      linear.filter = [this._buildBoolQuery()];
+  }
+
+  /**
+   * The rank_window_size to send: the `rankWindowSize()` value when it was
+   * set, otherwise the default raised to cover `from + size` and every
+   * rescore `windowSize` (Elasticsearch rejects rrf and linear windows
+   * smaller than `size`, and returns nothing past the window).
+   */
+  private _getRankWindow(page: PageWindow): number {
+    if (this._rankWindowSizeSet) {
+      return this._rankWindowSize;
     }
-    return { linear };
+    const rescoreWindows = (this._rescore ?? []).map((r) => r.window_size ?? 0);
+    return Math.max(
+      this._rankWindowSize,
+      page.from + page.size,
+      ...rescoreWindows,
+    );
+  }
+
+  /**
+   * Throw for retriever-path state Elasticsearch rejects (a top-level
+   * `sort` or `search_after` with `retriever`) or that has nowhere to go
+   * (score functions and random order wrap a query, and there is none).
+   * @throws TypeError naming every such setting
+   */
+  private _assertRetrieverState(includeSearchAfter: boolean) {
+    const problems: string[] = [];
+    if (this._sorts.length > 0) {
+      problems.push('sort() (Elasticsearch rejects [retriever] with [sort])');
+    }
+    if (
+      includeSearchAfter &&
+      Array.isArray(this._searchAfter) &&
+      this._searchAfter.length > 0
+    ) {
+      problems.push(
+        'searchAfter() (Elasticsearch rejects [retriever] with ' +
+          '[search_after]; page with page() instead)',
+      );
+    }
+    if (this._shouldSortByRandom) {
+      problems.push('sortByRandom() (it needs a query to wrap)');
+    }
+    if (this._functionScores.length > 0) {
+      problems.push('scoreFunction() (it needs a query to wrap)');
+    }
+    if (problems.length > 0) {
+      throw new TypeError(
+        'Retrievers (knn, semantic, rrf, weightedSemantic) cannot be ' +
+          `combined with ${problems.join(', ')}. Remove them or the ` +
+          "retrievers (e.g. reset('sorts')).",
+      );
+    }
+  }
+
+  /**
+   * Build the body's `retriever` from the stored retrievers: a lone
+   * retriever (with the conditions as its own `filter`), or a `linear`
+   * retriever over several, whose `filter` holds the conditions. With
+   * rescore phases, that retriever is wrapped in a `rescorer` retriever.
+   * @throws RangeError for windows Elasticsearch would reject: an rrf or
+   *   linear rank_window_size below the `size` sent (Elasticsearch checks
+   *   only a `size` the request sends)
+   */
+  private _getRetrieverBody(
+    hasConditions: boolean,
+    page: PageWindow,
+  ): RetrieverContainer {
+    const rankWindow = this._getRankWindow(page);
+    const compound =
+      this._retrievers.length > 1 ||
+      this._retrievers.some(
+        (r) => r.type === 'rrf' || r.type === 'weightedSemantic',
+      );
+    if (compound && page.sizeSent && rankWindow < page.size) {
+      throw new RangeError(
+        `rankWindowSize(${rankWindow}) is smaller than the page size ` +
+          `${page.size}; Elasticsearch rejects an rrf or linear retriever ` +
+          'whose rank_window_size is below size. Raise rankWindowSize() or ' +
+          "reset('rankWindowSize') to let it follow limit() and page().",
+      );
+    }
+    const retrievers = this._buildInnerRetrievers(rankWindow);
+    let retriever: RetrieverContainer;
+    if (retrievers.length === 1) {
+      retriever = retrievers[0].retriever;
+      if (hasConditions) {
+        retriever = withRetrieverFilter(retriever, this._buildBoolQuery());
+      }
+    } else {
+      // The normalizer goes on each inner retriever only: Elasticsearch 9.1
+      // rejects a top-level linear normalizer together with retrievers.
+      const linear: estypes.LinearRetriever = {
+        retrievers,
+        rank_window_size: rankWindow,
+      };
+      if (hasConditions) {
+        linear.filter = [this._buildBoolQuery()];
+      }
+      retriever = { linear };
+    }
+    const rescore = this._getRetrieverRescore(page, rankWindow, compound);
+    if (rescore.length > 0) {
+      return { rescorer: { retriever, rescore } };
+    }
+    return retriever;
+  }
+
+  /**
+   * The rescore phases for a `rescorer` retriever. A phase without a
+   * `windowSize` gets the rank window. Elasticsearch rejects a rescorer
+   * whose window is below the `size` sent, or above the rank_window_size of
+   * the rrf or linear retriever it wraps.
+   * @throws RangeError for such a window
+   */
+  private _getRetrieverRescore(
+    page: PageWindow,
+    rankWindow: number,
+    compound: boolean,
+  ): SearchRescore[] {
+    const phases = this.getRescore() ?? [];
+    for (const phase of phases) {
+      const explicit = phase.window_size !== undefined;
+      phase.window_size ??= rankWindow;
+      const name = explicit
+        ? `rescore() windowSize ${phase.window_size}`
+        : `rankWindowSize(${phase.window_size}), the default rescore window,`;
+      if (page.sizeSent && phase.window_size < page.size) {
+        throw new RangeError(
+          `${name} is smaller than the page size ${page.size}; with ` +
+            'retrievers, rescore uses a rescorer retriever, which ' +
+            'Elasticsearch rejects when its window_size is below size.',
+        );
+      }
+      if (compound && phase.window_size > rankWindow) {
+        throw new RangeError(
+          `${name} is larger than rankWindowSize(${rankWindow}); ` +
+            'Elasticsearch rejects a rescorer window larger than the ' +
+            'rank_window_size of the retriever it rescores.',
+        );
+      }
+    }
+    return phases;
   }
 
   /** Build one stored retriever's DSL with the current rank settings */
-  private _buildRetriever(intent: RetrieverIntent): RetrieverContainer {
+  private _buildRetriever(
+    intent: RetrieverIntent,
+    rankWindow: number,
+  ): RetrieverContainer {
     if (intent.type === 'knn') {
       return { knn: structuredClone(intent.knn) };
     }
@@ -2853,7 +3066,7 @@ export default class QueryBuilder<Field extends string = string> {
     return {
       rrf: {
         retrievers: [lexical, semanticRetriever(semanticField, phrase)],
-        rank_window_size: this._rankWindowSize,
+        rank_window_size: rankWindow,
         rank_constant: this._rankConstant,
       },
     };
@@ -3638,6 +3851,7 @@ export default class QueryBuilder<Field extends string = string> {
         this._normalizer = empty.getNormalizer();
       } else if (field === 'rankWindowSize') {
         this._rankWindowSize = empty.getRankWindowSize();
+        this._rankWindowSizeSet = false;
       } else if (field === 'rankConstant') {
         this._rankConstant = empty.getRankConstant();
       } else if (field === 'rescore') {
@@ -3659,34 +3873,20 @@ export default class QueryBuilder<Field extends string = string> {
   }
 
   /**
-   * Create a deep copy of this instance. All accumulated state is cloned
-   * with structuredClone so that mutating the copy (or the original) does
-   * not affect the other.
+   * Create a deep copy of this builder, of the same class (a subclass's
+   * clone is an instance of that subclass, with its own fields copied).
+   * Arrays, plain objects and dates in the state are copied, so changing
+   * the copy (or the original) does not affect the other; functions and
+   * class instances inside clauses are shared, never a reason to throw.
+   * @returns A builder of the same class with the same state
    */
-  clone(): QueryBuilder<Field> {
-    const copy = new QueryBuilder<Field>({ index: this._index });
-    copy._fields = structuredClone(this._fields);
-    copy._excludeFields = structuredClone(this._excludeFields);
-    copy._must = structuredClone(this._must);
-    copy._filter = structuredClone(this._filter);
-    copy._aggs = structuredClone(this._aggs);
-    copy._functionScores = structuredClone(this._functionScores);
-    copy._highlighter = structuredClone(this._highlighter);
-    copy._limit = this._limit;
-    copy._limitFromAggregations = this._limitFromAggregations;
-    copy._page = this._page;
-    copy._sorts = structuredClone(this._sorts);
-    copy._retrievers = structuredClone(this._retrievers);
-    copy._normalizer = this._normalizer;
-    copy._rankWindowSize = this._rankWindowSize;
-    copy._rankConstant = this._rankConstant;
-    copy._rescore = structuredClone(this._rescore);
-    copy._minScore = this._minScore;
-    copy._searchAfter = structuredClone(this._searchAfter);
-    copy._trackTotalHits = this._trackTotalHits;
-    copy._shouldSortByRandom = this._shouldSortByRandom;
-    copy._randomScore = structuredClone(this._randomScore);
-    copy._functionScoreOptions = { ...this._functionScoreOptions };
+  clone(): this {
+    const copy = Object.create(Object.getPrototypeOf(this)) as this;
+    const source = this as unknown as Record<string, unknown>;
+    const target = copy as unknown as Record<string, unknown>;
+    for (const key of Object.keys(source)) {
+      target[key] = copyState(source[key]);
+    }
     return copy;
   }
 
@@ -4125,105 +4325,103 @@ export default class QueryBuilder<Field extends string = string> {
   }
 
   //
-  // Section 6/6: Builders including getMust/getBody/toJSON/valueOf/toString
+  // Section 6/6: Builders including getMust/getBody/toJSON/toString
   //
 
   /**
-   * Get the function score definition
+   * Get a copy of the score functions added with `scoreFunction()` or
+   * `decayFunctionScore()`
    */
-  getFunctionScores() {
-    return this._functionScores;
+  getFunctionScores(): QueryDslFunctionScoreContainer[] {
+    return copyState(this._functionScores);
   }
 
   /**
-   * Get the current array of "must" filters
-   * @return The must filters
+   * Get a copy of the scoring conditions (`bool.must` clauses)
+   * @return The must clauses
    */
   getMust(): QueryDslQueryContainer[] {
-    return this._must;
+    return copyState(this._must);
   }
 
   /**
-   * Return the builder body
+   * Build the search body: `query` (or `retriever`), `sort`, `highlight`,
+   * `aggs` and `rescore`. The result is a new object on every call;
+   * changing it does not change the builder.
+   *
+   * With retrievers (`knn`, `semantic`, `rrf`, `weightedSemantic`):
+   * - all conditions, scoring or not, become the retriever's filter: they
+   *   exclude documents but do not change the rank. A lone retriever takes
+   *   them as its own `filter`; several are combined in a `linear`
+   *   retriever whose `filter` holds them.
+   * - rank_window_size is raised to cover `from + size` and every rescore
+   *   window, unless `rankWindowSize()` was called.
+   * - rescore phases become a `rescorer` retriever around the others;
+   *   a phase without `windowSize` uses the rank window.
+   * - `minScore()` and `trackTotalHits()` still apply.
+   * @throws TypeError with retrievers plus `sort()`, `searchAfter()`,
+   *   `sortByRandom()` or score functions, and for rescore combined with a
+   *   sort other than a lone `_score` descending (Elasticsearch rejects or
+   *   would ignore each of these)
+   * @throws RangeError with retrievers when an explicit `rankWindowSize()`
+   *   or rescore `windowSize` is below `limit()`, or a rescore window is
+   *   above the rank window of an rrf or linear retriever
    */
-  getBody() {
+  getBody(): SearchRequest {
+    return this._buildBody(this._pageWindow());
+  }
+
+  /** `getBody()` for the given paging (`getQuery()` overrides apply) */
+  private _buildBody(page: PageWindow): SearchRequest {
     const body: SearchRequest = {};
-
-    // Determine what we're working with
-    const hasLinearRetrievers = this._retrievers.length > 0;
-    const hasFilters = this._must.length > 0 || this._filter.length > 0;
-
-    // Build the retriever
-    if (hasLinearRetrievers) {
-      // RETRIEVER PATH: a lone retriever, or linear with conditions
-      body.retriever = this._getRetrieverBody(hasFilters);
-    } else if (hasFilters) {
-      // STANDARD RETRIEVER PATH (with query)
+    const hasConditions = this._must.length > 0 || this._filter.length > 0;
+    if (this._retrievers.length > 0) {
+      this._assertRetrieverState(false);
+      body.retriever = this._getRetrieverBody(hasConditions, page);
+    } else {
       body.query = this._applyScoreFunctions(this._buildBoolQuery());
       const sorts = this._getSortClauses();
       if (sorts.length > 0) {
         body.sort = sorts;
       }
-    } else {
-      // match all documents
-      body.query = this._applyScoreFunctions({ match_all: {} });
-      const sorts = this._getSortClauses();
-      if (sorts.length > 0) {
-        body.sort = sorts;
-      }
     }
-
-    // Add highlighting if specified
     if (!isEmptyObject(this._highlighter.fields)) {
       body.highlight = structuredClone(this._highlighter);
     }
-
-    // Add aggregations if specified
     if (!isEmptyObject(this._aggs)) {
       body.aggs = this.getAggs();
     }
-
-    // Add rescore if specified and supported (requires a standard query retriever)
-    if (this._rescore && this._rescore.length > 0) {
-      let canRescore = false;
-      if (body.query) {
-        canRescore = true;
-      } else if (body.retriever?.linear) {
-        const retrs = (body.retriever.linear.retrievers ||
-          []) as InnerRetriever[];
-        canRescore =
-          Array.isArray(retrs) && retrs.some((r) => r?.retriever?.standard);
-      }
-      if (canRescore) {
-        body.rescore = this.getRescore();
-        if (body.sort) {
-          assertRescoreSort([body.sort].flat());
-        }
+    // On the retriever path, _getRetrieverBody() added a rescorer retriever
+    if (body.query && this._rescore && this._rescore.length > 0) {
+      body.rescore = this.getRescore();
+      if (body.sort) {
+        assertRescoreSort([body.sort].flat());
       }
     }
-
     return body;
   }
 
   /**
-   * Build one query from the conditions: `match_all` when there are none, a
-   * lone `must` clause as is, otherwise a `bool` with `must` and/or `filter`.
+   * Build one query from copies of the conditions: `match_all` when there
+   * are none, a lone `must` clause as is, otherwise a `bool` with `must`
+   * and/or `filter`.
    */
   private _buildBoolQuery(): QueryDslQueryContainer {
+    const must = copyState(this._must);
     if (this._filter.length === 0) {
-      if (this._must.length === 0) {
+      if (must.length === 0) {
         return { match_all: {} };
       }
-      if (this._must.length === 1) {
-        return this._must[0];
+      if (must.length === 1) {
+        return must[0];
       }
-      return { bool: { must: this._must } };
+      return { bool: { must } };
     }
     const bool: estypes.QueryDslBoolQuery = {};
-    if (this._must.length > 0) {
-      bool.must = this._must;
+    if (must.length > 0) {
+      bool.must = must;
     }
-    bool.filter = this._filter;
+    bool.filter = copyState(this._filter);
     return { bool };
   }
 
@@ -4282,8 +4480,11 @@ export default class QueryBuilder<Field extends string = string> {
   }
 
   /**
-   * Return the "size" and "from" based on "limit" and "page"
-   * @return The options to send in the builder
+   * Return the search options: `size` and `from` (from `limit()` and
+   * `page()`), `min_score`, `search_after` and `track_total_hits`.
+   * @throws TypeError when `searchAfter()` is combined with `page() > 1`,
+   *   or with retrievers (Elasticsearch rejects both)
+   * @return The options to send with the body
    */
   getOptions() {
     const options: Pick<
@@ -4293,12 +4494,15 @@ export default class QueryBuilder<Field extends string = string> {
     if (this._limit !== null) {
       options.size = this._limit;
     }
-    const from = (this._limit ?? DEFAULT_PAGE_SIZE) * (this._page - 1);
+    const { from } = this._pageWindow();
     if (from > 0) {
       options.from = from;
     }
     if (typeof this._minScore === 'number') {
       options.min_score = this._minScore;
+    }
+    if (this._retrievers.length > 0) {
+      this._assertRetrieverState(true);
     }
     if (Array.isArray(this._searchAfter) && this._searchAfter.length > 0) {
       if (options.from !== undefined) {
@@ -4320,15 +4524,19 @@ export default class QueryBuilder<Field extends string = string> {
   }
 
   /**
-   * Get an object representation of the builder body
-   * suitable for the Elasticsearch SDK or Kibana
-   * @return {Object}
+   * Get the full search request (`index`, `_source`, `getBody()` and
+   * `getOptions()`) for the Elasticsearch client's `search()`. The result is
+   * a new object on every call.
+   * @param overrides  Keys that replace the builder's; an overriding `size`
+   *   or `from` is also what the retriever windows are sized for
+   * @throws TypeError/RangeError as `getBody()` and `getOptions()` do
+   * @return The search request
    */
   getQuery(overrides: Partial<SearchRequest> = {}): SearchRequest {
     return {
       ...(this._index ? { index: this._index } : {}),
       _source: this._getSource(),
-      ...this.getBody(),
+      ...this._buildBody(this._pageWindow(overrides)),
       ...this.getOptions(),
       ...overrides,
     };
@@ -4360,13 +4568,6 @@ export default class QueryBuilder<Field extends string = string> {
   }
 
   /**
-   * For getting value, simply use the value returned from getQuery()
-   */
-  valueOf() {
-    return this.getQuery();
-  }
-
-  /**
    * Debug to string
    */
   toString() {
@@ -4374,13 +4575,21 @@ export default class QueryBuilder<Field extends string = string> {
   }
 
   /**
-   * Get a full Kibana builder string for the given builder
-   * @param {String} indexOverride  The index to pull the name from
-   * @return {String}
+   * Get the search as a Kibana Dev Tools console request:
+   * `GET <index>/_search` (or `GET _search` when there is no index) and the
+   * body as JSON.
+   * @param indexOverride  The index to search instead of the builder's
+   * @return The console request
+   * @example
+   *   new QueryBuilder({ index: 'books' }).toKibana();
+   *   // GET books/_search
+   *   // { "_source": ["*"], "query": { "match_all": {} } }
    */
   toKibana(indexOverride?: string): string {
     const { index, ...query } = this.getQuery();
     const json = JSON.stringify(query, null, 4);
-    return `GET ${indexOverride || this._index}/_search\n${json}`;
+    const target = indexOverride || this._index;
+    const path = target ? `${target}/_search` : '_search';
+    return `GET ${path}\n${json}`;
   }
 }

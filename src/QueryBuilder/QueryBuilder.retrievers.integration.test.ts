@@ -175,13 +175,27 @@ describe('linear retriever settings (B-043, S-018)', () => {
   kit.testIf('retrievers')(
     'applies weight and a normalizer set after knn()',
     async () => {
-      // the linear retriever is used because a condition is present
-      const minmax = towardX({ weight: 2 }).range('rating', '>=', 0);
+      // QB9 (S-057): a lone retriever takes conditions as its own filter;
+      // a second retriever with weight 0 is what makes this linear
+      const zero = {
+        field: 'embedding',
+        vector: [0, 0, 1],
+        k: 6,
+        numCandidates: 10,
+        weight: 0,
+      } as const;
+      const minmax = towardX({ weight: 2 })
+        .knn({ ...zero, vector: [...zero.vector] })
+        .range('rating', '>=', 0);
+      expect(minmax.getBody().retriever?.linear).toBeDefined();
       const minmaxHits = hitsOf(await searchPlaces(minmax));
       expect(minmaxHits[0]).toEqual(['1', 2]);
       expect(minmaxHits.at(-1)?.[1]).toBeCloseTo(0, 5);
 
-      const none = towardX().range('rating', '>=', 0).normalizer('none');
+      const none = towardX()
+        .knn({ ...zero, vector: [...zero.vector] })
+        .range('rating', '>=', 0)
+        .normalizer('none');
       const noneHits = hitsOf(await searchPlaces(none));
       expect(noneHits[0]?.[0]).toBe('1');
       // the raw knn score (1 + cosine) / 2, not normalized to 1

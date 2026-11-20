@@ -303,8 +303,11 @@ describe('QueryBuilder.semantic() (B-043, B-092)', () => {
   });
 
   it('applies the normalizer set after it, in the linear retriever too', () => {
+    // QB9 (S-057): a lone retriever takes conditions as its own filter, so
+    // a second retriever is what makes this a linear retriever
     const qb = new QueryBuilder<Field>()
       .semantic({ field: 'body_semantic', phrase: 'bread', weight: 2 })
+      .semantic({ field: 'body_semantic', phrase: 'toast' })
       .term('tag', 'a')
       .normalizer('l2_norm')
       .rankWindowSize(30);
@@ -314,6 +317,11 @@ describe('QueryBuilder.semantic() (B-043, B-092)', () => {
           {
             retriever: semanticStandard('bread'),
             weight: 2,
+            normalizer: 'l2_norm',
+          },
+          {
+            retriever: semanticStandard('toast'),
+            weight: 1,
             normalizer: 'l2_norm',
           },
         ],
