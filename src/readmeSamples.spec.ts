@@ -109,9 +109,76 @@ function compileSamples(samples: Sample[], strict: boolean) {
   });
 }
 
+/** Split a Markdown table row into cells, keeping escaped pipes (`\|`) */
+function getCells(row: string): string[] {
+  const inner = row.trim().replace(/^\|/, '').replace(/\|$/, '');
+  return inner.split(/(?<!\\)\|/).map((cell) => cell.trim());
+}
+
+/**
+ * The examples in the "Example" column of the tables in the "Query Builder
+ * function quick reference" section: every inline code span is one
+ * expression on a builder named `qb`. Each is compiled as its own module,
+ * with the header on the same line so diagnostics point at the table row.
+ */
+function getTableExamples(markdown: string): Sample[] {
+  const lines = markdown.split('\n');
+  const start = lines.findIndex((text) =>
+    text.startsWith('## Query Builder function quick reference'),
+  );
+  if (start === -1) {
+    return [];
+  }
+  const examples: Sample[] = [];
+  let exampleColumn = -1;
+  let inTable = false;
+  for (let i = start + 1; i < lines.length; i++) {
+    const text = lines[i];
+    if (text.startsWith('## ')) {
+      break;
+    }
+    if (!text.startsWith('|')) {
+      inTable = false;
+      continue;
+    }
+    const cells = getCells(text);
+    if (!inTable) {
+      inTable = true;
+      exampleColumn = cells.indexOf('Example');
+      continue;
+    }
+    if (exampleColumn === -1 || /^\|[\s|:-]+\|$/.test(text.trim())) {
+      continue;
+    }
+    const cell = cells[exampleColumn] ?? '';
+    for (const match of cell.matchAll(/`([^`]+)`/g)) {
+      const code = match[1].replaceAll('\\|', '|');
+      const line = i + 1;
+      examples.push({
+        line,
+        code,
+        fileName: path.join(
+          root,
+          `README.table-line-${line}-${examples.length}.ts`,
+        ),
+      });
+    }
+  }
+  return examples;
+}
+
+const tableHeader =
+  "import { QueryBuilder } from 'es-query-pro'; " +
+  'declare const qb: QueryBuilder; ';
+
 const readme = await Bun.file(path.join(root, 'README.md')).text();
 const blocks = getTsBlocks(readme);
 const samples = blocks.filter((block) => importsLibrary(block.code));
+const tableExamples = getTableExamples(readme);
+const tableSamples = tableExamples.map((example) => ({
+  ...example,
+  code: `${tableHeader}${example.code};\n`,
+}));
 
 /**
  * Removed APIs and settings. Split so that the repository-wide check
@@ -160,4 +227,66 @@ describe('README samples', () => {
   it('type-checks every sample in non-strict mode', () => {
     expect(compileSamples(samples, false)).toEqual([]);
   }, 60_000);
+});
+
+describe('README quick reference examples', () => {
+  it('finds an example in every table row', () => {
+    expect(tableExamples.length).toBeGreaterThan(60);
+    const lines = readme.split('\n');
+    const start = lines.findIndex((text) =>
+      text.startsWith('## Query Builder function quick reference'),
+    );
+    const end = lines.findIndex(
+      (text, i) => i > start && text.startsWith('## '),
+    );
+    const rowsWithExampleColumn: number[] = [];
+    let hasExampleColumn = false;
+    let inTable = false;
+    for (let i = start + 1; i < end; i++) {
+      const text = lines[i];
+      if (!text.startsWith('|')) {
+        inTable = false;
+        continue;
+      }
+      if (!inTable) {
+        inTable = true;
+        hasExampleColumn = getCells(text).includes('Example');
+        continue;
+      }
+      if (hasExampleColumn && !/^\|[\s|:-]+\|$/.test(text.trim())) {
+        rowsWithExampleColumn.push(i + 1);
+      }
+    }
+    const covered = new Set(tableExamples.map((example) => example.line));
+    const missing = rowsWithExampleColumn
+      .filter((line) => !covered.has(line))
+      .map((line) => `README.md:${line}`);
+    expect(missing).toEqual([]);
+  });
+
+  it('type-checks every example in strict mode', () => {
+    expect(compileSamples(tableSamples, true)).toEqual([]);
+  }, 60_000);
+
+  it('type-checks every example in non-strict mode', () => {
+    expect(compileSamples(tableSamples, false)).toEqual([]);
+  }, 60_000);
+
+  it('runs every example on a fresh builder without throwing', async () => {
+    const { QueryBuilder } = await import('../index');
+    const failures: string[] = [];
+    for (const example of tableExamples) {
+      const js = ts.transpileModule(example.code, {
+        compilerOptions: { target: ts.ScriptTarget.ESNext },
+      }).outputText;
+      const qb = new QueryBuilder();
+      try {
+        new Function('qb', 'QueryBuilder', js)(qb, QueryBuilder);
+        qb.getQuery();
+      } catch (e) {
+        failures.push(`README.md:${example.line}: ${(e as Error).message}`);
+      }
+    }
+    expect(failures).toEqual([]);
+  });
 });

@@ -51,7 +51,7 @@ function getAllExportNames() {
 }
 
 describe('public runtime exports', () => {
-  it('exports exactly the runtime values of 3.0.0-beta.3', () => {
+  it('exports exactly the runtime values of 3.0.0-beta.4', () => {
     expect(Object.keys(api).sort()).toEqual([
       'IndexManager',
       'IndexNameManager',
@@ -136,15 +136,83 @@ describe('public type exports', () => {
       Parameters<Api.QueryBuilderProvider<'title'>>[0]
     >().toEqualTypeOf<Api.QueryBuilder<'title'>>();
     expectTypeOf<Api.IndexErrorKind>().toEqualTypeOf<
-      'response' | 'connection' | 'timeout' | 'disconnected' | 'javascript'
+      | 'response'
+      | 'connection'
+      | 'timeout'
+      | 'disconnected'
+      | 'aborted'
+      | 'serialization'
+      | 'product'
+      | 'configuration'
+      | 'javascript'
     >();
     expectTypeOf<Api.QueryRecord<Books>>().toHaveProperty('_score');
+  });
+
+  it('exports the status, lifecycle and migration code unions', () => {
+    expectTypeOf<Api.StatusSummary>().toEqualTypeOf<
+      | 'unknown'
+      | 'newerVersionPresent'
+      | 'needsMigration'
+      | 'aliasConflict'
+      | 'needsCreation'
+      | 'needsAlias'
+      | 'current'
+    >();
+    expectTypeOf<Api.IndexLifecycleCode>().toEqualTypeOf<
+      | 'CREATED'
+      | 'ALREADY_EXISTS'
+      | 'ALIAS_CREATED'
+      | 'NEEDS_MIGRATION'
+      | 'NEWER_VERSION_PRESENT'
+      | 'ALIAS_CONFLICT'
+      | 'EXISTS_CHECK_ERROR'
+      | 'CREATE_ERROR'
+      | 'ALIAS_ERROR'
+      | 'DROP_ERROR'
+      | 'FLUSH_ERROR'
+    >();
+    expectTypeOf<Api.MigrationCode>().toEqualTypeOf<
+      | 'CREATED'
+      | 'ALIAS_CREATED'
+      | 'CURRENT'
+      | 'MIGRATION_STARTED'
+      | 'MIGRATION_RESUMED'
+      | 'NEWER_VERSION_PRESENT'
+      | 'INCOMPARABLE_VERSION'
+      | 'ALIAS_CONFLICT'
+      | 'STATUS_ERROR'
+      | 'COUNT_ERROR'
+      | 'CREATE_ERROR'
+      | 'ALIAS_ERROR'
+      | 'REINDEX_ERROR'
+    >();
+    expectTypeOf<
+      Exclude<Api.MigrationOutcomeCode, Api.MigrationCode>
+    >().toEqualTypeOf<
+      | 'MIGRATED'
+      | 'REINDEX_FAILED'
+      | 'POLL_ERROR'
+      | 'TIMEOUT'
+      | 'SWAP_ERROR'
+      | 'VERIFY_FAILED'
+    >();
+    expectTypeOf<
+      Awaited<ReturnType<BooksIndex['migrateIfNeeded']>>
+    >().toEqualTypeOf<Api.MigrationResult>();
+    expectTypeOf<
+      Api.SchemaDropCode | Api.SchemaRecreateCode
+    >().toMatchTypeOf<string>();
   });
 
   it('exports exactly these names (values and types)', () => {
     const names = getAllExportNames();
     expect(removedNames.filter((name) => names.includes(name))).toEqual([]);
     expect(names).toEqual([
+      'AggregateDateHistogramOptions',
+      'AggregateGeotileGridOptions',
+      'AggregateHistogramOptions',
+      'AggregateTermOptions',
       'AggregationsAggregateOrder',
       'AggregationsAggregationContainer',
       'AggregationsCompositeAggregationSource',
@@ -154,19 +222,34 @@ describe('public type exports', () => {
       'AliasExistsShape',
       'AliasMetadataParams',
       'AliasMetadataShape',
+      'AnyIndexManager',
       'BoostOperator',
       'BulkRequestParams',
+      'CompositeAggregationOptions',
+      'CompositeDateHistogramSource',
+      'CompositeGeotileGridSource',
+      'CompositeHistogramSource',
+      'DateHistogramInterval',
+      'DateHistogramOptions',
       'DeleteRequestShape',
       'ErrorCause',
       'FieldType',
       'FieldTypeOrTypes',
       'FlushRequestParams',
+      'FunctionScoreOptions',
       'GetRequestParams',
+      'HighlightDefinition',
+      'IndexCountParams',
       'IndexCreateAliasIfNeededResult',
       'IndexCreateAliasResult',
       'IndexCreateIfNeededResult',
+      'IndexCreateOnlyResult',
       'IndexCreateParams',
+      'IndexCreateRequestShape',
       'IndexCreateResult',
+      'IndexDeleteByIdParams',
+      'IndexDeleteManyParams',
+      'IndexDeleteManyResult',
       'IndexDeleteResult',
       'IndexDropAliasResult',
       'IndexDropResult',
@@ -174,35 +257,62 @@ describe('public type exports', () => {
       'IndexErrorShape',
       'IndexExistParams',
       'IndexExistsShape',
+      'IndexFindByIdParams',
+      'IndexFindByIdResult',
       'IndexFlushResult',
       'IndexInferCreate',
       'IndexInferFields',
       'IndexInferRecordShape',
+      'IndexLifecycleCode',
       'IndexManager',
       'IndexMetadataParams',
       'IndexMetadataShape',
+      'IndexMigrateResult',
+      'IndexName',
+      'IndexNameAttributes',
       'IndexNameManager',
+      'IndexNameRelation',
+      'IndexPatchParams',
       'IndexPatchResult',
+      'IndexPutBulkOptions',
+      'IndexPutBulkParams',
+      'IndexPutBulkReportRow',
       'IndexPutBulkResult',
+      'IndexPutParams',
       'IndexPutResult',
+      'IndexRecordId',
+      'IndexRecreateResult',
       'IndexRunShape',
+      'IndexSiblingIndexesResult',
       'IndexStatusReport',
       'InferenceCohereSimilarityType',
       'InnerRetriever',
       'IntervalType',
+      'KnnOptions',
       'KnnRetriever',
       'ManageOptions',
       'MappingFieldPath',
       'MappingFulltextPath',
       'MappingRecord',
+      'MigrationCode',
+      'MigrationOutcome',
+      'MigrationOutcomeCode',
+      'MigrationParams',
+      'MigrationPassPhase',
+      'MigrationPassReport',
+      'MigrationPhase',
       'MigrationProgressDetails',
+      'MigrationRequest',
+      'MigrationResult',
       'MoreLikeThisLikeParams',
       'MoreLikeThisOptions',
+      'NestedOptions',
       'PatchRequestParams',
       'Prettify',
       'PutRequestParams',
       'QueryBuilder',
       'QueryBuilderProvider',
+      'QueryCountParams',
       'QueryCountResult',
       'QueryDslChildScoreMode',
       'QueryDslDecayFunctionBase',
@@ -214,29 +324,60 @@ describe('public type exports', () => {
       'QueryDslQueryContainer',
       'QueryFindFirstResult',
       'QueryFindManyResult',
+      'QueryFindParams',
+      'QueryNotFoundError',
       'QueryRecord',
       'QueryRunner',
+      'QueryStringOptions',
+      'QueryUpdateManyParams',
+      'QueryUpdateManyResult',
+      'QueryUpdateValues',
+      'RandomSortOptions',
       'RangeBound',
       'RangeOperator',
+      'RangeOptions',
       'RangeShape',
+      'RegexpOptions',
+      'RescoreOptions',
+      'ResetName',
       'RetrieverContainer',
+      'RrfOptions',
+      'SchemaDropCode',
+      'SchemaDropReport',
       'SchemaDropResultShape',
+      'SchemaFleetResult',
       'SchemaMigrationDetails',
       'SchemaMigrationOutcome',
       'SchemaMigrationParams',
       'SchemaMigrationReport',
       'SchemaMigrationResultShape',
+      'SchemaNamedIndexes',
+      'SchemaRecreateCode',
+      'SchemaRecreateReport',
+      'SchemaRecreateResultShape',
       'SchemaRegistry',
       'SchemaStatusResultShape',
       'ScoreNormalizer',
       'SearchInnerHits',
       'SearchRequest',
       'SearchRescore',
+      'SemanticOptions',
+      'ShouldOptions',
+      'SiblingIndexes',
+      'SimpleQueryStringOptions',
+      'SortClause',
       'SortCombinations',
       'SortDirection',
       'SortOrder',
       'SortResults',
       'StatusReport',
+      'StatusSummary',
+      'TermOptions',
+      'TermValue',
+      'TermsOrderBy',
+      'TermsSetOptions',
+      'WeightedSemanticOptions',
+      'WildcardOptions',
       'englishplus',
       'getAllFields',
       'getFulltextFields',

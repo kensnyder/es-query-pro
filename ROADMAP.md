@@ -16,9 +16,9 @@ already implemented.
 - client.update() ✅
 - client.delete() ✅
 - client.bulk() ✅
-- client.reindex()
-- client.updateByQuery()
-- client.deleteByQuery()
+- client.reindex() ✅
+- client.updateByQuery() ✅
+- client.deleteByQuery() ✅
 - client.indices.create() ✅
 - client.indices.createFromSource()
 - client.indices.delete() ✅
@@ -44,7 +44,7 @@ already implemented.
 - client.indices.getAlias() ✅
 - client.indices.existsAlias() ✅
 - client.indices.deleteAlias() ✅
-- client.indices.updateAliases()
+- client.indices.updateAliases() ✅
 - client.indices.resolveIndex()
 - client.indices.getDataStream()
 - client.indices.createDataStream()
@@ -52,7 +52,7 @@ already implemented.
 - client.indices.migrateToDataStream()
 - must ✅
 - must_not ✅
-- filter
+- filter ✅
 - exists ✅
 - query_string ✅
 - multi_match ✅
