@@ -25,7 +25,7 @@ Tests use `bun:test` (`import { describe, it, test } from 'bun:test'`), not vite
 Two kinds of test files exist side by side:
 
 - `*.spec.ts` — pure unit tests, no external services required.
-- `*.integration.test.ts` — hit a real Elasticsearch instance (env vars `ES_ENDPOINT`, `ES_API_KEY` or `ES_USERNAME`/`ES_PASSWORD`, `ES_VERSION`). CI spins up an ES 9.1 Docker service for these (see `.github/workflows/tests.yml`); locally you need Elasticsearch running to pass them.
+- `*.integration.test.ts` — hit a real Elasticsearch instance (env vars `ES_ENDPOINT`, `ES_API_KEY` or `ES_USERNAME`/`ES_PASSWORD`, `ES_VERSION`). CI runs them against a matrix of Elasticsearch versions, each as a Docker service (see `.github/workflows/tests.yml`; to refresh the versions, follow `docs/rules/update-elasticsearch-test-matrix.md`); locally you need Elasticsearch running to pass them.
 
 ## Architecture
 
