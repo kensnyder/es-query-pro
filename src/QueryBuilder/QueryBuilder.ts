@@ -57,7 +57,7 @@ type CompositeSourceWithField<
 /**
  * ElasticSearch query builder (ElasticSearch 9 only)
  */
-export default class QueryBuilder {
+export default class QueryBuilder<Field extends string = string> {
   /** The index to query from - used by getQuery() */
   public _index: string | undefined;
 
@@ -229,7 +229,7 @@ export default class QueryBuilder {
    *   qb.highlightField('content', { number_of_fragments: 1 });
    */
   highlightField(
-    name: string,
+    name: Field,
     overrideOptions: estypes.SearchHighlightField = {},
   ): this {
     this._highlighter.fields[name] = overrideOptions;
@@ -370,7 +370,7 @@ export default class QueryBuilder {
    * @example
    *   qb.range('price', 'between', [10, 20]);
    */
-  range(field: string, operator: RangeOperator, range: RangeShape): this {
+  range(field: Field, operator: RangeOperator, range: RangeShape): this {
     const opMap: Record<string, string> = {
       "<": "lt",
       lt: "lt",
@@ -457,7 +457,7 @@ export default class QueryBuilder {
     phrase,
     slop = 0,
   }: {
-    field: string;
+    field: Field;
     phrase: string;
     slop?: number;
   }): this {
@@ -487,7 +487,7 @@ export default class QueryBuilder {
     phrase,
     ...options
   }: Omit<estypes.QueryDslMatchPhrasePrefixQuery, "query"> & {
-    field: string;
+    field: Field;
     phrase: string;
   }): this {
     this._must.push({
@@ -519,7 +519,7 @@ export default class QueryBuilder {
     ...options
   }: Omit<QueryDslMatchQuery, "query"> & {
     phrase: string;
-    field: string;
+    field: Field;
   }): this {
     this._must.push({
       match: {
@@ -581,7 +581,7 @@ export default class QueryBuilder {
     operators = ["exact", "and"],
     weights = [1, 3, 5],
   }: {
-    field: string;
+    field: Field;
     phrase: string;
     operators?: BoostOperator[];
     weights?: number[];
@@ -656,8 +656,8 @@ export default class QueryBuilder {
     phrase,
     weight = 1,
   }: {
-    semanticField: string;
-    standardField: string;
+    semanticField: Field;
+    standardField: Field;
     boosts?: [number, number, number, number];
     phrase: string;
     weight?: number;
@@ -752,8 +752,8 @@ export default class QueryBuilder {
     phrase,
     weight,
   }: {
-    semanticField: string;
-    standardField: string;
+    semanticField: Field;
+    standardField: Field;
     phrase: string;
     weight: number;
   }): this {
@@ -809,7 +809,7 @@ export default class QueryBuilder {
     phrase,
     weight = 1,
   }: {
-    field: string;
+    field: Field;
     phrase: string;
     weight: number;
   }): this {
@@ -850,7 +850,7 @@ export default class QueryBuilder {
    *   qb.term({ field: 'status', value: 'active' });
    *   qb.term('tag', 'music');
    */
-  term(field: string | { field: string; value: any }, value?: any): this {
+  term(field: Field | { field: Field; value: any }, value?: any): this {
     const effectiveName = typeof field === "string" ? field : field.field;
     const effectiveValue = typeof field === "string" ? value : field.value;
     this._must.push({
@@ -873,7 +873,7 @@ export default class QueryBuilder {
    *   qb.wildcard('description.keyword', '*United Airlines*');
    */
   wildcard(
-    field: string | { field: string; value: string; caseSensitive?: boolean },
+    field: Field | { field: Field; value: string; caseSensitive?: boolean },
     value?: string,
   ): this {
     const effectiveName = typeof field === "string" ? field : field.field;
@@ -902,7 +902,7 @@ export default class QueryBuilder {
    *   qb.containExact('description.keyword', 'United Airlines');
    */
   containsExact(
-    field: string | { field: string; value: string; caseSensitive?: boolean },
+    field: Field | { field: Field; value: string; caseSensitive?: boolean },
     value?: string,
   ): this {
     const effectiveName = typeof field === "string" ? field : field.field;
@@ -933,7 +933,7 @@ export default class QueryBuilder {
    *   qb.rexgep('description.keyword', 'iP(od|ad|hone) \d+');
    */
   rexgep(
-    field: string | { field: string; value: string; caseSensitive?: boolean },
+    field: Field | { field: Field; value: string; caseSensitive?: boolean },
     value?: string,
   ): this {
     const effectiveName = typeof field === "string" ? field : field.field;
@@ -959,7 +959,7 @@ export default class QueryBuilder {
    *   qb.exists({ field: 'author' });
    *   qb.exists('publisher');
    */
-  exists(field: string | { field: string }): this {
+  exists(field: Field | { field: Field }): this {
     const effectiveField = typeof field === "string" ? field : field.field;
     this._must.push({ exists: { field: effectiveField } });
     return this;
@@ -979,9 +979,9 @@ export default class QueryBuilder {
    */
   queryString(
     field:
-      | string
+      | Field
       | {
-          field: string;
+          field: Field;
           queryString: string;
         },
     queryString?: string,
@@ -1013,7 +1013,7 @@ export default class QueryBuilder {
     like,
     ...options
   }: MoreLikeThisOptions & {
-    field: string;
+    field: Field;
     like: MoreLikeThisLikeParams;
   }): this {
     this._must.push({
@@ -1049,7 +1049,7 @@ export default class QueryBuilder {
     terms,
     script,
   }: {
-    field: string;
+    field: Field;
     terms: Array<string | number>;
     script?: string;
   }): this {
@@ -1086,7 +1086,7 @@ export default class QueryBuilder {
     filter,
     similarity,
   }: {
-    field: string;
+    field: Field;
     vector: number[];
     k: number;
     numCandidates?: number;
@@ -1146,14 +1146,14 @@ export default class QueryBuilder {
    *   );
    */
   rescore(
-    withBuilder: (qb: QueryBuilder) => void,
+    withBuilder: (qb: QueryBuilder<Field>) => void,
     {
       windowSize,
     }: {
       windowSize: number;
     },
   ): this {
-    const qb = new QueryBuilder();
+    const qb = new QueryBuilder<Field>();
     withBuilder(qb);
     const query = qb.getQuery();
     if (!query.query) {
@@ -1219,11 +1219,11 @@ export default class QueryBuilder {
     missing_bucket,
     missing_order,
   }: {
-    field: string;
+    field: Field;
     limit?: number;
     showTermDocCountError?: boolean;
     orderBy?: Array<{
-      field: string;
+      field: Field | "_count";
       order: SortOrder;
     }>;
     missing_bucket?: boolean;
@@ -1301,7 +1301,7 @@ export default class QueryBuilder {
     limit = 25,
     orderBy,
   }: {
-    field: string;
+    field: Field;
     interval: number;
     limit?: number;
     orderBy?: Array<CompositeSourceWithField<"histogram">>;
@@ -1369,7 +1369,7 @@ export default class QueryBuilder {
     order = "asc",
     orderBy,
   }: {
-    field: string;
+    field: Field;
     limit?: number;
     calendarInterval?: string;
     fixedInterval?: string;
@@ -1445,7 +1445,7 @@ export default class QueryBuilder {
     order = "asc",
     orderBy,
   }: {
-    field: string;
+    field: Field;
     precision: number;
     limit?: number;
     bounds?: { top_left: string; bottom_right: string };
@@ -1523,7 +1523,7 @@ export default class QueryBuilder {
     offset = null,
     timezone = "UTC",
   }: {
-    field: string;
+    field: Field;
     interval:
       | "year"
       | "quarter"
@@ -1761,8 +1761,8 @@ export default class QueryBuilder {
    * with structuredClone so that mutating the copy (or the original) does
    * not affect the other.
    */
-  clone(): QueryBuilder {
-    const copy = new QueryBuilder({ index: this._index });
+  clone(): QueryBuilder<Field> {
+    const copy = new QueryBuilder<Field>({ index: this._index });
     copy._fields = structuredClone(this._fields);
     copy._excludeFields = structuredClone(this._excludeFields);
     copy._must = structuredClone(this._must);
@@ -1854,7 +1854,7 @@ export default class QueryBuilder {
    * );
    */
   should(
-    withBuilders: Array<(qb: QueryBuilder, idx: number) => any>,
+    withBuilders: Array<(qb: QueryBuilder<Field>, idx: number) => any>,
     {
       minimumShouldMatch = 1,
     }: {
@@ -1863,7 +1863,7 @@ export default class QueryBuilder {
   ): this {
     if (withBuilders.length === 1) {
       // just a single condition - treat like must
-      const qb = new QueryBuilder();
+      const qb = new QueryBuilder<Field>();
       withBuilders[0](qb, 0);
       const musts = qb.getMust();
       if (musts.length > 0) {
@@ -1874,7 +1874,7 @@ export default class QueryBuilder {
     const bool: any = { should: [], minimum_should_match: minimumShouldMatch };
     for (let i = 0; i < withBuilders.length; i++) {
       // should match at least minimumShouldMatch conditions
-      const qb = new QueryBuilder();
+      const qb = new QueryBuilder<Field>();
       withBuilders[i](qb, i);
       const branch = qb.getMust();
       if (branch.length === 0) {
@@ -1896,8 +1896,8 @@ export default class QueryBuilder {
    * @example
    * query.mustNot(qb => qb.term('visibility', 'hidden'))
    */
-  mustNot(withBuilder: (qb: QueryBuilder) => any): this {
-    const qb = new QueryBuilder();
+  mustNot(withBuilder: (qb: QueryBuilder<Field>) => any): this {
+    const qb = new QueryBuilder<Field>();
     withBuilder(qb);
     this._must.push({ bool: { must_not: qb.getMust() } });
     return this;
@@ -1928,7 +1928,7 @@ export default class QueryBuilder {
    * })
    */
   shouldNot(
-    withBuilders: Array<(qb: QueryBuilder) => any>,
+    withBuilders: Array<(qb: QueryBuilder<Field>) => any>,
     shouldOptions: {
       minimumShouldMatch: number | string;
     },
@@ -1958,13 +1958,13 @@ export default class QueryBuilder {
     innerHits = undefined,
     ignoreUnmapped = false,
   }: {
-    query: (qb: QueryBuilder) => void;
-    path: string;
+    query: (qb: QueryBuilder<Field>) => void;
+    path: Field;
     scoreMode?: QueryDslChildScoreMode;
     innerHits?: SearchInnerHits;
     ignoreUnmapped?: boolean;
   }): this {
-    const qb = new QueryBuilder();
+    const qb = new QueryBuilder<Field>();
     query(qb);
     this._must.push({
       nested: {

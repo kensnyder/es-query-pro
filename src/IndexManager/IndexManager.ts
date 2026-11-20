@@ -91,9 +91,13 @@ export type StatusReport = {
   needsCreation: boolean;
   summary: 'needsCreation' | 'needsMigration' | 'current';
 };
-export type QueryBuilderProvider = (
-  builder: QueryBuilder,
-) => void | QueryBuilder | Promise<QueryBuilder> | Promise<void>;
+/**
+ * A callback that adds conditions to a `QueryBuilder`. `Field` is the union of
+ * field names the builder accepts (`string` when not statically known).
+ */
+export type QueryBuilderProvider<Field extends string = string> = (
+  builder: QueryBuilder<Field>,
+) => void | QueryBuilder<Field> | Promise<QueryBuilder<Field>> | Promise<void>;
 
 /**
  * Options for an `IndexManager`. The index's logical name comes from the
@@ -1271,7 +1275,7 @@ export default class IndexManager<
    * @returns A search result from `QueryRunner.findMany`.
    */
   findMany(
-    withQueryBuilder?: QueryBuilderProvider,
+    withQueryBuilder?: QueryBuilderProvider<MappingFieldPath<Create>>,
     more?: Omit<estypes.SearchRequest, 'index' | 'query'>,
   ) {
     return this.run(async (runner) => {
@@ -1289,7 +1293,7 @@ export default class IndexManager<
    * @returns The first matching record result from `QueryRunner.findFirst`.
    */
   findFirst(
-    withQueryBuilder?: QueryBuilderProvider,
+    withQueryBuilder?: QueryBuilderProvider<MappingFieldPath<Create>>,
     more?: Omit<estypes.SearchRequest, 'index' | 'query'>,
   ) {
     return this.run(async (runner) => {
@@ -1307,7 +1311,7 @@ export default class IndexManager<
    * @returns The count result from `QueryRunner.count`.
    */
   count(
-    withQueryBuilder?: QueryBuilderProvider,
+    withQueryBuilder?: QueryBuilderProvider<MappingFieldPath<Create>>,
     more?: Omit<estypes.SearchRequest, 'index' | 'query'>,
   ) {
     return this.run(async (runner) => {
@@ -1358,11 +1362,11 @@ export default class IndexManager<
    * @returns A result with success flag, request info, timing, and client response/error.
    */
   async deleteMany(
-    withQueryBuilder?: QueryBuilderProvider,
+    withQueryBuilder?: QueryBuilderProvider<MappingFieldPath<Create>>,
     more?: Omit<estypes.SearchRequest, 'index' | 'query'>,
   ) {
     const start = Date.now();
-    const builder = new QueryBuilder();
+    const builder = new QueryBuilder<MappingFieldPath<Create>>();
     if (withQueryBuilder) {
       await withQueryBuilder(builder);
     }

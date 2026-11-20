@@ -1,6 +1,9 @@
 import type { estypes } from '@elastic/elasticsearch';
 import type IndexManager from '../IndexManager/IndexManager';
-import type { MappingRecord } from '../mappingFields/mappingTypes';
+import type {
+  MappingFieldPath,
+  MappingRecord,
+} from '../mappingFields/mappingTypes';
 import QueryBuilder from '../QueryBuilder/QueryBuilder';
 
 export type QueryFindManyResult<T extends QueryRunner<any>> = Awaited<
@@ -24,11 +27,11 @@ export default class QueryRunner<
   Create extends estypes.IndicesCreateRequest = estypes.IndicesCreateRequest,
 > {
   public index: IndexManager<Create>;
-  public builder: QueryBuilder;
+  public builder: QueryBuilder<MappingFieldPath<Create>>;
 
   constructor(index: IndexManager<Create>) {
     this.index = index;
-    this.builder = new QueryBuilder({
+    this.builder = new QueryBuilder<MappingFieldPath<Create>>({
       index: this.index.getAliasName(),
     });
   }
@@ -81,7 +84,7 @@ export default class QueryRunner<
   // }
 
   async updateMany(
-    newValues: Record<string, unknown>,
+    newValues: Partial<Record<MappingFieldPath<Create>, unknown>>,
     more: Omit<estypes.UpdateByQueryRequest, 'index' | 'query'> = {},
   ) {
     const body = this.builder.getBody();
