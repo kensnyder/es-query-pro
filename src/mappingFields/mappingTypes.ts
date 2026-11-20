@@ -39,6 +39,8 @@ type StringType =
   | 'wildcard'
   | 'constant_keyword'
   | 'match_only_text'
+  | 'search_as_you_type'
+  | 'semantic_text'
   | 'ip'
   | 'version';
 

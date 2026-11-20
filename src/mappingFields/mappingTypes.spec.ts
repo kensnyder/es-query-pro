@@ -425,6 +425,8 @@ describe('MappingRecord', () => {
         wildcard: { type: 'wildcard' },
         constant: { type: 'constant_keyword', value: 'x' },
         matchOnly: { type: 'match_only_text' },
+        asYouType: { type: 'search_as_you_type' },
+        semantic: { type: 'semantic_text' },
         ip: { type: 'ip' },
         version: { type: 'version' },
         location: { type: 'geo_point' },
@@ -460,6 +462,8 @@ describe('MappingRecord', () => {
     expectTypeOf<Rec['wildcard']>().toEqualTypeOf<Value<string>>();
     expectTypeOf<Rec['constant']>().toEqualTypeOf<Value<string>>();
     expectTypeOf<Rec['matchOnly']>().toEqualTypeOf<Value<string>>();
+    expectTypeOf<Rec['asYouType']>().toEqualTypeOf<Value<string>>();
+    expectTypeOf<Rec['semantic']>().toEqualTypeOf<Value<string>>();
     expectTypeOf<Rec['ip']>().toEqualTypeOf<Value<string>>();
     expectTypeOf<Rec['version']>().toEqualTypeOf<Value<string>>();
   });

@@ -244,8 +244,8 @@ Other limits:
 - Any known path is accepted by every method: `match()` does not require a
   full-text field, and `term()` values are not checked against the field's
   type.
-- In records, `search_as_you_type`, `semantic_text` and other types without a
-  plain JavaScript counterpart are `unknown`. `keyof` a record type includes a
+- In records, types without a plain JavaScript counterpart (`geo_point`,
+  `dense_vector`, …) are `unknown`. `keyof` a record type includes a
   symbol key, which keeps arrays from passing as a single object.
 - A standalone `new QueryBuilder()` accepts any string; only builders handed
   out by an `IndexManager` (`findMany`, `findFirst`, `count`, `deleteMany`,
