@@ -130,6 +130,40 @@ const { success, summary } = await completion;
 See [SchemaRegistry.migrateIfNeeded](#schemaregistrymigrateifneededoptions)
 for the full result payload.
 
+## Elastic Cloud Serverless
+
+Serverless projects manage some things themselves and reject the APIs for
+them. For example, `IndexManager.flush()` is not needed there because
+serverless persists data automatically. Mark the cluster as serverless so the
+library skips those requests; `flush()` then returns
+`{ success: true, skipped: true }` without contacting the server.
+
+Set the `ES_SERVERLESS` env var next to your connection values (`true` or
+`1`):
+
+```bash
+ES_ENDPOINT=https://my-project.es.us-east-1.aws.elastic.cloud
+ES_API_KEY=your-base64-api-key
+ES_SERVERLESS=true
+```
+
+Or pass `serverless` to `IndexManager`, which takes precedence over the env
+var. This is useful when you pass your own `client` or connect to more than
+one cluster:
+
+```ts
+const booksIndex = new IndexManager({
+  client: myServerlessClient,
+  serverless: true,
+  index: { name: "books", version: 1 },
+  schema: { title: "text" },
+});
+```
+
+If neither is set, the first flush that serverless rejects still returns
+`success: true` with `skipped: true`, and the library remembers that client so
+later flushes are skipped without a request.
+
 ## Table of Contents
 
 ## Query Builder function quick reference
@@ -423,88 +457,73 @@ Error handling:
 
 ## Roadmap
 
-- client.search() ✅
-- client.msearch()
-- client.count() ✅
-- client.explain()
-- client.termsEnum()
-- client.validateQuery()
-- client.index() ✅
-- client.create() ✅
-- client.get() ✅
-- client.mget()
-- client.update() ✅
-- client.delete() ✅
-- client.bulk() ✅
-- client.reindex()
-- client.updateByQuery()
-- client.deleteByQuery()
-- client.indices.create() ✅
-- client.indices.createFromSource()
-- client.indices.delete() ✅
-- client.indices.exists() ✅
-- client.indices.get() ✅
-- client.indices.open()
-- client.indices.close()
-- client.indices.refresh()
-- client.indices.flush() ✅
-- client.indices.clearCache()
-- client.indices.stats()
-- client.indices.segments()
-- client.indices.recovery()
-- client.indices.shardsStores()
-- client.indices.forcemerge()
-- client.indices.addBlock()
-- client.indices.putSettings()
-- client.indices.getSettings()
-- client.indices.putMapping()
-- client.indices.getMapping()
-- client.indices.getFieldMapping()
-- client.indices.putAlias() ✅
-- client.indices.getAlias() ✅
-- client.indices.existsAlias() ✅
-- client.indices.deleteAlias() ✅
-- client.indices.updateAliases()
-- client.indices.resolveIndex()
-- client.indices.getDataStream()
-- client.indices.createDataStream()
-- client.indices.deleteDataStream()
-- client.indices.migrateToDataStream()
-- must ✅
-- must_not ✅
-- filter
-- exists ✅
-- query_string ✅
-- multi_match ✅
-- term ✅
-- match ✅
-- match_phrase ✅
-- range ✅
-- Boosts ✅
-- Nested queries ✅
-- Nested schema creation ✅
-- Facets ✅
-- Date Histogram ✅
-- Limit, page, sort ✅
-- Sort on nested fields
-- Sort by random ✅
-- Function scores ✅
-- Highlighting ✅
-- Get Kibana Query ✅
-- Migrate Index schema and data ✅
-- Fancy englishplus analyzer ✅
-- Text processing on insert and fetch ✅
-- \_source ✅
-- \_source_excludes ✅
+See [ROADMAP.md](./ROADMAP.md) for planned and completed features.
 
-### Unit Tests and Code Coverage
+## Running tests
 
-Powered by bun
+Tests are powered by bun. There are two kinds of test files:
+
+- `*.spec.ts` are unit tests and need no external services.
+- `*.integration.test.ts` run against a real Elasticsearch server.
 
 ```bash
-bun test
-bun run coverage
+bun test                # all tests (integration tests need a server)
+bun test src/QueryBuilder/QueryBuilder.spec.ts   # a single file
+bun run coverage        # all tests with a coverage report
 ```
+
+### Connecting integration tests to Elasticsearch
+
+Integration tests connect using the same environment variables as
+`getEsClient()`. Bun loads a `.env` file from the project root
+automatically, so the easiest setup is to copy the example file and fill in
+your server's values:
+
+```bash
+cp .env.example .env
+```
+
+| Variable                     | Description                                      | Default                 |
+| ---------------------------- | ------------------------------------------------ | ----------------------- |
+| `ES_ENDPOINT`                | URL of the Elasticsearch server                  | `http://localhost:9200` |
+| `ES_API_KEY`                 | API key (takes precedence over username)         | _none_                  |
+| `ES_USERNAME`, `ES_PASSWORD` | Basic auth credentials, if not using API key     | _none_                  |
+| `ES_VERSION`                 | Major version for the API compatibility header   | `9`                     |
+| `ES_SERVERLESS`              | `true` if the server is Elastic Cloud Serverless | `false`                 |
+
+For example, to use an Elastic Cloud deployment:
+
+```bash
+ES_ENDPOINT=https://my-deployment.es.us-east-1.aws.elastic.cloud:443
+ES_API_KEY=your-base64-api-key
+ES_VERSION=9
+```
+
+`.env` is listed in `.gitignore`, so your credentials stay out of commits.
+Variables already set in your shell take precedence over values in `.env`.
+
+To run a local server instead, start the same image CI uses, with security
+disabled so no credentials are needed:
+
+```bash
+docker run --rm -p 9200:9200 \
+  -e discovery.type=single-node \
+  -e xpack.security.enabled=false \
+  -e ES_JAVA_OPTS="-Xms1g -Xmx1g" \
+  docker.elastic.co/elasticsearch/elasticsearch:9.1.0
+```
+
+Then run only the integration tests:
+
+```bash
+bun test integration
+```
+
+Integration tests create indexes named `test~english~books_*` and
+`test_query_builder_*`, and delete them when they finish. Use a development
+cluster, not one with production data. CI runs them against a self-managed
+Elasticsearch 9.1 container, and they also pass against Elastic Cloud
+Serverless.
 
 ## Contributing
 

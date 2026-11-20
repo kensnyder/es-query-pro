@@ -116,9 +116,19 @@ export default class IndexManager<
   public settings: any;
   public fulltextFields: string[];
   public allFields: string[];
+
+  /**
+   * Whether the cluster is Elastic Cloud Serverless. When undefined, the
+   * `ES_SERVERLESS` env var decides (see `isServerless()`).
+   */
+  public serverless?: boolean;
+
   /**
    * Define the index with the given configuration
    * @param client  The client to use (defaults to getEsClient())
+   * @param serverless  Whether the cluster is Elastic Cloud Serverless, so
+   *   APIs it does not support (e.g. `_flush`) are skipped without a request.
+   *   Defaults to the `ES_SERVERLESS` env var.
    * @param index  The index information (see IndexNameManager.ts)
    * @property name
    * @property version
@@ -137,6 +147,7 @@ export default class IndexManager<
     analyzer = 'english',
     properties = {} as MappingProperties,
     client = getEsClient(),
+    serverless,
   }: {
     client?: Client;
     index: IndexNameAttributes;
@@ -144,8 +155,10 @@ export default class IndexManager<
     properties?: MappingProperties;
     analyzer?: string;
     settings?: IndexSettings;
+    serverless?: boolean;
   }) {
     this.client = client;
+    this.serverless = serverless;
     this.settings = settings;
     this.analyzer = analyzer || 'english';
     this.index = new IndexNameManager(index);
@@ -387,9 +400,30 @@ export default class IndexManager<
   }
 
   /**
+   * Whether the cluster is Elastic Cloud Serverless. Checked in order:
+   * 1. the `serverless` constructor option, if given
+   * 2. the `ES_SERVERLESS` env var (`true` or `1`)
+   * 3. whether this client has already been rejected by a serverless-only
+   *    `api_not_available_exception`
+   */
+  isServerless() {
+    if (this.serverless !== undefined) {
+      return this.serverless;
+    }
+    if (isServerlessEnv()) {
+      return true;
+    }
+    return serverlessClients.has(this.client);
+  }
+
+  /**
    * Flush the index to ensure all operations are committed to disk.
+   * Elastic Cloud Serverless manages durability itself and rejects `_flush`;
+   * there the call is a successful no-op with `skipped: true`. To skip the
+   * request entirely, pass `serverless: true` or set `ES_SERVERLESS=true`.
    * @param more Optional additional flush parameters.
-   * @returns Whether the flush succeeded (no shard failures) plus response metadata.
+   * @returns Whether the flush succeeded (no shard failures), whether it was
+   *   skipped because the server does not support it, plus response metadata.
    */
   async flush(more?: Partial<FlushRequestParams>) {
     const start = Date.now();
@@ -401,17 +435,39 @@ export default class IndexManager<
         ...(more || {}),
       },
     };
+    if (this.isServerless()) {
+      return {
+        success: true,
+        skipped: true,
+        request,
+        took: Date.now() - start,
+        ...this._formatNonError(null),
+      };
+    }
     try {
       const response = await this.client.indices.flush(request.body);
       return {
         success: response._shards.failed === 0,
+        skipped: false,
         request,
         took: Date.now() - start,
         ...this._formatNonError(response),
       };
     } catch (e) {
+      if (isApiNotAvailable(e)) {
+        // remember, so later calls on this client skip the request
+        serverlessClients.add(this.client);
+        return {
+          success: true,
+          skipped: true,
+          request,
+          took: Date.now() - start,
+          ...this._formatNonError(null),
+        };
+      }
       return {
         success: false,
+        skipped: false,
         request,
         took: Date.now() - start,
         ...this._formatError(e as Error),
@@ -984,6 +1040,8 @@ export default class IndexManager<
             }
             const taskInfo = await this.client.reindex({
               wait_for_completion: false,
+              // make migrated records searchable as soon as the task completes
+              refresh: true,
               conflicts: 'proceed',
               source: { index: oldIndex },
               dest: { index: status.fullName, op_type: 'index' },
@@ -1286,6 +1344,33 @@ export default class IndexManager<
       };
     }
   }
+}
+
+/**
+ * Clients that have answered with `api_not_available_exception`, i.e. that
+ * point at Elastic Cloud Serverless. Weak so discarded clients are collected.
+ */
+const serverlessClients = new WeakSet<Client>();
+
+/**
+ * Whether the `ES_SERVERLESS` env var marks the cluster as serverless.
+ */
+function isServerlessEnv() {
+  const value = (process.env.ES_SERVERLESS || '').trim().toLowerCase();
+  return value === 'true' || value === '1';
+}
+
+/**
+ * Whether the server rejected a request because the API does not exist in
+ * its deployment mode (e.g. `_flush` on Elastic Cloud Serverless, which
+ * responds 410 with `api_not_available_exception`).
+ */
+function isApiNotAvailable(e: unknown) {
+  if (!(e instanceof errors.ResponseError)) {
+    return false;
+  }
+  const body = e.meta?.body as { error?: { type?: string } } | undefined;
+  return body?.error?.type === 'api_not_available_exception';
 }
 
 /*

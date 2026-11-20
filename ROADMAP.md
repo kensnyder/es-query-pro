@@ -1,0 +1,78 @@
+# Roadmap
+
+Planned and completed features for es-query-pro. ✅ marks features that are
+already implemented.
+
+- client.search() ✅
+- client.msearch()
+- client.count() ✅
+- client.explain()
+- client.termsEnum()
+- client.validateQuery()
+- client.index() ✅
+- client.create() ✅
+- client.get() ✅
+- client.mget()
+- client.update() ✅
+- client.delete() ✅
+- client.bulk() ✅
+- client.reindex()
+- client.updateByQuery()
+- client.deleteByQuery()
+- client.indices.create() ✅
+- client.indices.createFromSource()
+- client.indices.delete() ✅
+- client.indices.exists() ✅
+- client.indices.get() ✅
+- client.indices.open()
+- client.indices.close()
+- client.indices.refresh()
+- client.indices.flush() ✅
+- client.indices.clearCache()
+- client.indices.stats()
+- client.indices.segments()
+- client.indices.recovery()
+- client.indices.shardsStores()
+- client.indices.forcemerge()
+- client.indices.addBlock()
+- client.indices.putSettings()
+- client.indices.getSettings()
+- client.indices.putMapping()
+- client.indices.getMapping()
+- client.indices.getFieldMapping()
+- client.indices.putAlias() ✅
+- client.indices.getAlias() ✅
+- client.indices.existsAlias() ✅
+- client.indices.deleteAlias() ✅
+- client.indices.updateAliases()
+- client.indices.resolveIndex()
+- client.indices.getDataStream()
+- client.indices.createDataStream()
+- client.indices.deleteDataStream()
+- client.indices.migrateToDataStream()
+- must ✅
+- must_not ✅
+- filter
+- exists ✅
+- query_string ✅
+- multi_match ✅
+- term ✅
+- match ✅
+- match_phrase ✅
+- range ✅
+- Boosts ✅
+- Nested queries ✅
+- Nested schema creation ✅
+- Facets ✅
+- Date Histogram ✅
+- Limit, page, sort ✅
+- Sort on nested fields
+- Sort by random ✅
+- Function scores ✅
+- Highlighting ✅
+- Get Kibana Query ✅
+- Migrate Index schema and data ✅
+- Fancy englishplus analyzer ✅
+- Text processing on insert and fetch ✅
+- \_source ✅
+- \_source_excludes ✅

@@ -1,6 +1,17 @@
-import { afterAll, beforeAll, describe, expect, it, jest } from 'bun:test';
+import {
+  afterAll,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  jest,
+  setDefaultTimeout,
+} from 'bun:test';
 import { getBooksData, getBooksSchema } from '../testFixtures/books';
 import IndexManager, { type MigrationProgressDetails } from './IndexManager';
+
+// remote clusters (e.g. Elastic Cloud) need more than bun's 5s default
+setDefaultTimeout(30_000);
 
 describe('QueryBuilder - Integration', () => {
   const booksIndex = new IndexManager({
@@ -24,10 +35,12 @@ describe('QueryBuilder - Integration', () => {
     if (bulk.errors.length > 0) {
       throw new Error(bulk.errors.join('\n'));
     }
+  });
+
+  it('should flush, or skip flushing where the server does not allow it', async () => {
     const flush = await booksIndex.flush();
-    if (flush.error) {
-      throw new Error(flush.error);
-    }
+    expect(flush.error).toBe(null);
+    expect(flush.success).toBe(true);
   });
 
   afterAll(async () => {
@@ -94,6 +107,10 @@ describe('QueryBuilder - Integration', () => {
   });
 
   it('should migrate data', async () => {
+    // make deletes from earlier tests visible before counting/reindexing
+    await booksIndex.client.indices.refresh({
+      index: booksIndex.getAliasName(),
+    });
     expect((await booksIndex.count()).total).toBe(3);
     booksIndex.index.version = 2;
     expect(booksIndex.getFullName()).toEndWith('~v2');
@@ -107,8 +124,8 @@ describe('QueryBuilder - Integration', () => {
     let timeoutId: number | null = null;
     const donePromise = new Promise<void>((resolve, reject) => {
       timeoutId = setTimeout(() => {
-        reject(new Error('Migration progress wait timed out after 4500ms'));
-      }, 4500) as unknown as number;
+        reject(new Error('Migration progress wait timed out after 20000ms'));
+      }, 20_000) as unknown as number;
       resolveDone = () => {
         if (timeoutId !== null) {
           clearTimeout(timeoutId as unknown as number);

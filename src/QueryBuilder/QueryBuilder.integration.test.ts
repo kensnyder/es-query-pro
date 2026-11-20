@@ -1,4 +1,11 @@
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import {
+  afterAll,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  setDefaultTimeout,
+} from 'bun:test';
 import getEsClient from '../getEsClient/getEsClient';
 import {
   createBooksIndex,
@@ -6,6 +13,9 @@ import {
   insertBooksData,
 } from '../testFixtures/books';
 import QueryBuilder from './QueryBuilder';
+
+// remote clusters (e.g. Elastic Cloud) need more than bun's 5s default
+setDefaultTimeout(30_000);
 
 describe('QueryBuilder - Integration', () => {
   const client = getEsClient();
@@ -153,6 +163,8 @@ describe('QueryBuilder - Integration', () => {
   it('should handle pagination', async () => {
     const qb = new QueryBuilder();
     qb.index(index);
+    // explicit sort: without one, hit order is not guaranteed (e.g. serverless)
+    qb.sort('id');
     qb.limit(2);
     qb.page(2);
     const result = await client.search(qb.getQuery());
