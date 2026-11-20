@@ -520,9 +520,7 @@ describe('QueryBuilder.clone()', () => {
     expect(qb.getSort().length).toBe(1);
     expect(qb.getFunctionScores().length).toBe(1);
     expect(Object.keys(qb.getAggs() ?? {})).toEqual(['category']);
-    expect(Object.keys(qb.getHighlighter()?.fields ?? {})).toEqual([
-      'title',
-    ]);
+    expect(Object.keys(qb.getHighlighter()?.fields ?? {})).toEqual(['title']);
   });
 });
 

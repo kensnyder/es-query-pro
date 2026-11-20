@@ -1,7 +1,7 @@
-import type { estypes } from "@elastic/elasticsearch"; // TypeScript needs estypes even if we don't use it
-import isDefined from "../isDefined/isDefined";
-import isEmptyObject from "../isEmptyObject/isEmptyObject";
-import { normalizeTimeZone } from "../normalizeTimeZone/normalizeTimeZone";
+import type { estypes } from '@elastic/elasticsearch'; // TypeScript needs estypes even if we don't use it
+import isDefined from '../isDefined/isDefined';
+import isEmptyObject from '../isEmptyObject/isEmptyObject';
+import { normalizeTimeZone } from '../normalizeTimeZone/normalizeTimeZone';
 import type {
   AggregationsAggregationContainer,
   AggregationsCompositeAggregationSource,
@@ -29,24 +29,24 @@ import type {
   SortDirection,
   SortOrder,
   SortResults,
-} from "../types";
+} from '../types';
 
 /**
  * Get a default FVH highlighter configuration.
  * @returns A highlight config suitable for use with QueryBuilder.
  */
 export const getDefaultHighlighter = (): HighlightDefinition => ({
-  type: "fvh",
+  type: 'fvh',
   number_of_fragments: 3,
   fragment_size: 150,
-  tags_schema: "styled",
+  tags_schema: 'styled',
   fields: {},
 });
 
 /** A highlight definition whose `fields` is always a keyed object */
 export type HighlightDefinition = Omit<
-  NonNullable<SearchRequest["highlight"]>,
-  "fields"
+  NonNullable<SearchRequest['highlight']>,
+  'fields'
 > & { fields: Record<string, estypes.SearchHighlightField> };
 
 /** A composite aggregation source that names the field it buckets on */
@@ -62,7 +62,7 @@ export default class QueryBuilder<Field extends string = string> {
   public _index: string | undefined;
 
   /** The fields to fetch */
-  public _fields: string[] = ["*"];
+  public _fields: string[] = ['*'];
 
   /** Fields to exclude from the fetch list */
   public _excludeFields: string[] = [];
@@ -92,7 +92,7 @@ export default class QueryBuilder<Field extends string = string> {
   public _retrievers: InnerRetriever[] = [];
 
   /** type of normalizer for retrievers */
-  public _normalizer: ScoreNormalizer = "minmax";
+  public _normalizer: ScoreNormalizer = 'minmax';
 
   /** The number of results to find before ranking */
   public _rankWindowSize = 50;
@@ -202,7 +202,7 @@ export default class QueryBuilder<Field extends string = string> {
    * @example
    *   qb.highlighterOptions({ type: 'fvh', number_of_fragments: 1, fragment_size: 100, fields: {} });
    */
-  highlighterOptions(options: Omit<HighlightDefinition, "fields">): this {
+  highlighterOptions(options: Omit<HighlightDefinition, 'fields'>): this {
     this._highlighter = {
       ...options,
       fields: this._highlighter.fields,
@@ -372,15 +372,15 @@ export default class QueryBuilder<Field extends string = string> {
    */
   range(field: Field, operator: RangeOperator, range: RangeShape): this {
     const opMap: Record<string, string> = {
-      "<": "lt",
-      lt: "lt",
-      "<=": "lte",
-      lte: "lte",
-      ">": "gt",
-      gt: "gt",
-      ">=": "gte",
-      gte: "gte",
-      between: "between",
+      '<': 'lt',
+      lt: 'lt',
+      '<=': 'lte',
+      lte: 'lte',
+      '>': 'gt',
+      gt: 'gt',
+      '>=': 'gte',
+      gte: 'gte',
+      between: 'between',
     };
 
     const normalizedOp = operator.toLowerCase();
@@ -392,7 +392,7 @@ export default class QueryBuilder<Field extends string = string> {
     }
 
     // Handle "between" specially
-    if (opName === "between") {
+    if (opName === 'between') {
       if (!Array.isArray(range) || range.length !== 2) {
         throw new TypeError('range(): "between" expects an array [min, max]');
       }
@@ -486,7 +486,7 @@ export default class QueryBuilder<Field extends string = string> {
     field,
     phrase,
     ...options
-  }: Omit<estypes.QueryDslMatchPhrasePrefixQuery, "query"> & {
+  }: Omit<estypes.QueryDslMatchPhrasePrefixQuery, 'query'> & {
     field: Field;
     phrase: string;
   }): this {
@@ -517,7 +517,7 @@ export default class QueryBuilder<Field extends string = string> {
     field,
     phrase,
     ...options
-  }: Omit<QueryDslMatchQuery, "query"> & {
+  }: Omit<QueryDslMatchQuery, 'query'> & {
     phrase: string;
     field: Field;
   }): this {
@@ -549,7 +549,7 @@ export default class QueryBuilder<Field extends string = string> {
     fields,
     phrase,
     ...options
-  }: Omit<QueryDslMultiMatchQuery, "query"> & { phrase: string }): this {
+  }: Omit<QueryDslMultiMatchQuery, 'query'> & { phrase: string }): this {
     this._must.push({
       multi_match: {
         fields,
@@ -578,7 +578,7 @@ export default class QueryBuilder<Field extends string = string> {
   matchBoostedPhrase({
     field,
     phrase,
-    operators = ["exact", "and"],
+    operators = ['exact', 'and'],
     weights = [1, 3, 5],
   }: {
     field: Field;
@@ -590,9 +590,9 @@ export default class QueryBuilder<Field extends string = string> {
 
     for (let i = 0; i < operators.length; i++) {
       const op = operators[i];
-      const boost = typeof weights[i] === "number" ? weights[i] : 1;
+      const boost = typeof weights[i] === 'number' ? weights[i] : 1;
 
-      if (op === "exact") {
+      if (op === 'exact') {
         should.push({
           match_phrase: {
             [field]: {
@@ -601,22 +601,22 @@ export default class QueryBuilder<Field extends string = string> {
             },
           },
         });
-      } else if (op === "and") {
+      } else if (op === 'and') {
         should.push({
           match: {
             [field]: {
               query: phrase,
-              operator: "and",
+              operator: 'and',
               boost: boost,
             },
           },
         });
-      } else if (op === "or") {
+      } else if (op === 'or') {
         should.push({
           match: {
             [field]: {
               query: phrase,
-              operator: "or",
+              operator: 'or',
               boost: boost,
             },
           },
@@ -722,7 +722,7 @@ export default class QueryBuilder<Field extends string = string> {
         },
       },
       weight,
-      normalizer: "minmax",
+      normalizer: 'minmax',
     });
 
     return this; // Enable chaining
@@ -730,9 +730,9 @@ export default class QueryBuilder<Field extends string = string> {
 
   escapeWildcards(text: string) {
     return text
-      .replace(/\\/g, "\\\\") // Escape backslashes first
-      .replace(/\*/g, "\\*") // Escape asterisks
-      .replace(/\?/g, "\\?"); // Escape question marks
+      .replace(/\\/g, '\\\\') // Escape backslashes first
+      .replace(/\*/g, '\\*') // Escape asterisks
+      .replace(/\?/g, '\\?'); // Escape question marks
   }
 
   /**
@@ -851,8 +851,8 @@ export default class QueryBuilder<Field extends string = string> {
    *   qb.term('tag', 'music');
    */
   term(field: Field | { field: Field; value: any }, value?: any): this {
-    const effectiveName = typeof field === "string" ? field : field.field;
-    const effectiveValue = typeof field === "string" ? value : field.value;
+    const effectiveName = typeof field === 'string' ? field : field.field;
+    const effectiveValue = typeof field === 'string' ? value : field.value;
     this._must.push({
       term: {
         [effectiveName]: effectiveValue,
@@ -876,14 +876,14 @@ export default class QueryBuilder<Field extends string = string> {
     field: Field | { field: Field; value: string; caseSensitive?: boolean },
     value?: string,
   ): this {
-    const effectiveName = typeof field === "string" ? field : field.field;
-    const effectiveValue = typeof field === "string" ? value : field.value;
+    const effectiveName = typeof field === 'string' ? field : field.field;
+    const effectiveValue = typeof field === 'string' ? value : field.value;
     this._must.push({
       wildcard: {
         [effectiveName]: {
           value: effectiveValue,
           case_insensitive:
-            typeof field === "string" ? true : !field.caseSensitive,
+            typeof field === 'string' ? true : !field.caseSensitive,
         },
       },
     });
@@ -905,16 +905,16 @@ export default class QueryBuilder<Field extends string = string> {
     field: Field | { field: Field; value: string; caseSensitive?: boolean },
     value?: string,
   ): this {
-    const effectiveName = typeof field === "string" ? field : field.field;
+    const effectiveName = typeof field === 'string' ? field : field.field;
     const effectiveValue =
-      typeof field === "string" ? (value ?? "") : field.value;
+      typeof field === 'string' ? (value ?? '') : field.value;
     const escaped = this.escapeWildcards(effectiveValue);
     this._must.push({
       wildcard: {
         [effectiveName]: {
           value: `*${escaped}*`,
           case_insensitive:
-            typeof field === "string" ? true : !field.caseSensitive,
+            typeof field === 'string' ? true : !field.caseSensitive,
         },
       },
     });
@@ -936,15 +936,15 @@ export default class QueryBuilder<Field extends string = string> {
     field: Field | { field: Field; value: string; caseSensitive?: boolean },
     value?: string,
   ): this {
-    const effectiveName = typeof field === "string" ? field : field.field;
+    const effectiveName = typeof field === 'string' ? field : field.field;
     const effectiveValue =
-      typeof field === "string" ? (value ?? "") : field.value;
+      typeof field === 'string' ? (value ?? '') : field.value;
     this._must.push({
       regexp: {
         [effectiveName]: {
           value: effectiveValue,
           case_insensitive:
-            typeof field === "string" ? false : !field.caseSensitive,
+            typeof field === 'string' ? false : !field.caseSensitive,
         },
       },
     });
@@ -960,7 +960,7 @@ export default class QueryBuilder<Field extends string = string> {
    *   qb.exists('publisher');
    */
   exists(field: Field | { field: Field }): this {
-    const effectiveField = typeof field === "string" ? field : field.field;
+    const effectiveField = typeof field === 'string' ? field : field.field;
     this._must.push({ exists: { field: effectiveField } });
     return this;
   }
@@ -986,9 +986,9 @@ export default class QueryBuilder<Field extends string = string> {
         },
     queryString?: string,
   ): this {
-    const effectiveName = typeof field === "string" ? field : field.field;
+    const effectiveName = typeof field === 'string' ? field : field.field;
     const effectiveValue =
-      typeof field === "string" ? (queryString ?? "") : field.queryString;
+      typeof field === 'string' ? (queryString ?? '') : field.queryString;
     this._must.push({
       query_string: {
         fields: [effectiveName],
@@ -1095,7 +1095,7 @@ export default class QueryBuilder<Field extends string = string> {
     similarity?: number | InferenceCohereSimilarityType;
   }): this {
     const knnDef: Partial<
-      Omit<KnnRetriever, "similarity"> & {
+      Omit<KnnRetriever, 'similarity'> & {
         similarity?: number | InferenceCohereSimilarityType;
       }
     > = {
@@ -1104,7 +1104,7 @@ export default class QueryBuilder<Field extends string = string> {
       k,
     };
 
-    if (typeof numCandidates === "number") {
+    if (typeof numCandidates === 'number') {
       knnDef.num_candidates = numCandidates;
     }
 
@@ -1114,7 +1114,7 @@ export default class QueryBuilder<Field extends string = string> {
       knnDef.filter = filter;
     }
 
-    if (typeof similarity === "number" || typeof similarity === "string") {
+    if (typeof similarity === 'number' || typeof similarity === 'string') {
       knnDef.similarity = similarity;
     }
 
@@ -1214,7 +1214,7 @@ export default class QueryBuilder<Field extends string = string> {
     field,
     limit = 25,
     showTermDocCountError = false,
-    orderBy = [{ field: "_count", order: "desc" }],
+    orderBy = [{ field: '_count', order: 'desc' }],
     exclude = [],
     missing_bucket,
     missing_order,
@@ -1223,20 +1223,20 @@ export default class QueryBuilder<Field extends string = string> {
     limit?: number;
     showTermDocCountError?: boolean;
     orderBy?: Array<{
-      field: Field | "_count";
+      field: Field | '_count';
       order: SortOrder;
     }>;
     missing_bucket?: boolean;
     missing_order?: estypes.AggregationsMissingOrder;
     exclude?: string[];
   }): this {
-    if (orderBy.length === 1 && orderBy[0].field === "_count") {
+    if (orderBy.length === 1 && orderBy[0].field === '_count') {
       this._aggs[field] = {
         terms: {
           field,
           size: limit,
           show_term_doc_count_error: showTermDocCountError,
-          order: { _count: orderBy[0].order ?? "desc" },
+          order: { _count: orderBy[0].order ?? 'desc' },
           ...(missing_bucket === undefined ? {} : { missing_bucket }),
           ...(missing_order === undefined ? {} : { missing_order }),
           ...(exclude.length === 0 ? {} : { exclude }),
@@ -1250,7 +1250,7 @@ export default class QueryBuilder<Field extends string = string> {
           show_term_doc_count_error: showTermDocCountError,
           order: Object.fromEntries(
             orderBy.map((o) => [
-              o.field === field ? "_key" : o.field, // Map field name to _key when it matches the aggregation field
+              o.field === field ? '_key' : o.field, // Map field name to _key when it matches the aggregation field
               o.order,
             ]),
           ),
@@ -1261,7 +1261,7 @@ export default class QueryBuilder<Field extends string = string> {
         aggs: Object.fromEntries(
           orderBy.map((o) => {
             const field = o.field;
-            const dir = o.order === "desc" ? "min" : "max";
+            const dir = o.order === 'desc' ? 'min' : 'max';
             return [field, { [dir]: { field } }];
           }),
         ) as Record<string, AggregationsAggregationContainer>,
@@ -1304,14 +1304,14 @@ export default class QueryBuilder<Field extends string = string> {
     field: Field;
     interval: number;
     limit?: number;
-    orderBy?: Array<CompositeSourceWithField<"histogram">>;
+    orderBy?: Array<CompositeSourceWithField<'histogram'>>;
   }): this {
     const sources: Array<
       Record<string, AggregationsCompositeAggregationSource>
     > =
       orderBy && orderBy.length > 0
         ? orderBy.map((o) => ({ [o.field]: { histogram: o } }))
-        : [{ [field]: { histogram: { field, interval, order: "asc" } } }];
+        : [{ [field]: { histogram: { field, interval, order: 'asc' } } }];
 
     this._aggs[field] = {
       composite: {
@@ -1366,7 +1366,7 @@ export default class QueryBuilder<Field extends string = string> {
     timeZone,
     format,
     offset,
-    order = "asc",
+    order = 'asc',
     orderBy,
   }: {
     field: Field;
@@ -1376,8 +1376,8 @@ export default class QueryBuilder<Field extends string = string> {
     timeZone?: string;
     format?: string;
     offset?: string;
-    order?: "asc" | "desc";
-    orderBy?: Array<CompositeSourceWithField<"date_histogram">>;
+    order?: 'asc' | 'desc';
+    orderBy?: Array<CompositeSourceWithField<'date_histogram'>>;
   }): this {
     let sources: Array<Record<string, AggregationsCompositeAggregationSource>>;
 
@@ -1385,7 +1385,7 @@ export default class QueryBuilder<Field extends string = string> {
       sources = orderBy.map((o) => ({ [o.field]: { date_histogram: o } }));
     } else {
       // Build a single date_histogram source from the provided params
-      const src: AggregationsCompositeAggregationSource["date_histogram"] = {
+      const src: AggregationsCompositeAggregationSource['date_histogram'] = {
         field,
         order,
         ...(calendarInterval ? { calendar_interval: calendarInterval } : {}),
@@ -1396,7 +1396,7 @@ export default class QueryBuilder<Field extends string = string> {
       };
       if (!src.calendar_interval && !src.fixed_interval) {
         throw new Error(
-          "aggregateDateHistogram: require either calendarInterval or fixedInterval.",
+          'aggregateDateHistogram: require either calendarInterval or fixedInterval.',
         );
       }
       sources = [{ [field]: { date_histogram: src } }];
@@ -1442,15 +1442,15 @@ export default class QueryBuilder<Field extends string = string> {
     precision,
     limit = 25,
     bounds,
-    order = "asc",
+    order = 'asc',
     orderBy,
   }: {
     field: Field;
     precision: number;
     limit?: number;
     bounds?: { top_left: string; bottom_right: string };
-    order?: "asc" | "desc";
-    orderBy?: Array<CompositeSourceWithField<"geotile_grid">>;
+    order?: 'asc' | 'desc';
+    orderBy?: Array<CompositeSourceWithField<'geotile_grid'>>;
   }): this {
     const sources: Array<
       Record<string, AggregationsCompositeAggregationSource>
@@ -1521,47 +1521,47 @@ export default class QueryBuilder<Field extends string = string> {
     interval,
     limit = 100,
     offset = null,
-    timezone = "UTC",
+    timezone = 'UTC',
   }: {
     field: Field;
     interval:
-      | "year"
-      | "quarter"
-      | "month"
-      | "week"
-      | "day"
-      | "hour"
-      | "minute"
-      | "second";
+      | 'year'
+      | 'quarter'
+      | 'month'
+      | 'week'
+      | 'day'
+      | 'hour'
+      | 'minute'
+      | 'second';
     limit?: number;
     offset?: string | null;
     timezone?: string | number;
   }): this {
     // Map human-friendly interval names to ES9 calendar/fixed intervals and output formats (Java time)
     const intervals: Record<
-      | "year"
-      | "quarter"
-      | "month"
-      | "week"
-      | "day"
-      | "hour"
-      | "minute"
-      | "second",
-      { code: string; format: string; kind: "calendar" | "fixed" }
+      | 'year'
+      | 'quarter'
+      | 'month'
+      | 'week'
+      | 'day'
+      | 'hour'
+      | 'minute'
+      | 'second',
+      { code: string; format: string; kind: 'calendar' | 'fixed' }
     > = {
-      year: { code: "1y", format: "uuuu", kind: "calendar" },
-      quarter: { code: "1q", format: "uuuu-'Q'Q", kind: "calendar" },
-      month: { code: "1M", format: "uuuu-MM", kind: "calendar" },
-      week: { code: "1w", format: "YYYY-'W'ww", kind: "calendar" }, // ISO week-based year/week
-      day: { code: "1d", format: "uuuu-MM-dd", kind: "calendar" },
-      hour: { code: "1h", format: "uuuu-MM-dd'T'HH", kind: "fixed" },
-      minute: { code: "1m", format: "uuuu-MM-dd'T'HH:mm", kind: "fixed" },
-      second: { code: "1s", format: "uuuu-MM-dd'T'HH:mm:ss", kind: "fixed" },
+      year: { code: '1y', format: 'uuuu', kind: 'calendar' },
+      quarter: { code: '1q', format: "uuuu-'Q'Q", kind: 'calendar' },
+      month: { code: '1M', format: 'uuuu-MM', kind: 'calendar' },
+      week: { code: '1w', format: "YYYY-'W'ww", kind: 'calendar' }, // ISO week-based year/week
+      day: { code: '1d', format: 'uuuu-MM-dd', kind: 'calendar' },
+      hour: { code: '1h', format: "uuuu-MM-dd'T'HH", kind: 'fixed' },
+      minute: { code: '1m', format: "uuuu-MM-dd'T'HH:mm", kind: 'fixed' },
+      second: { code: '1s', format: "uuuu-MM-dd'T'HH:mm:ss", kind: 'fixed' },
     } as const;
 
     const intv = intervals[interval];
     if (!intv) {
-      const supported = Object.keys(intervals).join(", ");
+      const supported = Object.keys(intervals).join(', ');
       throw new Error(
         `QueryBuilder.dateHistogram(): interval not supported. Supported intervals are ${supported}.`,
       );
@@ -1582,12 +1582,12 @@ export default class QueryBuilder<Field extends string = string> {
     return this.aggregateDateHistogram({
       field,
       limit,
-      fixedInterval: intv.kind === "fixed" ? intv.code : undefined,
-      calendarInterval: intv.kind === "calendar" ? intv.code : undefined,
+      fixedInterval: intv.kind === 'fixed' ? intv.code : undefined,
+      calendarInterval: intv.kind === 'calendar' ? intv.code : undefined,
       format: intv.format,
       timeZone, // pass through; ES uses "time_zone"
       offset: offset ?? undefined,
-      order: "asc",
+      order: 'asc',
     });
   }
 
@@ -1656,10 +1656,10 @@ export default class QueryBuilder<Field extends string = string> {
    */
   sort(field: SortCombinations, maybeDirection?: SortDirection): this {
     // DESC string such as "-created_at"
-    if (typeof field === "string" && field.slice(0, 1) === "-") {
-      this._sorts.push({ [field.slice(1)]: { order: "desc" } });
-    } else if (typeof field === "string") {
-      this._sorts.push({ [field]: { order: maybeDirection || "asc" } });
+    if (typeof field === 'string' && field.slice(0, 1) === '-') {
+      this._sorts.push({ [field.slice(1)]: { order: 'desc' } });
+    } else if (typeof field === 'string') {
+      this._sorts.push({ [field]: { order: maybeDirection || 'asc' } });
     } else if (Array.isArray(field)) {
       field.forEach((f) => {
         const field = Object.keys(f)[0];
@@ -1694,62 +1694,62 @@ export default class QueryBuilder<Field extends string = string> {
    */
   reset(field: FieldTypeOrTypes = null): this {
     const all: FieldTypeOrTypes = [
-      "fields",
-      "excludeFields",
-      "must",
-      "aggs",
-      "functionScores",
-      "highlighter",
-      "sorts",
-      "retrievers",
-      "normalizer",
-      "rankWindowSize",
-      "rankConstant",
-      "rescore",
-      "minScore",
-      "searchAfter",
-      "trackTotalHits",
-      "page",
-      "limit",
+      'fields',
+      'excludeFields',
+      'must',
+      'aggs',
+      'functionScores',
+      'highlighter',
+      'sorts',
+      'retrievers',
+      'normalizer',
+      'rankWindowSize',
+      'rankConstant',
+      'rescore',
+      'minScore',
+      'searchAfter',
+      'trackTotalHits',
+      'page',
+      'limit',
     ];
     const fields =
       field === null ? all : Array.isArray(field) ? field : [field];
     const empty = new QueryBuilder();
     for (const field of fields) {
-      if (field === "fields") {
+      if (field === 'fields') {
         this._fields = empty.getFields();
-      } else if (field === "excludeFields") {
+      } else if (field === 'excludeFields') {
         this._excludeFields = empty.getExcludeFields();
-      } else if (field === "must") {
+      } else if (field === 'must') {
         this._must = empty.getMust();
-      } else if (field === "aggs") {
+      } else if (field === 'aggs') {
         this._aggs = empty.getAggs();
-      } else if (field === "functionScores") {
+      } else if (field === 'functionScores') {
         this._functionScores = empty.getFunctionScores();
-      } else if (field === "highlighter") {
+      } else if (field === 'highlighter') {
         this._highlighter = empty.getHighlighter();
-      } else if (field === "sorts") {
+      } else if (field === 'sorts') {
         this._sorts = empty.getSort();
         this._shouldSortByRandom = empty.getSortByRandom();
-      } else if (field === "retrievers") {
+      } else if (field === 'retrievers') {
         this._retrievers = empty.getRetrievers();
-      } else if (field === "normalizer") {
+      } else if (field === 'normalizer') {
         this._normalizer = empty.getNormalizer();
-      } else if (field === "rankWindowSize") {
+      } else if (field === 'rankWindowSize') {
         this._rankWindowSize = empty.getRankWindowSize();
-      } else if (field === "rankConstant") {
+      } else if (field === 'rankConstant') {
         this._rankConstant = empty.getRankConstant();
-      } else if (field === "rescore") {
+      } else if (field === 'rescore') {
         this._rescore = empty.getRescore();
-      } else if (field === "minScore") {
+      } else if (field === 'minScore') {
         this._minScore = empty.getMinScore();
-      } else if (field === "searchAfter") {
+      } else if (field === 'searchAfter') {
         this._searchAfter = empty.getSearchAfter();
-      } else if (field === "trackTotalHits") {
+      } else if (field === 'trackTotalHits') {
         this._trackTotalHits = empty.getTrackTotalHits();
-      } else if (field === "page") {
+      } else if (field === 'page') {
         this._page = empty.getPage();
-      } else if (field === "limit") {
+      } else if (field === 'limit') {
         this._limit = empty.getLimit();
       }
     }
@@ -1954,7 +1954,7 @@ export default class QueryBuilder<Field extends string = string> {
   nested({
     query,
     path,
-    scoreMode = "avg",
+    scoreMode = 'avg',
     innerHits = undefined,
     ignoreUnmapped = false,
   }: {
@@ -2014,7 +2014,7 @@ export default class QueryBuilder<Field extends string = string> {
 
       // Only use linear if we have multiple retrievers
       if (retrievers.length > 1 || hasFilters) {
-        const linear: NonNullable<RetrieverContainer["linear"]> = {
+        const linear: NonNullable<RetrieverContainer['linear']> = {
           retrievers,
           normalizer: this._normalizer,
           rank_window_size: this._rankWindowSize,
@@ -2102,7 +2102,7 @@ export default class QueryBuilder<Field extends string = string> {
     const functionScore: QueryDslFunctionScoreQuery = { query, functions };
     if (this._shouldSortByRandom) {
       // random_score should fully replace the relevance score
-      functionScore.boost_mode = "replace";
+      functionScore.boost_mode = 'replace';
     }
     return { function_score: functionScore };
   }
@@ -2114,7 +2114,7 @@ export default class QueryBuilder<Field extends string = string> {
   getOptions() {
     const options: Pick<
       SearchRequest,
-      "size" | "from" | "min_score" | "search_after" | "track_total_hits"
+      'size' | 'from' | 'min_score' | 'search_after' | 'track_total_hits'
     > = {};
     if (this._limit !== null) {
       options.size = this._limit;
@@ -2122,15 +2122,15 @@ export default class QueryBuilder<Field extends string = string> {
         options.from = this._limit * (this._page - 1);
       }
     }
-    if (typeof this._minScore === "number") {
+    if (typeof this._minScore === 'number') {
       options.min_score = this._minScore;
     }
     if (Array.isArray(this._searchAfter) && this._searchAfter.length > 0) {
       options.search_after = this._searchAfter;
     }
     if (
-      typeof this._trackTotalHits === "boolean" ||
-      typeof this._trackTotalHits === "number"
+      typeof this._trackTotalHits === 'boolean' ||
+      typeof this._trackTotalHits === 'number'
     ) {
       options.track_total_hits = this._trackTotalHits;
     }
@@ -2143,7 +2143,7 @@ export default class QueryBuilder<Field extends string = string> {
    * @return {Object}
    */
   getQuery(overrides: Partial<SearchRequest> = {}): SearchRequest {
-    const source: Pick<SearchRequest, "_source" | "_source_excludes"> = {};
+    const source: Pick<SearchRequest, '_source' | '_source_excludes'> = {};
     if (this._fields.length > 0) {
       source._source = this._fields;
     }
