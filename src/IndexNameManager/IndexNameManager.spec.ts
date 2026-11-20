@@ -51,7 +51,6 @@ describe('IndexNameManager', () => {
       new IndexNameManager({
         prefix: 'staging',
         language: 'english',
-        // @ts-expect-error  This is a test of an invalid name
         name: 'WildAnimals',
         version: 5,
         separator: '~',
@@ -63,7 +62,6 @@ describe('IndexNameManager', () => {
       new IndexNameManager({
         prefix: 'staging',
         language: 'english',
-        // @ts-expect-error  This is a test of an invalid name
         name: '',
         version: 5,
         separator: '~',
@@ -75,7 +73,6 @@ describe('IndexNameManager', () => {
       new IndexNameManager({
         prefix: 'staging',
         language: 'english',
-        // @ts-expect-error  This is a test of an invalid name
         name: 'a'.repeat(256),
         version: 5,
         separator: '~',
