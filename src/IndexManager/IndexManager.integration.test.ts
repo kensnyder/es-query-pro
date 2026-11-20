@@ -119,37 +119,22 @@ describe('IndexManager - Integration', () => {
     expect(status.needsMigration).toBe(true);
     expect(status.needsCreation).toBe(false);
 
-    let resolveDone: (() => void) | null = null;
-    let timeoutId: number | null = null;
-    const donePromise = new Promise<void>((resolve, reject) => {
-      timeoutId = setTimeout(() => {
-        reject(new Error('Migration progress wait timed out after 20000ms'));
-      }, 20_000) as unknown as number;
-      resolveDone = () => {
-        if (timeoutId !== null) {
-          clearTimeout(timeoutId as unknown as number);
-          timeoutId = null;
-        }
-        resolve();
-      };
-    });
-
-    const onProgress = jest.fn((details: MigrationProgressDetails) => {
-      if (details.percent === 100) {
-        if (resolveDone !== null) {
-          resolveDone();
-        }
-      }
-    });
-
+    const onProgress = jest.fn((_details: MigrationProgressDetails) => {});
     const migration = await booksIndex.migrateIfNeeded({
       onProgress,
+      // bounds the whole migration; completion resolves with TIMEOUT after it
+      timeout: 60_000,
     });
+    expect(migration.code).toBe('MIGRATION_STARTED');
     expect(migration.recordsToMigrate).toBe(3);
     expect(migration.createdAlias).toBe(false);
     expect(migration.createdIndex).toBe(true);
 
-    await donePromise;
+    const outcome = await migration.completion;
+    expect(outcome.error).toBe(null);
+    expect(outcome).toMatchObject({ success: true, code: 'MIGRATED' });
+    const alias = await booksIndex.getAliasMetadata();
+    expect(alias.indexes).toEqual([booksIndex.getFullName()]);
 
     expect((await booksIndex.count()).total).toBe(3);
     expect(onProgress).toHaveBeenCalled();
@@ -162,7 +147,7 @@ describe('IndexManager - Integration', () => {
       qb.matchPhrase({ field: 'title', phrase: 'Chamber' });
     });
     expect(total).toEqual(1);
-  });
+  }, 90_000);
 });
 
 describe('IndexManager.create() - Integration', () => {
