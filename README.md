@@ -15,7 +15,7 @@ Powerful ElasticSearch query builder and Index Manager with consistent APIs
 `npm install es-query-pro @elastic/elasticsearch`
 
 `@elastic/elasticsearch` (version 9) is a peer dependency. The package is ESM
-only.
+only. Typed field names (see below) need TypeScript 5.0 or newer.
 
 ## Basic usage
 
@@ -38,97 +38,300 @@ builder.page(2);
 
 Index Manager
 
+An `IndexManager` takes two arguments: options, which include the
+Elasticsearch `Client` to send requests with, and a regular Elasticsearch
+[index creation request](https://www.elastic.co/docs/api/doc/elasticsearch/operation/operation-indices-create)
+(`estypes.IndicesCreateRequest`). Creating and configuring the client is up
+to your application; es-query-pro imports `@elastic/elasticsearch` for its
+types only and reads no connection settings from the environment.
+
 ```ts
-import { IndexManager, SchemaRegistry } from "es-query-pro";
+import { Client } from "@elastic/elasticsearch";
+import { englishplus, IndexManager, SchemaRegistry } from "es-query-pro";
 
-const schemaRegistry = new SchemaRegistry();
-
-export const booksIndex = new IndexManager({
-  index: {
-    name: "books",
-    version: 1,
-    prefix: process.env.NODE_ENV,
-    language: "english",
-  },
-  analyzer: "englishplus",
-  schema: {
-    id: "integer",
-    title: "text",
-    premise: "text",
-    categories: {
-      id: "integer",
-      name: "text",
-    },
-    author: "keyword",
-  },
-  // optional
-  settings: {
-    analysis: {
-      char_filter: {
-        tm_strip: { type: "mapping", mappings: ["®=>", "™=>"] },
-      },
-      filter: {
-        wdg: { type: "word_delimiter_graph" },
-        dbl_metaphone: {
-          type: "phonetic",
-          encoder: "double_metaphone",
-          replace: false,
-        },
-      },
-      normalizer: {
-        keyword_fold: {
-          type: "custom",
-          filter: ["lowercase", "asciifolding"],
-        },
-      },
-      analyzer: {
-        title_index: {
-          type: "custom",
-          tokenizer: "standard",
-          char_filter: ["tm_strip"],
-          filter: ["lowercase", "asciifolding", "wdg"],
-        },
-        title_search: {
-          type: "custom",
-          tokenizer: "standard",
-          char_filter: ["tm_strip"],
-          filter: ["lowercase", "asciifolding"],
-        },
-        title_phonetic: {
-          type: "custom",
-          tokenizer: "standard",
-          char_filter: ["tm_strip"],
-          filter: ["lowercase", "asciifolding", "dbl_metaphone"],
-        },
-      },
-    },
-  },
-  // optional: additional fields
-  properties: {
-    title: {
-      type: "text" as const,
-      analyzer: "title_index",
-      search_analyzer: "title_search",
-      fields: {
-        phonetic: {
-          type: "text" as const,
-          analyzer: "title_phonetic",
-          search_analyzer: "title_phonetic",
-        },
-      },
-    },
-  },
+const client = new Client({
+  node: process.env.ES_ENDPOINT,
+  auth: { apiKey: process.env.ES_API_KEY ?? "" },
 });
 
+export const booksIndex = new IndexManager(
+  { client, version: 1, prefix: "prod" },
+  {
+    index: "books",
+    settings: { analysis: englishplus.analysis },
+    mappings: {
+      properties: {
+        id: { type: "keyword" },
+        title: {
+          type: "text",
+          analyzer: "englishplus",
+          fields: { exact: { type: "keyword", ignore_above: 256 } },
+        },
+        categories: {
+          type: "nested",
+          properties: { id: { type: "integer" }, name: { type: "text" } },
+        },
+      },
+    },
+  },
+);
+// index prod~english~books~v1, read and written through alias prod~english~books
+
+const schemaRegistry = new SchemaRegistry();
 schemaRegistry.register(booksIndex);
 
 // create or migrate every registered index
 const { completion } = await schemaRegistry.migrateIfNeeded();
 const { success, summary } = await completion;
+
+await booksIndex.put("1", {
+  id: "1",
+  title: "Skyward",
+  categories: [{ id: 101, name: "Fantasy" }],
+});
+
+const { records, total } = await booksIndex.findMany((qb) => {
+  qb.match({ field: "title", phrase: "skyward" });
+  qb.nested({
+    path: "categories",
+    query: (sub) => sub.term("categories.id", 101),
+  });
+});
 ```
 
 See [SchemaRegistry.migrateIfNeeded](#schemaregistrymigrateifneededoptions)
 for the full result payload.
+
+The first argument (`ManageOptions`):
+
+| Option       | Description                                                                                  | Default           |
+| ------------ | -------------------------------------------------------------------------------------------- | ----------------- |
+| `client`     | The `Client` from `@elastic/elasticsearch` (required)                                        | _none_            |
+| `version`    | Index version; raising it makes `migrateIfNeeded()` create a new index and reindex into it   | `1`               |
+| `prefix`     | First part of the index name, such as `prod` or an app name                                  | `""`              |
+| `language`   | Language part of the index name                                                              | `"english"`       |
+| `separator`  | Separator between the name parts                                                             | `"~"`             |
+| `serverless` | Whether the cluster is Elastic Cloud Serverless (see [below](#elastic-cloud-serverless))     | `ES_SERVERLESS`   |
+
+The second argument is the creation request, used as written:
+
+- `index` is the logical name (`books`). The manager sends the versioned full
+  name instead (`prod~english~books~v1`) and points the alias
+  (`prod~english~books`) at it.
+- Everything else (`settings`, `mappings`, `aliases`, `wait_for_active_shards`,
+  timeouts) is sent unchanged. `getCreateRequest().body` is the exact body
+  sent and `createSpec` holds the object you passed.
+- `aliases` may name other aliases, but not the manager's own alias, because
+  migrations move that one.
+- Nothing is added to the mapping: no sub-fields, no `nested` type, no
+  analyzer. See [Writing text fields](#writing-text-fields).
+
+### Typed field names
+
+When the creation request is visible to TypeScript as a literal, field names
+in query callbacks are checked against its mapping: leaves, `object` and
+`nested` containers, multi-field sub-fields and runtime fields, as dotted
+paths. Records passed to `put()`, `putBulk()` and `patch()` are checked too.
+
+```ts
+import { Client } from "@elastic/elasticsearch";
+import { IndexManager } from "es-query-pro";
+
+const client = new Client({ node: "http://localhost:9200" });
+
+const booksIndex = new IndexManager(
+  { client },
+  {
+    index: "books",
+    mappings: {
+      properties: {
+        title: {
+          type: "text",
+          fields: { exact: { type: "keyword", ignore_above: 256 } },
+        },
+        categories: {
+          type: "nested",
+          properties: { id: { type: "integer" }, name: { type: "text" } },
+        },
+      },
+    },
+  },
+);
+
+await booksIndex.findMany((qb) => {
+  qb.term("title.exact", "Skyward"); // ok: a sub-field
+  qb.nested({
+    path: "categories",
+    query: (sub) => sub.term("categories.id", 101), // ok: a nested path
+  });
+  // @ts-expect-error  "categoreis.id" is not in the mapping
+  qb.term("categoreis.id", 101);
+});
+
+// @ts-expect-error  categories.id is an integer
+await booksIndex.put("2", { categories: [{ id: "one hundred" }] });
+```
+
+To declare the creation request apart from the constructor, keep its literal
+type with `as const satisfies estypes.IndicesCreateRequest`. The inferring
+types then give you the field names and the record shape:
+
+```ts
+import { Client, type estypes } from "@elastic/elasticsearch";
+import {
+  IndexManager,
+  type IndexInferFields,
+  type IndexInferRecordShape,
+} from "es-query-pro";
+
+const client = new Client({ node: "http://localhost:9200" });
+
+export const authorsCreate = {
+  index: "authors",
+  mappings: {
+    dynamic: "strict",
+    properties: {
+      name: { type: "text", fields: { raw: { type: "keyword" } } },
+      born: { type: "date" },
+    },
+  },
+} as const satisfies estypes.IndicesCreateRequest;
+
+export const authorsIndex = new IndexManager({ client }, authorsCreate);
+
+// "name" | "name.raw" | "born"
+export type AuthorField = IndexInferFields<typeof authorsIndex>;
+
+// { name?: string | string[] | null; born?: string | number | Date | ... }
+export type Author = IndexInferRecordShape<typeof authorsIndex>;
+
+const author: Author = { name: "Ursula K. Le Guin", born: "1929-10-21" };
+// @ts-expect-error  dynamic: "strict" rejects fields that are not mapped
+const typo: Author = { nmae: "Ursula K. Le Guin" };
+```
+
+The same types are exported for a creation request without a manager:
+`MappingFieldPath<Create>`, `MappingFulltextPath<Create>` (full-text paths
+only) and `MappingRecord<Create>`; `IndexInferCreate<typeof index>` gives the
+creation request type of a manager.
+
+#### Why are my field names not checked?
+
+Checking falls back to plain `string` field names (and
+`Record<string, any>` records) instead of reporting false errors when:
+
+- The creation request is not a literal TypeScript can see: a variable
+  annotated as `estypes.IndicesCreateRequest`, or one returned from a function
+  with that return type. Write it inline or use
+  `as const satisfies estypes.IndicesCreateRequest`.
+- The creation request has no `mappings`, or `mappings` has neither
+  `properties` nor `runtime`.
+- `mappings.dynamic` is `true`, `"true"` or `"runtime"`, because Elasticsearch
+  then adds fields on its own. When `dynamic` is omitted the mapping is treated
+  as complete, so fields added by dynamic mapping, dynamic templates or another
+  writer are compile errors. To opt out for one manager, widen its type:
+  `new IndexManager<estypes.IndicesCreateRequest>(options, create)`.
+- Below an object with a loose `dynamic`, a `flattened` field, or a property
+  specification that is not a literal, any `parent.${string}` path is
+  accepted.
+
+Other limits:
+
+- Parameters that take patterns, boosts or raw DSL stay `string`: `fields()`,
+  `sourceIncludes()`, `sourceExcludes()`, `excludeFields()`, `multiMatch()`
+  fields such as `title^3`, `sort()`, `rawCondition()`, `must()` and
+  `aggs()`.
+- Any known path is accepted by every method: `match()` does not require a
+  full-text field, and `term()` values are not checked against the field's
+  type.
+- In records, `search_as_you_type`, `semantic_text` and other types without a
+  plain JavaScript counterpart are `unknown`. `keyof` a record type includes a
+  symbol key, which keeps arrays from passing as a single object.
+- A standalone `new QueryBuilder()` accepts any string; only builders handed
+  out by an `IndexManager` (`findMany`, `findFirst`, `count`, `deleteMany`,
+  `run`) are typed. `QueryBuilder<"a" | "b">` types one by hand.
+
+### Writing text fields
+
+Before 3.0, a string schema such as `{ title: "text", categories: { id: "integer" } }`
+generated the mapping: every `text` field got `term_vector` and two
+sub-fields, and every sub-object became `nested`. Now the mapping is exactly
+what you write. This is the hand-written equivalent of the old `"text"` (the
+old default analyzer was `english`):
+
+```ts
+import { Client } from "@elastic/elasticsearch";
+import { IndexManager } from "es-query-pro";
+
+const client = new Client({ node: "http://localhost:9200" });
+
+export const postsIndex = new IndexManager(
+  { client },
+  {
+    index: "posts",
+    mappings: {
+      properties: {
+        title: {
+          type: "text",
+          term_vector: "with_positions_offsets",
+          fields: {
+            exact: { type: "text", analyzer: "standard" },
+            fulltext: { type: "text", analyzer: "english" },
+          },
+        },
+        categories: {
+          type: "nested",
+          properties: { id: { type: "integer" } },
+        },
+      },
+    },
+  },
+);
+```
+
+`QueryBuilder.weightedSemantic({ semanticField, standardField, ... })` also
+runs a wildcard query on `${standardField}.raw`, so the standard field needs a
+`raw` sub-field, for example `fields: { raw: { type: "keyword" } }`. No
+mapping gets one automatically.
+
+### Field lists
+
+`getAllFields(create, { subFields?, containers? })` and
+`getFulltextFields(create, { subFields? })` list a creation request's field
+paths at runtime, depth first in declaration order. Full-text types are
+`text`, `match_only_text`, `search_as_you_type` and `semantic_text`, plus
+`alias` fields that point at one of those. An `IndexManager` exposes the
+default lists as `allFields` and `fulltextFields`.
+
+```ts
+import { getAllFields, getFulltextFields } from "es-query-pro";
+
+const create = {
+  index: "books",
+  mappings: {
+    properties: {
+      title: { type: "text", fields: { exact: { type: "keyword" } } },
+      categories: {
+        type: "nested",
+        properties: { name: { type: "text" } },
+      },
+    },
+  },
+} as const;
+
+getAllFields(create); // ["title", "categories.name"]
+getAllFields(create, { subFields: true, containers: true });
+// ["title", "title.exact", "categories", "categories.name"]
+getFulltextFields(create); // ["title", "categories.name"]
+```
+
+### TypeScript and `skipLibCheck`
+
+With `skipLibCheck: false`, the bundled `dist/index.d.ts` reports three errors
+(a constraint on composite aggregation sources in `QueryBuilder`) and
+`@elastic/elasticsearch`'s own declarations report one (its `apache-arrow`
+import). Neither affects your code; keep `skipLibCheck: true` (the default in
+most setups) until they are fixed.
 
 ## Elastic Cloud Serverless
 
@@ -138,26 +341,29 @@ serverless persists data automatically. Mark the cluster as serverless so the
 library skips those requests; `flush()` then returns
 `{ success: true, skipped: true }` without contacting the server.
 
-Set the `ES_SERVERLESS` env var next to your connection values (`true` or
-`1`):
+Set the `ES_SERVERLESS` env var (`true` or `1`), the one environment variable
+the library reads:
 
 ```bash
-ES_ENDPOINT=https://my-project.es.us-east-1.aws.elastic.cloud
-ES_API_KEY=your-base64-api-key
 ES_SERVERLESS=true
 ```
 
 Or pass `serverless` to `IndexManager`, which takes precedence over the env
-var. This is useful when you pass your own `client` or connect to more than
-one cluster:
+var. This is useful when you connect to more than one cluster:
 
 ```ts
-const booksIndex = new IndexManager({
-  client: myServerlessClient,
-  serverless: true,
-  index: { name: "books", version: 1 },
-  schema: { title: "text" },
+import { Client } from "@elastic/elasticsearch";
+import { IndexManager } from "es-query-pro";
+
+const myServerlessClient = new Client({
+  node: "https://my-project.es.us-east-1.aws.elastic.cloud",
+  auth: { apiKey: "your-base64-api-key" },
 });
+
+const booksIndex = new IndexManager(
+  { client: myServerlessClient, serverless: true, version: 1 },
+  { index: "books", mappings: { properties: { title: { type: "text" } } } },
+);
 ```
 
 If neither is set, the first flush that serverless rejects still returns
@@ -303,16 +509,19 @@ Code examples:
 ```ts
 import { QueryBuilder } from "es-query-pro";
 
-// Example 1: default (minimumShouldMatch = 1)
+// Example 1: minimumShouldMatch = 1
 const qb1 = new QueryBuilder();
-qb1.shouldNot([
-  (qb) => {
-    qb.term({ field: "visibility", value: "hidden" });
-  },
-  (qb) => {
-    qb.term({ field: "status", value: "soft_deleted" });
-  },
-]);
+qb1.shouldNot(
+  [
+    (qb) => {
+      qb.term({ field: "visibility", value: "hidden" });
+    },
+    (qb) => {
+      qb.term({ field: "status", value: "soft_deleted" });
+    },
+  ],
+  { minimumShouldMatch: 1 },
+);
 // Excludes docs where visibility=hidden OR status=soft_deleted
 
 // Example 2: exclude only when BOTH risk signals match (msm = 2)
@@ -470,14 +679,21 @@ Tests are powered by bun. There are two kinds of test files:
 bun test                # all tests (integration tests need a server)
 bun test src/QueryBuilder/QueryBuilder.spec.ts   # a single file
 bun run coverage        # all tests with a coverage report
+bun run typecheck       # tsc --noEmit; type-level tests only count here
 ```
+
+Type-level assertions (`expectTypeOf`, `// @ts-expect-error`) are checked by
+`bun run typecheck`, not by `bun test`. `src/readmeSamples.spec.ts` compiles
+the README's code samples, so keep them self-contained (each imports from
+`"es-query-pro"`).
 
 ### Connecting integration tests to Elasticsearch
 
-Integration tests connect using the same environment variables as
-`getEsClient()`. Bun loads a `.env` file from the project root
-automatically, so the easiest setup is to copy the example file and fill in
-your server's values:
+The library itself reads no connection settings; the tests build their client
+with `getTestClient()` in `src/testFixtures/testClient.ts`, which reads the
+variables below (one client is shared by the whole test run). Bun loads a
+`.env` file from the project root automatically, so the easiest setup is to
+copy the example file and fill in your server's values:
 
 ```bash
 cp .env.example .env
@@ -488,7 +704,6 @@ cp .env.example .env
 | `ES_ENDPOINT`                | URL of the Elasticsearch server                  | `http://localhost:9200` |
 | `ES_API_KEY`                 | API key (takes precedence over username)         | _none_                  |
 | `ES_USERNAME`, `ES_PASSWORD` | Basic auth credentials, if not using API key     | _none_                  |
-| `ES_VERSION`                 | Major version for the API compatibility header   | `9`                     |
 | `ES_SERVERLESS`              | `true` if the server is Elastic Cloud Serverless | `false`                 |
 
 For example, to use an Elastic Cloud deployment:
@@ -496,7 +711,6 @@ For example, to use an Elastic Cloud deployment:
 ```bash
 ES_ENDPOINT=https://my-deployment.es.us-east-1.aws.elastic.cloud:443
 ES_API_KEY=your-base64-api-key
-ES_VERSION=9
 ```
 
 `.env` is listed in `.gitignore`, so your credentials stay out of commits.

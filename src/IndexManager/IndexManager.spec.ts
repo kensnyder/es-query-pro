@@ -87,12 +87,12 @@ describe('IndexManager constructor', () => {
 
   it('should throw a TypeError when options are missing', () => {
     expect(() => {
-      // @ts-expect-error  options are required
-      return new IndexManager(undefined, { index: 'books' });
+      // options are required (a compile error only under strictNullChecks)
+      return new IndexManager(undefined as never, { index: 'books' });
     }).toThrow(TypeError);
     expect(() => {
-      // @ts-expect-error  options are required
-      return new IndexManager(undefined, { index: 'books' });
+      // options are required (a compile error only under strictNullChecks)
+      return new IndexManager(undefined as never, { index: 'books' });
     }).toThrow(/options/);
   });
 

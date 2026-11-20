@@ -1,5 +1,6 @@
 import { describe, expect, expectTypeOf, it } from 'bun:test';
 import type { estypes } from '@elastic/elasticsearch';
+import { getAllFields, getFulltextFields } from './mappingFields';
 import type {
   MappingFieldPath,
   MappingFulltextPath,
@@ -596,18 +597,15 @@ describe('creation request literals', () => {
 });
 
 describe('shared fixture (pinned to section 1.2 runtime rules)', () => {
-  // T6 replaces these hand lists with direct comparisons against
-  // getAllFields(fixture, { subFields: true, containers: true }) and
-  // getFulltextFields(fixture, { subFields: true }).
-  it('hand lists are duplicate-free and full-text paths are a subset', () => {
-    expect(new Set(fixtureAllFields).size).toBe(fixtureAllFields.length);
-    expect(new Set(fixtureFulltextFields).size).toBe(
-      fixtureFulltextFields.length,
-    );
-    const all: readonly string[] = fixtureAllFields;
-    for (const path of fixtureFulltextFields) {
-      expect(all).toContain(path);
-    }
-    expect(fixture.mappings.properties.title.type).toBe('text');
+  it('getAllFields returns the paths MappingFieldPath lists', () => {
+    expect(
+      getAllFields(fixture, { subFields: true, containers: true }),
+    ).toEqual([...fixtureAllFields]);
+  });
+
+  it('getFulltextFields returns the paths MappingFulltextPath lists', () => {
+    expect(getFulltextFields(fixture, { subFields: true })).toEqual([
+      ...fixtureFulltextFields,
+    ]);
   });
 });

@@ -2,7 +2,7 @@
 
 **Date:** 2026-11-20
 **Executors:** one orchestrator session plus Opus subagents (`Agent` tool, `model: "opus"`), one subagent per task in section 5.
-**Status:** not started. All decisions in section 2 were confirmed by the maintainer on 2026-11-20.
+**Status:** implemented on branch `index-manager-create-request` (2026-11-20). All decisions in section 2 were confirmed by the maintainer on 2026-11-20.
 
 ## Goals
 

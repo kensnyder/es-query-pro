@@ -7,6 +7,7 @@ import {
   jest,
   setDefaultTimeout,
 } from 'bun:test';
+import type { estypes } from '@elastic/elasticsearch';
 import { getBooksCreateRequest, getBooksData } from '../testFixtures/books';
 import { getTestClient } from '../testFixtures/testClient';
 import IndexManager, { type MigrationProgressDetails } from './IndexManager';
@@ -213,7 +214,10 @@ describe('IndexManager.create() - Integration', () => {
       throw meta.error;
     }
     expect(meta.name).toBe(index.getFullName());
-    const state = meta.response[index.getFullName()];
+    // narrowed by meta.error under strictNullChecks; the cast also covers
+    // non-strict compilers, where error: null does not narrow
+    const response = meta.response as estypes.IndicesGetResponse;
+    const state = response[index.getFullName()];
     expect(state?.settings?.index?.analysis?.analyzer).toHaveProperty(
       'englishplus',
     );

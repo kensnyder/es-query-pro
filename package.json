@@ -32,6 +32,7 @@
     "test-watch": "bun test --watch",
     "coverage": "bun test --coverage",
     "coverage-lcov": "bun test --coverage --coverage-reporter=lcov",
+    "typecheck": "tsc --noEmit -p .",
     "lint": "biome lint .",
     "format": "biome format .",
     "format:write": "biome format --write .",

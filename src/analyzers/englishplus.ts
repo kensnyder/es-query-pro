@@ -1,6 +1,12 @@
 import type { estypes } from '@elastic/elasticsearch';
 
-const englishplus = {
+/**
+ * Index settings that define the `englishplus` analyzer: English stop words
+ * and stemming plus ASCII folding. Use it as
+ * `settings: { analysis: englishplus.analysis }` and refer to the analyzer by
+ * name in a mapping (`analyzer: 'englishplus'`).
+ */
+const englishplus: { analysis: estypes.IndicesIndexSettingsAnalysis } = {
   analysis: {
     filter: {
       english_stop: {
@@ -25,6 +31,6 @@ const englishplus = {
       },
     },
   },
-} as estypes.IndicesIndexSettingsAnalysis;
+};
 
 export default englishplus;

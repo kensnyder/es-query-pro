@@ -1,5 +1,4 @@
 import type { estypes } from '@elastic/elasticsearch';
-import type { SchemaShape } from '../types';
 import { getTestClient } from './testClient';
 
 export function getBooksMappings(): estypes.MappingTypeMapping {
@@ -67,31 +66,6 @@ export function getBooksCreateRequest(
   return {
     index,
     mappings: getBooksMappings(),
-  };
-}
-/**
- * @deprecated Kept until IndexManager.integration.test.ts stops using it.
- */
-export function getBooksSchema(): SchemaShape {
-  return {
-    id: 'integer',
-    title: 'text',
-    premise: 'text',
-    country: 'keyword',
-    categories: {
-      id: 'integer',
-      name: 'text',
-    },
-    author: 'keyword',
-    publishing: {
-      author: 'keyword',
-      series: 'text',
-      organization: 'text',
-      year: 'integer',
-      movieYear: 'integer',
-    },
-    heroes: 'keyword',
-    price: 'integer',
   };
 }
 export function getBooksData(): any {
