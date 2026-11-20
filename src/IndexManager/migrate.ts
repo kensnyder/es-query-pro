@@ -69,7 +69,11 @@ export type MigrationParams = {
    * mostly skip documents, are not throttled.
    */
   requestsPerSecond?: number;
-  /** Documents per reindex batch (`source.size`; default 1000) */
+  /**
+   * Documents per reindex batch (`source.size`; default 1000). Applies to
+   * every pass, including the catch-up passes, which scan the whole old
+   * index: a small value slows the entire migration, not only the first copy.
+   */
   batchSize?: number;
 };
 

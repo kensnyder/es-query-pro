@@ -711,7 +711,7 @@ Options (`MigrationParams`):
 | `onError`           | Called once with the error on failure                                                                                | _none_      |
 | `timeout`           | Milliseconds from the call before giving up (`TIMEOUT`); a running copy is cancelled where the server allows it       | no limit    |
 | `requestsPerSecond` | Throttle the first copy (reindex `requests_per_second`); catch-up passes are not throttled                           | unlimited   |
-| `batchSize`         | Documents per reindex batch (`source.size`)                                                                           | `1000`      |
+| `batchSize`         | Documents per reindex batch (`source.size`), for every pass including catch-up; a small value slows the whole migration | `1000`      |
 | `slices`            | Reindex `slices`: a number or `"auto"`                                                                                | `1`         |
 | `pollInterval`      | Longest wait between task checks in ms (at least 10); checks start at 100 ms and double                                | `1000`      |
 | `maxPollErrors`     | Failed task checks in a row before giving up (`POLL_ERROR`); the copy keeps running on the server                      | `5`         |
